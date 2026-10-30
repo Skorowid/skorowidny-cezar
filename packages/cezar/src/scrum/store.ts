@@ -60,11 +60,13 @@ function corrupt(reason: string): ScrumError {
 /**
  * Run `mutate` against the freshest state under the project's write lock. `mutate` returns the
  * next state (revision is assigned here) or throws a `ScrumError`; nothing is written then.
+ * `expectedRevision: null` is a server-side change (chat turn, automatic queue) that applies to
+ * whatever is current; a client edit always names the revision it read.
  */
 export async function updateScrumState<T>(
   dataDir: string,
-  expectedRevision: number,
-  mutate: (current: ScrumState) => Promise<{ state: ScrumState; result: T }>,
+  expectedRevision: number | null,
+  mutate: (current: ScrumState) => Promise<{ state: ScrumState; result: T; unchanged?: boolean }>,
 ): Promise<{ state: ScrumState; result: T }> {
   return serialize(dataDir, async () => {
     const dir = scrumDir(dataDir);
@@ -77,10 +79,12 @@ export async function updateScrumState<T>(
     }
     try {
       const current = await readScrumState(dataDir);
-      if (current.revision !== expectedRevision) {
+      if (expectedRevision !== null && current.revision !== expectedRevision) {
         throw new ScrumError(409, `Scrum state changed (revision ${current.revision}, you edited ${expectedRevision}); reload before saving`);
       }
-      const { state, result } = await mutate(current);
+      const { state, result, unchanged } = await mutate(current);
+      // Nothing to record (a retried message, a reconcile with no new turn): no revision bump.
+      if (unchanged) return { state: current, result };
       const next: ScrumState = { ...state, schemaVersion: 1, revision: current.revision + 1 };
       // Never write what the next read would reject as corrupt.
       const checked = scrumStateSchema.safeParse(next);
