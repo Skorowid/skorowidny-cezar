@@ -1,0 +1,31 @@
+name: Skorowidny foundation examples
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['skorowidny/main', 'fork/**']
+    paths:
+      - 'fork/**'
+      - 'examples/skorowidny-scrum/**'
+      - '.github/workflows/skorowidny-foundation.yml'
+  pull_request:
+    paths:
+      - 'fork/**'
+      - 'examples/skorowidny-scrum/**'
+      - '.github/workflows/skorowidny-foundation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  examples:
+    if: github.repository == 'Skorowid/skorowidny-cezar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test upstream comparison
+        run: timeout 120 python3 -m unittest discover -s fork/tools -p 'test_*.py' -v
+      - name: Test backend examples
+        run: timeout 120 python3 -m unittest discover -s examples/skorowidny-scrum/backend -p 'test_*.py' -v

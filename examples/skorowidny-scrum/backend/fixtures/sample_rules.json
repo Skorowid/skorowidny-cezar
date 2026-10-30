@@ -1,0 +1,9 @@
+{
+  "_comment": "SAMPLE calculation rules. Rounding modes and quanta are illustrative choices, not approved business rules.",
+  "rules": [
+    {"rule_id": "SAMPLE-SUM-HOURS", "version": 1, "operation": "sum", "quantum": "0.01", "rounding": "ROUND_HALF_EVEN",
+     "description": "Sum of synthetic effort hours, rounded half-even to 0.01."},
+    {"rule_id": "SAMPLE-PERCENT-DONE", "version": 1, "operation": "percent_of", "quantum": "0.1", "rounding": "ROUND_HALF_UP",
+     "description": "part / whole * 100, rounded half-up to 0.1."}
+  ]
+}

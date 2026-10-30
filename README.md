@@ -1,3 +1,18 @@
+# skorowidny-cezar
+
+Publiczny fork [open-mercato/cezar](https://github.com/open-mercato/cezar). Kierunek: Scrum wspierany przez AI, backlog i dokumentacja pobierana w potrzebnym zakresie, z niezależnym rozwojem UI.
+
+**Stan: fundament projektu i uruchamialne przykłady, nie gotowy moduł Scrum w aplikacji.** Produkcyjne pakiety backendu, kontraktów i UI pozostają zgodne z bazowym commitem upstream. Poniższe oryginalne instrukcje Cezara i polecenia npm dotyczą upstreamu; `npx cezar-run` nie instaluje rozszerzeń tego forka.
+
+- [Notatka projektowa i zakres zmian](docs/skorowidny-cezar/project-note.md)
+- [Koncepcja Scrum + AI](docs/skorowidny-cezar/scrum-concept.md)
+- [Przykłady backendu](examples/skorowidny-scrum/backend/README.md)
+- [Aktualizacje backendu, porównanie z upstreamem i niezależny UI](docs/skorowidny-cezar/upstream-maintenance.md)
+- [Rejestr zmian forka](docs/skorowidny-cezar/changes.md)
+- [Różnice względem zapisanej bazy upstream](https://github.com/Skorowid/skorowidny-cezar/compare/upstream-main...skorowidny%2Fmain)
+
+---
+
 <p align="center">
   <img src="docs/brand/cezar-icon-black.svg" alt="" width="104" />
 </p>

@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/open-mercato/cezar.git",
+  "integration_ref": "upstream/main",
+  "baseline_commit": "eb157816aac7e0d4676c007e2f7d14b397588784",
+  "package_version_at_baseline": "0.17.0",
+  "baseline_kind": "main snapshot, not a verified release tag",
+  "recorded_on": "2026-10-30",
+  "fork_repository": "https://github.com/Skorowid/skorowidny-cezar"
+}
