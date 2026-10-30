@@ -6,7 +6,7 @@ import {
 } from '@open-mercato/cezar-contract';
 import type { RunEvent } from '../runs/store.ts';
 import type { WorkflowDef } from '../workflows/types.ts';
-import { stateProblems } from './validate.ts';
+import { implementationBlockers, stateProblems } from './validate.ts';
 
 /**
  * SCRUM-CHAT-01 (docs/skorowidny-cezar/scrum-chat.md): the project's Scrum chat is a real agent
@@ -46,10 +46,12 @@ export function chatSystemPrompt(): string {
 - Before a task can be executable, ask the user for anything essential that is missing: the Definition of Done, acceptance criteria, the expected behaviour, failure handling, dependencies. Keep such a task at DoR status NEEDS CLARIFICATION with the questions in its \`questions\` list.
 - Split complex work into small, independently verifiable tasks and give related tasks the same \`group\` label. Splitting must not add scope the user did not ask for.
 - Mark an item approved (\`approveItem\`) only after the user explicitly approved its requirements in clear words. If the answer is ambiguous, ask again; never infer consent.
-- Plan an item into a Sprint, create a Sprint, or make a Sprint active only when the user explicitly asked for it. Do not choose Sprint dates the user did not give.
+- When the user names the Sprint for an item, plan it there (\`planItem\`). When an item becomes READY and the user named no Sprint, do not plan it yourself: cezar plans it into the single active Sprint. If \`chat.log\` holds a \`question\` that no Sprint is active, ask the user which Sprint the item belongs to.
+- Create a Sprint or make a Sprint active only when the user explicitly asked for it. Do not choose Sprint dates the user did not give.
 - If the user's statements conflict (with each other or with recorded decisions), do not merge or pick; describe the conflict and ask.
 - You never mark work Done and never change delivery status or Done evidence; a human does that after review.
-- An item whose execution run is still active cannot be changed; tell the user instead.
+- You may change an item whose execution run is still queued, running or waiting: cezar forwards the updated item to that run instead of restarting it. \`chat.log\` shows \`forwarded\` when the run received it and \`forward-failed\` when it did not; never tell the user the agent received a change before \`chat.log\` confirms it. Changing the description or criteria of an approved item still withdraws approval, and the run is told not to implement the change until approval is recorded again.
+- A failed automatic attempt is never retried by itself. When \`chat.log\` shows \`run-failed\`, tell the user which task failed and ask whether to try again. Only when the user then explicitly asks for another attempt, emit \`retryItem\` quoting that instruction; one instruction allows one attempt. Never retry on your own initiative.
 - An item is queued automatically when it is READY, approved, has acceptance criteria, no open questions, finished dependencies, a Product Goal and a Definition of Done exist, and it is planned in the active Sprint that has a Sprint Goal. Tell the user which of these are still missing.
 - Answer in plain prose. Ask your questions in the message itself. Do not use CEZ:ASK or CEZ:DONE markers.
 
@@ -70,6 +72,7 @@ Each operation is a JSON object with an \`op\` field and a \`quote\` field: a sh
 - {"op":"addSprint","ref":"s1","name":"…","goal":"…","startsOn":"YYYY-MM-DD","endsOn":"YYYY-MM-DD","status":"planned","quote":"…"} (status "planned" or "active"; at most one month long; one active Sprint)
 - {"op":"updateSprint","id":"<id or ref>","name":"…","goal":"…","startsOn":"…","endsOn":"…","status":"active","quote":"…"}
 - {"op":"planItem","sprintId":"<id or ref>","itemId":"<id or ref>","quote":"…"} / {"op":"unplanItem",…same fields…}
+- {"op":"retryItem","id":"<id>","quote":"<the user's explicit retry instruction, given after the failure>"}
 - {"op":"addNote","kind":"decision","body":"…","itemId":null,"sprintId":null,"quote":"…"} (kinds: general, planning, daily, review, retrospective, refinement, decision, question)
 
 DoR statuses: READY, NEEDS CLARIFICATION, BLOCKED, CHANGE REQUEST. Omit the block when nothing changes. Never describe a change as made before \`chat.log\` confirms it was applied.`;
@@ -96,6 +99,7 @@ export const chatOpSchema = z.discriminatedUnion('op', [
     priority: priority.optional(), dependencies: z.array(ref).max(500).optional(), group: z.string().max(200).optional(),
   }),
   z.object({ op: z.literal('approveItem'), quote, id: ref }),
+  z.object({ op: z.literal('retryItem'), quote, id: ref }),
   z.object({
     op: z.literal('addSprint'), quote, ref: ref.optional(), name: title, goal: z.string().max(5000).default(''),
     startsOn: z.iso.date(), endsOn: z.iso.date(), status: z.enum(['planned', 'active']).default('planned'),
@@ -138,9 +142,12 @@ export function turnsAfter(events: readonly RunEvent[], afterSeq: number): ChatT
   return turns;
 }
 
+/** One thing the user said in the thread, and when. */
+export interface UserText { text: string; at: string }
+
 /** Everything the user said in this thread: the opening task plus every user message. */
-export function userTexts(task: string, events: readonly RunEvent[]): string[] {
-  return [task, ...events.filter(event => event.type === 'user-message').map(textOf)];
+export function userTexts(task: string, startedAt: string, events: readonly RunEvent[]): UserText[] {
+  return [{ text: task, at: startedAt }, ...events.filter(event => event.type === 'user-message').map(event => ({ text: textOf(event), at: event.ts }))];
 }
 
 /** The operation blocks of one turn. Chunks are tried joined by newline, then joined directly. */
@@ -174,9 +181,22 @@ export interface ApplyContext {
   runId: string;
   turnSeq: number;
   at: string;
-  userTexts: readonly string[];
+  userTexts: readonly UserText[];
   /** Items whose execution run is still queued, running or waiting. */
   busyItemIds: ReadonlySet<string>;
+  /** When the item's latest attempt ended (or started, if it has not ended): a retry must be asked for after it. */
+  lastAttemptAt(itemId: string): string | undefined;
+}
+
+/** A turn's applied state plus what the follow-up policies need from it. */
+export interface ChatTurnResult {
+  state: ScrumState;
+  /** Q1: busy items this turn changed, with the user's words behind each change. */
+  changedBusy: Map<string, string[]>;
+  /** Q4: items this turn made READY (created READY or moved to READY). */
+  becameReady: Map<string, ScrumProvenance>;
+  /** Q4: items this turn planned or unplanned explicitly; never re-planned by the policy. */
+  plannedExplicitly: Set<string>;
 }
 
 type Outcome = { detail: string; itemId?: string; sprintId?: string };
@@ -185,19 +205,28 @@ const refuse = (reason: string): never => { throw new Refusal(reason); };
 
 /**
  * Apply one turn's operations in order. Each operation is all-or-nothing: one that cites no
- * user words, touches a busy item or leaves the state invalid is refused and logged, and the
+ * user words, changes a Done item or leaves the state invalid is refused and logged, and the
  * next one still runs against the state as it was.
  */
-export function applyChatOps(state: ScrumState, ops: readonly ChatOp[], problems: readonly string[], ctx: ApplyContext): ScrumState {
-  const said = ctx.userTexts.map(normalize);
+export function applyChatOps(state: ScrumState, ops: readonly ChatOp[], problems: readonly string[], ctx: ApplyContext): ChatTurnResult {
+  const said = ctx.userTexts.map(message => ({ text: normalize(message.text), at: message.at }));
   const refs = new Map<string, string>();
   const log: ScrumChatLogEntry[] = problems.map(problem => entry(ctx, 'parse', 'refused', problem, ''));
+  const result: Omit<ChatTurnResult, 'state'> = { changedBusy: new Map(), becameReady: new Map(), plannedExplicitly: new Set() };
   let current = state;
   for (const operation of ops) {
     const cited = normalize(operation.quote);
-    if (!said.some(text => text.includes(cited))) {
+    if (!said.some(text => text.text.includes(cited))) {
       log.push(entry(ctx, operation.op, 'refused', 'the quote was not found in the user\'s messages', operation.quote));
       continue;
+    }
+    if (operation.op === 'retryItem') {
+      // Q2: consent to a retry must come after the attempt it retries, so an old "try again" is never reused.
+      const after = ctx.lastAttemptAt(refs.get(operation.id) ?? operation.id);
+      if (after && !said.some(text => text.at > after && text.text.includes(cited))) {
+        log.push(entry(ctx, operation.op, 'refused', 'the retry instruction must be a message sent after the last attempt', operation.quote));
+        continue;
+      }
     }
     const provenance: ScrumProvenance = { runId: ctx.runId, turnSeq: ctx.turnSeq, quote: operation.quote.slice(0, 2000), at: ctx.at };
     const scratch = new Map(refs);
@@ -206,6 +235,7 @@ export function applyChatOps(state: ScrumState, ops: readonly ChatOp[], problems
       const before = new Set(stateProblems(current));
       const introduced = stateProblems(next).filter(problem => !before.has(problem));
       if (introduced.length) refuse(introduced.join('; '));
+      track(result, current, next, operation, outcome, ctx);
       current = next;
       for (const [name, id] of scratch) refs.set(name, id);
       log.push(entry(ctx, operation.op, 'applied', outcome.detail, operation.quote, outcome.itemId, outcome.sprintId));
@@ -214,7 +244,21 @@ export function applyChatOps(state: ScrumState, ops: readonly ChatOp[], problems
       log.push(entry(ctx, operation.op, 'refused', error.message, operation.quote));
     }
   }
-  return appendLog(current, log);
+  return { ...result, state: appendLog(current, log) };
+}
+
+/** Record what an applied operation means for the follow-up policies (Q1, Q4). */
+function track(result: Omit<ChatTurnResult, 'state'>, before: ScrumState, after: ScrumState, operation: ChatOp, outcome: Outcome, ctx: ApplyContext): void {
+  const id = outcome.itemId;
+  if (!id) return;
+  if (operation.op === 'planItem' || operation.op === 'unplanItem') result.plannedExplicitly.add(id);
+  const previous = before.items.find(item => item.id === id);
+  const next = after.items.find(item => item.id === id);
+  if (next?.dorStatus === 'READY' && previous?.dorStatus !== 'READY') {
+    result.becameReady.set(id, { runId: ctx.runId, turnSeq: ctx.turnSeq, quote: operation.quote.slice(0, 2000), at: ctx.at });
+  }
+  const changes = operation.op === 'updateItem' || operation.op === 'approveItem' || operation.op === 'planItem' || operation.op === 'unplanItem';
+  if (changes && ctx.busyItemIds.has(id)) result.changedBusy.set(id, [...(result.changedBusy.get(id) ?? []), operation.quote]);
 }
 
 export function appendLog(state: ScrumState, log: readonly ScrumChatLogEntry[]): ScrumState {
@@ -247,9 +291,9 @@ function applyOne(
     const resolved = refs.get(value) ?? value;
     return state.sprints.some(sprint => sprint.id === resolved) ? resolved : refuse(`unknown Sprint ${value}`);
   };
+  // Q1: an item with an active run stays editable; the change is forwarded to that run afterwards.
   const editable = (id: string): ScrumItem => {
     const item = state.items.find(entry => entry.id === id) ?? refuse(`unknown item ${id}`);
-    if (ctx.busyItemIds.has(id)) refuse(`"${item.title}" has an execution run in progress; it cannot be changed from the chat until that run settles`);
     if (item.deliveryStatus === 'done') refuse(`"${item.title}" is Done; it cannot be changed from the chat`);
     return item;
   };
@@ -315,6 +359,18 @@ function applyOne(
       const id = itemId(operation.id);
       const before = editable(id);
       return { state: { ...state, items: items(id, item => ({ ...item, approved: true })) }, outcome: { detail: `requirements of "${before.title}" approved`, itemId: id } };
+    }
+    case 'retryItem': {
+      const id = itemId(operation.id);
+      const before = editable(id);
+      if (ctx.busyItemIds.has(id)) refuse(`"${before.title}" still has an active run; another attempt can start only after it settles`);
+      if (!before.runIds.length) refuse(`"${before.title}" has no previous attempt to retry`);
+      const blockers = implementationBlockers(state, before);
+      if (blockers.length) refuse(`"${before.title}" is not ready for another attempt: ${blockers.join('; ')}`);
+      return {
+        state: { ...state, items: items(id, item => ({ ...item, autoRetry: provenance })) },
+        outcome: { detail: `another attempt of "${before.title}" requested; it is queued when an agent is free`, itemId: id },
+      };
     }
     case 'addSprint': {
       const id = randomUUID();

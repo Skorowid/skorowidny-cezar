@@ -7739,7 +7739,7 @@ export function createApp(deps: ServerDeps) {
       });
       return { id: run.id };
     },
-    threadBlocked: (project, run) => providerActionError([providerForActiveRun(run)], {
+    runBlocked: (project, run) => providerActionError([providerForActiveRun(run)], {
       repoRoot: project.root,
       profileFor: (provider) => recordedProfileFor(run, provider),
     }),

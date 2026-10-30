@@ -49,6 +49,10 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   `POST /api/v1/scrum/chat/messages`, under `/api/v1/p/:projectId` too. The Scrum state gains
   optional fields only (`guidelines`, `chat`, item `group`/`autoQueue`/`autoRunId`/`provenance`,
   Sprint `provenance`); existing files parse unchanged and `PUT /scrum` keeps server-owned fields.
+  The follow-up policies (2026-10-30) add item `autoRetry`/`autoFailureReported`, the chat log
+  outcomes `forwarded`, `forward-failed`, `run-failed` and `question`, and the conversation
+  message role `system`; all additive. A file written by them is not readable by a cezar that
+  predates them (strict schemas), so a downgrade must not reuse such a `state.json`.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,
   `GET /api/v1/webhooks/history`, `GET /api/v1/webhooks/events`,
   `POST /api/v1/webhooks/notice/acknowledge`, `PATCH/DELETE /api/v1/webhooks/:id`,

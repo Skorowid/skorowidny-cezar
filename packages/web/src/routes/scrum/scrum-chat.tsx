@@ -10,7 +10,11 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
 const LIVE = new Set(['queued', 'running'])
-const outcomeLabel: Record<ScrumChatLogEntry['outcome'], string> = { applied: 'Applied', refused: 'Refused', queued: 'Queued', 'queue-failed': 'Not queued' }
+const outcomeLabel: Record<ScrumChatLogEntry['outcome'], string> = {
+  applied: 'Applied', refused: 'Refused', queued: 'Queued', 'queue-failed': 'Not queued',
+  forwarded: 'Sent to agent', 'forward-failed': 'Not sent to agent', 'run-failed': 'Attempt failed', question: 'Question',
+}
+const PROBLEM = new Set<ScrumChatLogEntry['outcome']>(['refused', 'queue-failed', 'forward-failed', 'run-failed'])
 const statusLabel: Record<string, string> = { queued: 'waiting for a free agent', running: 'thinking…', waiting: 'ready', review: 'ready', done: 'resting — your next message resumes the same thread', failed: 'stopped — your next message resumes or replaces the thread', cancelled: 'stopped — your next message resumes or replaces the thread' }
 
 export function ScrumChat({ onState }: { onState: (state: ScrumState) => void }) {
@@ -62,10 +66,14 @@ export function ScrumChat({ onState }: { onState: (state: ScrumState) => void })
       {query.isPending && <p role="status" className="text-sm">Loading the conversation…</p>}
       {query.isError && <p role="alert" className="text-sm">{query.error instanceof Error ? query.error.message : 'The conversation could not be loaded.'}</p>}
       {data && data.truncated && <p className="text-xs text-soft-foreground">Older messages are in the full session.</p>}
-      {data && data.messages.length === 0 && <p className="text-sm text-soft-foreground">Describe the problem, the intended work and its acceptance criteria. Ask for Sprints and set guidelines here. The assistant asks for anything essential that is missing — such as the Definition of Done — before a task can run, and every task that becomes ready is queued for a free agent automatically.</p>}
-      {data?.messages.map((message, index) => <div key={`${message.seq}-${index}`} className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${message.role === 'user' ? 'ml-auto bg-primary/10' : 'bg-card'}`}>
-        <p className="mb-1 text-[11px] text-soft-foreground">{message.role === 'user' ? 'You' : 'Scrum assistant'}</p>{message.text}
-      </div>)}
+      {data && data.messages.length === 0 && <p className="text-sm text-soft-foreground">Describe the problem, the intended work and its acceptance criteria. Ask for Sprints and set guidelines here. The assistant asks for anything essential that is missing — such as the Definition of Done — before a task can run. A ready task with no Sprint named goes into the active Sprint and is queued for a free agent automatically; changes to a task that is already running are sent to its agent, and a failed attempt is retried only when you ask for it here.</p>}
+      {data?.messages.map((message, index) => message.role === 'system'
+        ? <div key={`${message.seq}-${index}`} role="note" className="mx-auto max-w-[90%] whitespace-pre-wrap rounded-lg border border-border px-3 py-2 text-xs text-soft-foreground">
+          <p className="mb-1 text-[11px] font-medium">cezar</p>{message.text}
+        </div>
+        : <div key={`${message.seq}-${index}`} className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${message.role === 'user' ? 'ml-auto bg-primary/10' : 'bg-card'}`}>
+          <p className="mb-1 text-[11px] text-soft-foreground">{message.role === 'user' ? 'You' : 'Scrum assistant'}</p>{message.text}
+        </div>)}
     </div>
     <form className="grid gap-2" onSubmit={event => { event.preventDefault(); void send() }}>
       <Textarea rows={3} value={text} disabled={sending} placeholder="Describe a problem, the work you intend, acceptance criteria, a Sprint or a guideline…" onChange={event => { setText(event.target.value); pendingId.current = null }}
@@ -78,7 +86,7 @@ export function ScrumChat({ onState }: { onState: (state: ScrumState) => void })
     </form>
     {log.length > 0 && <details className="text-sm"><summary className="cursor-pointer text-soft-foreground">Backlog change log ({data?.state.chat?.log.length ?? 0})</summary>
       <ul className="mt-2 grid gap-1">{log.map((entry, index) => <li key={`${entry.at}-${index}`} className="rounded-md bg-muted p-2">
-        <span className={entry.outcome === 'refused' || entry.outcome === 'queue-failed' ? 'font-medium text-destructive' : 'font-medium'}>{outcomeLabel[entry.outcome]}</span> · {entry.op} — {entry.detail}
+        <span className={PROBLEM.has(entry.outcome) ? 'font-medium text-destructive' : 'font-medium'}>{outcomeLabel[entry.outcome]}</span> · {entry.op} — {entry.detail}
         {entry.quote && <span className="block text-xs text-soft-foreground">Based on: “{entry.quote}”</span>}
       </li>)}</ul>
     </details>}
