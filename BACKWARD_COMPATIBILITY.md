@@ -40,6 +40,11 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   Chat create responses return `secret` as an empty
   string, and chat signing-key rotation returns 409. Discord aliases normalize on save. Switching
   format invalidates pending deliveries through the existing delivery revision fence.
+- skorowidny-cezar fork, native Scrum (additive, SCRUM-LOCAL-01): `GET/PUT /api/v1/scrum` and
+  `POST /api/v1/scrum/items/:id/launch`, mounted under `/api/v1/p/:projectId` like every project
+  family. Schemas live in `packages/contract/src/scrum.ts`; a stale `expectedRevision`, an item
+  that is not ready or already has an active run, and a refused agent start answer 409; a corrupt
+  `.ai/cezar/scrum/state.json` answers 503 and is never overwritten.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,
   `GET /api/v1/webhooks/history`, `GET /api/v1/webhooks/events`,
   `POST /api/v1/webhooks/notice/acknowledge`, `PATCH/DELETE /api/v1/webhooks/:id`,

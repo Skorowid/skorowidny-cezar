@@ -14,6 +14,7 @@ import { join } from 'node:path';
  * runs the CLI.
  */
 export const DATA_GITIGNORE_ENTRIES = [
+  'scrum/', // Local backlog, Sprint plans and private notebook entries.
   'runs.json',
   'runs.json.tmp',
   'runs/',

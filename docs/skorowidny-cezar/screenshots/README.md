@@ -1,30 +1,16 @@
-# Screeny skorowidny-cezar
+# skorowidny-cezar screenshots
 
-Data wykonania: 2026-10-30. Źródło checkoutu: `56ecd741639161017e707cff56fa60a4ae17574e`. Są to screeny wykonane przeglądarką Chromium, nie wygenerowane obrazy ani projekty nieistniejącego UI.
+Taken 2026-10-30 with headless Chromium from the real cockpit built from this checkout — not mock-ups. The earlier prototype images (`cockpit-demo.png`, `backend-example.png` and its JSON) were removed: they showed the inherited Tasks page and the Python reference example, not the native Scrum module.
 
-| Plik | Co pokazuje | Pochodzenie danych |
-|---|---|---|
-| `cockpit-demo.png` | Rzeczywisty ekran Tasks aplikacji uruchomionej z checkoutu; nazwa `skorowidny-cezar` ustawiona istniejącą funkcją brandingu | Osobny profil `CEZ_HOME`, lokalne repo demo, `CEZ_DRY_RUN=1`; zadanie, referencja i metryki pochodzą z mocka |
-| `backend-example.png` | Zwięzły widok dokumentacyjny wyników przykładu Python | [Pełny JSON demonstracji](backend-output.json) z `python3 -m skorowidny_scrum_example.demo` |
-| `upstream-comparison.png` | Widok dokumentacyjny raportu różnic Git | [Pełny raport JSON](upstream-report.json) z `python3 fork/tools/upstream_report.py --format json --stdout` |
+| File | What it shows |
+|---|---|
+| `scrum-backlog.png` | The Scrum page (`/p/:projectId/scrum`): Product Goal, active Sprint Goal, ordered Product Backlog and the PBI editor |
+| `scrum-readiness-refusal.png` | "Start implementation" on a PBI that is not READY: the server refuses with 409 and names every unmet readiness rule |
+| `scrum-sprints.png` | Sprint planning: Sprint Goal, calendar dates (at most one month) and the Sprint Backlog |
+| `scrum-notebook.png` | The notebook with Sprint Planning, question and Retrospective entries linked to a PBI or Sprint |
+| `scrum-linked-run.png` | An implementation run started from a PBI, open on the existing Tasks page in its own `cez/<id8>` worktree |
+| `upstream-comparison.png` | Documentation view of the upstream difference report ([JSON](upstream-report.json)) |
 
-Drugi i trzeci screen przedstawiają rzeczywiste dane wyjściowe sformatowane jako czytelny dokument HTML i sfotografowane w przeglądarce. Nagłówki i układ służą prezentacji w README; nie są nowymi ekranami aplikacji ani zapisem terminala. Źródłowe JSON-y pozwalają sprawdzić pokazane wyniki.
+## How they were made
 
-Cockpit zachowuje odziedziczony układ upstreamu. Branding demo nie zmienia domyślnej konfiguracji produktu i nie dowodzi implementacji nowego modułu Scrum. W screenshotach nie wykorzystano działającej sesji użytkownika, jego projektów, załączników ani kont modeli.
-
-## Odtworzenie danych
-
-Z katalogu głównego repozytorium:
-
-```bash
-PYTHONPATH=examples/skorowidny-scrum/backend \
-  python3 -m skorowidny_scrum_example.demo > /tmp/backend-output.json
-
-python3 fork/tools/upstream_report.py --format json --output /tmp/upstream-report.json
-```
-
-UUID rezerwacji w demonstracji są losowe. Raport Git zależy od `HEAD` i lokalnie znanego `upstream/main`; screen wskazuje konkretne SHA. W snapshotach źródłowych znajdują się wyłącznie syntetyczne dane demonstracji i publiczne metadane Git.
-
-Podgląd cockpit uruchomiono na osobnym wolnym porcie, z `CEZ_DRY_RUN=1`, `CEZ_SKILLS_AUTO_UPDATE=0`, `CEZ_TELEMETRY=0` i `CEZ_NO_BANNER=1`. Osobny profil miał `branding.name = "skorowidny-cezar"` oraz jedno lokalne repo demonstracyjne. Zdjęcie obejmuje stronę `/tasks` przy szerokości 1440 px. Pozostałe widoki dokumentacyjne mają tę samą szerokość.
-
-Przy odtwarzaniu należy użyć osobnego profilu i danych syntetycznych; zrzuty aktywnej instalacji mogą ujawniać treść zadań i nazwy projektów. Tymczasowy podgląd po wykonaniu screenów jest zatrzymywany; nie stanowi wdrożenia forka.
+A separate `CEZ_HOME`, two throw-away git repositories and `CEZ_DRY_RUN=1` (agent CLIs mocked; the run's chat text, token counts and the "draft PR #123" in `scrum-linked-run.png` come from that mock), with `CEZ_TELEMETRY=0`, `CEZ_SKILLS_AUTO_UPDATE=0` and `CEZ_NO_BANNER=1`, on a free loopback port, 1440 px wide. All backlog content is synthetic. No user session, project, attachment or model account was used, and the preview was stopped afterwards; it is not a deployment.
