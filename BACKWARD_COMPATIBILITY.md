@@ -45,6 +45,10 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   family. Schemas live in `packages/contract/src/scrum.ts`; a stale `expectedRevision`, an item
   that is not ready or already has an active run, and a refused agent start answer 409; a corrupt
   `.ai/cezar/scrum/state.json` answers 503 and is never overwritten.
+- skorowidny-cezar fork, Scrum chat (additive, SCRUM-CHAT-01): `GET /api/v1/scrum/chat` and
+  `POST /api/v1/scrum/chat/messages`, under `/api/v1/p/:projectId` too. The Scrum state gains
+  optional fields only (`guidelines`, `chat`, item `group`/`autoQueue`/`autoRunId`/`provenance`,
+  Sprint `provenance`); existing files parse unchanged and `PUT /scrum` keeps server-owned fields.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,
   `GET /api/v1/webhooks/history`, `GET /api/v1/webhooks/events`,
   `POST /api/v1/webhooks/notice/acknowledge`, `PATCH/DELETE /api/v1/webhooks/:id`,

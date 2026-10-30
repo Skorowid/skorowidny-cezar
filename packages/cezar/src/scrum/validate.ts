@@ -154,3 +154,32 @@ export function implementationBlockers(state: ScrumState, item: ScrumItem): stri
 export function activeSprintOf(state: ScrumState, itemId: string): ScrumSprint | undefined {
   return state.sprints.find(sprint => sprint.status === 'active' && sprint.itemIds.includes(itemId));
 }
+
+/**
+ * SCRUM-CHAT-01: `chat`, `autoQueue`, `autoRunId` and `provenance` are written by the server
+ * only. A client save carries whatever it read; the stored values always win.
+ */
+export function keepServerOwned(previous: ScrumState, next: ScrumState): ScrumState {
+  const items = new Map(previous.items.map(item => [item.id, item]));
+  const sprints = new Map(previous.sprints.map(sprint => [sprint.id, sprint]));
+  const { chat: _sent, ...rest } = next;
+  return {
+    ...rest,
+    ...(previous.chat ? { chat: previous.chat } : {}),
+    items: next.items.map(item => {
+      const { autoQueue: _q, autoRunId: _r, provenance: _p, ...plain } = item;
+      const before = items.get(item.id);
+      return {
+        ...plain,
+        ...(before?.autoQueue !== undefined ? { autoQueue: before.autoQueue } : {}),
+        ...(before?.autoRunId !== undefined ? { autoRunId: before.autoRunId } : {}),
+        ...(before?.provenance !== undefined ? { provenance: before.provenance } : {}),
+      };
+    }),
+    sprints: next.sprints.map(sprint => {
+      const { provenance: _p, ...plain } = sprint;
+      const before = sprints.get(sprint.id);
+      return { ...plain, ...(before?.provenance !== undefined ? { provenance: before.provenance } : {}) };
+    }),
+  };
+}

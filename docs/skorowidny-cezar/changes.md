@@ -1,5 +1,21 @@
 # skorowidny-cezar changes
 
+## 2026-10-30 — conversational Scrum and automatic queue (SCRUM-CHAT-01)
+
+The Add PBI form is replaced by an embedded "Scrum assistant" chat bound to one persistent, project-scoped Codex thread (a real cezar run resumed through Continue). The assistant records problems, work, acceptance criteria, Sprints and guidelines as backlog operations that cite the user's words; cezar applies them under the Scrum lock, keeps provenance and a change log, and queues every chat-made item that becomes executable through the existing launcher and `maxParallel` queue. Done is never set automatically. Design, CHANGE REQUEST/DoR assessment and open questions: [scrum-chat.md](scrum-chat.md).
+
+### Verification
+
+Test suites remain paused at the user's request: `npm test`, `npm run test:unit`, `npm run test:package` and `npm run test:e2e` were NOT run, and no tests were added or updated. The existing `packages/web/src/routes/scrum/scrum.test.tsx` still clicks "Add PBI", which no longer exists, so it is expected to fail until it is updated.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (contract, client, server, web, release) | PASS |
+| `npm run build`, including `check:pack` | PASS — 1129 files, 175 under web/dist |
+| Throwaway script on synthetic data (not committed): op parsing across split text events, quote refusal, readiness after chat ops, server-owned field protection | as expected |
+
+Not exercised: a live Codex conversation, thread resumption after idle close, and automatic queueing against a running server. These need a sandboxed cezar with a Codex login, which this increment did not use.
+
 ## 2026-10-30 — native Scrum module in the cockpit (SCRUM-LOCAL-01)
 
 Added a project-local Scrum page to the cockpit (`/p/:projectId/scrum`, "Scrum" in the navigation) backed by a native API: `GET/PUT /api/v1/scrum` and `POST /api/v1/scrum/items/:id/launch`, also under `/api/v1/p/:projectId`. Contract: `packages/contract/src/scrum.ts`. Service: `packages/cezar/src/scrum/` (validation, locked atomic store, prompt) and `packages/cezar/src/server/scrum.ts`. UI: `packages/web/src/routes/scrum/`, `packages/web/src/api/scrum.ts`. Data stays private in `.ai/cezar/scrum/state.json`. Scope and limitations: [scrum-integration.md](scrum-integration.md). The cockpit's Scrum text is English.

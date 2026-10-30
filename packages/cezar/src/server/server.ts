@@ -1,4 +1,5 @@
-import { createScrumRoutes } from './scrum.ts';
+import { attachScrumChat, createScrumRoutes, type ScrumServices } from './scrum.ts';
+import { chatSystemPrompt as scrumChatSystemPrompt, SCRUM_CHAT_WORKFLOW } from '../scrum/chat.ts';
 import { createWebhookRoutes } from './webhooks.ts';
 import { WebhookCoordinator } from '../webhooks/coordinator.ts';
 import { webhooksEnabled } from '../webhooks/service.ts';
@@ -7713,20 +7714,41 @@ export function createApp(deps: ServerDeps) {
       return c.json({ stopped: true });
     });
 
-  // SCRUM-LOCAL-01: keep provider policy and execution in the existing engine.
-  const scrumRoutes = createScrumRoutes(async (project, prompt, readOnly) => {
-    const { workflows } = await loadWorkflows(project.root);
-    const workflow = workflows.find(candidate => candidate.name === 'quick-task');
-    if (!workflow) throw new Error('The quick-task workflow is unavailable');
-    const runner = (await loadConfig(project.root)).defaultRunner ?? 'claude';
-    const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
-    if (blocked) throw new Error(blocked);
-    const run = project.manager.startRun(workflow, {
-      task: prompt, runner, readOnly, worktree: !readOnly,
-      autonomous: false, generateFollowups: false,
-    });
-    return { id: run.id };
-  });
+  // SCRUM-LOCAL-01 / SCRUM-CHAT-01: keep provider policy, execution and the chat thread in the
+  // existing engine — the Scrum module only decides WHAT to start.
+  const scrumServices: ScrumServices = {
+    async launch(project, prompt, readOnly) {
+      const { workflows } = await loadWorkflows(project.root);
+      const workflow = workflows.find(candidate => candidate.name === 'quick-task');
+      if (!workflow) throw new Error('The quick-task workflow is unavailable');
+      const runner = (await loadConfig(project.root)).defaultRunner ?? 'claude';
+      const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
+      if (blocked) throw new Error(blocked);
+      const run = project.manager.startRun(workflow, {
+        task: prompt, runner, readOnly, worktree: !readOnly,
+        autonomous: false, generateFollowups: false,
+      });
+      return { id: run.id };
+    },
+    async startChat(project, text) {
+      const blocked = await providerActionError(providersRequiredByWorkflow(SCRUM_CHAT_WORKFLOW, 'codex'), { repoRoot: project.root });
+      if (blocked) throw new Error(blocked);
+      const run = project.manager.startRun(SCRUM_CHAT_WORKFLOW, {
+        task: text, runner: 'codex', readOnly: true, worktree: false,
+        autonomous: false, generateFollowups: false, systemPrompt: scrumChatSystemPrompt(),
+      });
+      return { id: run.id };
+    },
+    threadBlocked: (project, run) => providerActionError([providerForActiveRun(run)], {
+      repoRoot: project.root,
+      profileFor: (provider) => recordedProfileFor(run, provider),
+    }),
+  };
+  const scrumRoutes = createScrumRoutes(scrumServices);
+  // Chat turns reach the backlog even when no Scrum page is open.
+  const offScrumBoot = attachScrumChat(bootContext, scrumServices);
+  const offScrumBuilt = contexts.onContextBuilt(context => { attachScrumChat(context, scrumServices); });
+  deps.onDispose?.(() => { offScrumBoot(); offScrumBuilt(); });
 
   const v1 = new Hono<ProjectApiEnv>()
     .use('*', resolveProjectScope)

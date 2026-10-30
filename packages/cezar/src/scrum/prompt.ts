@@ -12,6 +12,11 @@ const list = (values: readonly string[], empty: string) =>
   values.some(value => value.trim()) ? values.filter(value => value.trim()).map(value => `- ${value.trim()}`).join('\n') : `- ${empty}`;
 const block = (value: string, empty: string) => value.trim() || empty;
 
+/** Line that ties an implementation run's task to its PBI, so a run whose link was lost can be adopted. */
+export function scrumItemMarker(itemId: string): string {
+  return `Scrum PBI id: ${itemId}`;
+}
+
 export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: ScrumLaunchMode): string {
   const byId = new Map(state.items.map(entry => [entry.id, entry]));
   const sprint = activeSprintOf(state, item.id);
@@ -32,6 +37,7 @@ export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: Scrum
     `## Open BA questions\n${list(item.questions, '(none)')}`,
     `## Dependencies\n${list(dependencies, '(none)')}`,
     `## Definition of Done\n${block(state.definitionOfDone, '(not set)')}`,
+    ...(state.guidelines?.trim() ? [`## Project guidelines\n${state.guidelines.trim()}`] : []),
   ].join('\n\n');
   if (mode === 'refine') {
     return [
@@ -43,6 +49,7 @@ export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: Scrum
   return [
     `Implement the Product Backlog Item "${item.title}".`,
     context,
+    scrumItemMarker(item.id),
     '## Instructions\n- Implement exactly the approved requirements and acceptance criteria; respect the BA decisions above and do not invent business rules.\n- If you find a new gap or conflict, stop work on the affected behaviour and report it as a question instead of guessing.\n- Work in this isolated task worktree. Never merge or push; the result goes to human review.\n- Verify against the acceptance criteria and the Definition of Done, and report the evidence. Finishing this run does not mark the item Done.',
   ].join('\n\n');
 }
