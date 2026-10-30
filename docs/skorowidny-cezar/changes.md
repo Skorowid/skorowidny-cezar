@@ -1,5 +1,28 @@
 # skorowidny-cezar changes
 
+## 2026-10-30 — durable delivery of forwarded Scrum changes (SCRUM-CHAT-01 POL-1, technical correction)
+
+Fixes the delivery gaps the POL-1 implementation documented; the approved policies (forward to active agents, ask before retrying, active Sprint by default) and the run retry policy are unchanged.
+
+- An accepted change is written to a durable outbox (`chat.forwards` in `scrum/state.json`) in the same save as the chat turn, before any delivery; a separate pass delivers it after the save, at boot and when the target run moves, so a restart resumes it.
+- Delivery uses only the engine's durable rungs: the live session (transcript row) or the still-queued run's prompt, checked against the same `queuedStackRefusal` bounds as the run message route. The in-memory start-up buffer and Continue are no longer used for forwards. A message over the 100 000-character one-message limit is refused and reported, never shortened.
+- Outcomes are separated: `forward-pending` (recorded or queued, NOT received), `forwarded` (change id confirmed in the run's transcript or the prompt the run started with), `forward-failed` (run ended or gone, too long, outbox full). A run with no open session, a provider refusal or an unanswered question of its own holds the change instead of failing it.
+- The replay guard checks the transcript and queued prompt before every hand-over, so reconciliation after a crash does not deliver twice. Exact-once is not claimed; the remaining windows are listed in [scrum-chat.md § Forwarding semantics](scrum-chat.md#forwarding-semantics-pol-1-delivery).
+
+Code: `packages/cezar/src/scrum/forward.ts` (new), `packages/cezar/src/server/scrum.ts`, `packages/cezar/src/scrum/chat.ts` (assistant instructions), `packages/contract/src/scrum.ts`, `packages/web/src/routes/scrum/scrum-chat.tsx` (labels).
+
+### Verification
+
+Test suites remain paused at the user's request: `npm test`, `npm run test:unit`, `npm run test:package` and `npm run test:e2e` were NOT run, and no tests were added or updated. No live model run.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (contract, client, server, web, release) | PASS |
+| `npm run build`, including `check:pack` | PASS — 1135 files, 175 under web/dist |
+| Throwaway script on synthetic data driving `planForwards`/`deliverForwards` with a fake run store and manager in a temporary dir (not committed) | 12/12 as expected: recorded `pending` without any send; a replayed turn not recorded twice; no open session holds it and sends nothing; an unchanged hold writes nothing; an open session delivers it once; a pass replayed on the pre-delivery state (crash before save) records `forwarded` without resending; a queued run stacks it and still reports NOT received; once that run starts it is `forwarded`; a run that ended first gives `forward-failed`; a run waiting for an answer holds it; an over-limit message is refused, not recorded or shortened; a state with an outbox entry passes the contract schema |
+
+Not exercised: delivery against the real RunManager (live session, queued prompt, dequeue fold), the run/event listeners inside a running server, a real restart with a pending entry, and the cockpit rendering of the new notice.
+
 ## 2026-10-30 — Scrum chat follow-up policies (SCRUM-CHAT-01 POL-1, POL-2, POL-4)
 
 Implements the user's answers to the open questions Q1, Q2 and Q4 of [scrum-chat.md](scrum-chat.md):

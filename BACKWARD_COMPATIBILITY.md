@@ -53,6 +53,8 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   outcomes `forwarded`, `forward-failed`, `run-failed` and `question`, and the conversation
   message role `system`; all additive. A file written by them is not readable by a cezar that
   predates them (strict schemas), so a downgrade must not reuse such a `state.json`.
+  The forwarding outbox (2026-10-30) adds the optional chat field `forwards` and the log outcome
+  `forward-pending`; additive, same downgrade note.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,
   `GET /api/v1/webhooks/history`, `GET /api/v1/webhooks/events`,
   `POST /api/v1/webhooks/notice/acknowledge`, `PATCH/DELETE /api/v1/webhooks/:id`,

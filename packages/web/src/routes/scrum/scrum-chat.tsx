@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 const LIVE = new Set(['queued', 'running'])
 const outcomeLabel: Record<ScrumChatLogEntry['outcome'], string> = {
   applied: 'Applied', refused: 'Refused', queued: 'Queued', 'queue-failed': 'Not queued',
-  forwarded: 'Sent to agent', 'forward-failed': 'Not sent to agent', 'run-failed': 'Attempt failed', question: 'Question',
+  'forward-pending': 'Not received yet', forwarded: 'Received by agent', 'forward-failed': 'Not received by agent', 'run-failed': 'Attempt failed', question: 'Question',
 }
 const PROBLEM = new Set<ScrumChatLogEntry['outcome']>(['refused', 'queue-failed', 'forward-failed', 'run-failed'])
 const statusLabel: Record<string, string> = { queued: 'waiting for a free agent', running: 'thinking…', waiting: 'ready', review: 'ready', done: 'resting — your next message resumes the same thread', failed: 'stopped — your next message resumes or replaces the thread', cancelled: 'stopped — your next message resumes or replaces the thread' }
