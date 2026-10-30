@@ -1,5 +1,31 @@
 # skorowidny-cezar changes
 
+## 2026-10-30 — Scrum chat follow-up policies (SCRUM-CHAT-01 POL-1, POL-2, POL-4)
+
+Implements the user's answers to the open questions Q1, Q2 and Q4 of [scrum-chat.md](scrum-chat.md):
+
+- **Changing a task with an active run** (POL-1): the chat may change an item whose run is queued, running or waiting; cezar forwards the updated item to that run through the engine's existing message ladder (live, queued prompt, start-up buffer, Continue) behind the run's provider gate, never cancels or restarts it, and logs the real outcome per run (`forwarded` / `forward-failed`). A change id in the message prevents a second delivery when a reconcile is replayed. Approval withdrawal on changed requirements stays as before.
+- **Retries** (POL-2): a failed automatic attempt is reported once in the conversation and never retried by itself. A new chat operation `retryItem`, accepted only for a user instruction given after the last attempt, allows exactly one further attempt through the automatic queue.
+- **Sprint** (POL-4): a chat item that becomes READY with no Sprint named is planned into the single active Sprint; with none, cezar asks in the chat and creates nothing. Explicit Sprint choices are respected.
+- The conversation now shows cezar's own notices (role `system`) for these outcomes; the item panel shows a pending retry.
+
+Code: `packages/cezar/src/scrum/policy.ts` (new), `chat.ts`, `autoqueue.ts`, `prompt.ts`, `validate.ts`, `packages/cezar/src/server/scrum.ts`, `packages/contract/src/scrum.ts`, `packages/web/src/routes/scrum/`. `ScrumServices.threadBlocked` is renamed `runBlocked`, since it now also gates item runs.
+
+Not deployed: the locally running cezar service was not updated, restarted, stopped or reconfigured and stays on release `28f4a954`. No release was installed and no production data or configuration was touched.
+
+### Verification
+
+Test suites remain paused at the user's request: `npm test`, `npm run test:unit`, `npm run test:package` and `npm run test:e2e` were NOT run, and no tests were added or updated. The stale `packages/web/src/routes/scrum/scrum.test.tsx` (it clicks the removed "Add PBI" button) is still expected to fail.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (contract, client, server, web, release) | PASS |
+| `npm run build`, including `check:pack` | PASS — 1132 files, 175 under web/dist |
+| Throwaway script on synthetic data, pure functions with a fake run store (not committed) | 15/15 as expected: auto-plan into the active Sprint; explicit plan op tracked; no active Sprint gives a question and creates nothing; one automatic run; busy item editable with approval withdrawn and forwarding tracked; change message carries the change id and approval state but not the PBI marker; failure reported once; no automatic retry; retry quoting an older message refused; later explicit retry starts exactly one run and is consumed; server-owned fields survive a client save |
+| Throwaway script driving `reconcileScrumChat` with a fake store and RunManager in a temporary data dir (not committed) | 7/7 as expected: busy item updated; change delivered into the live session once; `forwarded` logged with the rung; replay after a reset cursor does not deliver again; a closed session logs `forward-failed` "NOT sent"; a provider gate refusal logs `forward-failed` and sends nothing; a failed automatic run logs `run-failed` |
+
+Not exercised: a live Codex conversation (the assistant actually asking about a retry or a Sprint, and emitting `retryItem`), delivery into a real Claude/Codex session, the queued-prompt and start-up-buffer rungs against the real RunManager, the run-status listener inside a running server, and the cockpit rendering of the new notices. These need a sandboxed cezar with a provider login, which this increment did not use.
+
 ## 2026-10-30 — conversational Scrum and automatic queue (SCRUM-CHAT-01)
 
 The Add PBI form is replaced by an embedded "Scrum assistant" chat bound to one persistent, project-scoped Codex thread (a real cezar run resumed through Continue). The assistant records problems, work, acceptance criteria, Sprints and guidelines as backlog operations that cite the user's words; cezar applies them under the Scrum lock, keeps provenance and a change log, and queues every chat-made item that becomes executable through the existing launcher and `maxParallel` queue. Done is never set automatically. Design, CHANGE REQUEST/DoR assessment and open questions: [scrum-chat.md](scrum-chat.md).

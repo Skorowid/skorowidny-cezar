@@ -156,7 +156,7 @@ export function activeSprintOf(state: ScrumState, itemId: string): ScrumSprint |
 }
 
 /**
- * SCRUM-CHAT-01: `chat`, `autoQueue`, `autoRunId` and `provenance` are written by the server
+ * SCRUM-CHAT-01: `chat`, `autoQueue`, `autoRunId`, `autoRetry`, `autoFailureReported` and `provenance` are written by the server
  * only. A client save carries whatever it read; the stored values always win.
  */
 export function keepServerOwned(previous: ScrumState, next: ScrumState): ScrumState {
@@ -167,12 +167,14 @@ export function keepServerOwned(previous: ScrumState, next: ScrumState): ScrumSt
     ...rest,
     ...(previous.chat ? { chat: previous.chat } : {}),
     items: next.items.map(item => {
-      const { autoQueue: _q, autoRunId: _r, provenance: _p, ...plain } = item;
+      const { autoQueue: _q, autoRunId: _r, autoRetry: _t, autoFailureReported: _f, provenance: _p, ...plain } = item;
       const before = items.get(item.id);
       return {
         ...plain,
         ...(before?.autoQueue !== undefined ? { autoQueue: before.autoQueue } : {}),
         ...(before?.autoRunId !== undefined ? { autoRunId: before.autoRunId } : {}),
+        ...(before?.autoRetry !== undefined ? { autoRetry: before.autoRetry } : {}),
+        ...(before?.autoFailureReported !== undefined ? { autoFailureReported: before.autoFailureReported } : {}),
         ...(before?.provenance !== undefined ? { provenance: before.provenance } : {}),
       };
     }),

@@ -57,8 +57,12 @@ export const scrumItemSchema = z.strictObject({
   group: text(200).optional(),
   /** Server-owned (SCRUM-CHAT-01): made in the chat, so it queues itself once executable. */
   autoQueue: z.boolean().optional(),
-  /** Server-owned: the run the automatic queue started for this item (at most one). */
+  /** Server-owned: the latest run the automatic queue started for this item. */
   autoRunId: id.optional(),
+  /** Server-owned (SCRUM-CHAT-01 Q2): an explicit chat retry instruction the queue has not used yet. */
+  autoRetry: scrumProvenanceSchema.optional(),
+  /** Server-owned: the failed automatic run already reported in the chat. */
+  autoFailureReported: id.optional(),
   /** Server-owned: the chat decisions that created or changed this item. */
   provenance: z.array(scrumProvenanceSchema).max(200).optional(),
 });
@@ -87,7 +91,14 @@ export const scrumNoteSchema = z.strictObject({
 });
 export type ScrumNote = z.infer<typeof scrumNoteSchema>;
 
-export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed']);
+/**
+ * `forwarded`/`forward-failed`: a chat change to an item with an active run, and whether it reached
+ * that run (Q1). `run-failed`: an automatic attempt failed and is not retried by itself (Q2).
+ * `question`: cezar needs the user's answer, e.g. no active Sprint for a READY item (Q4).
+ */
+export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forwarded', 'forward-failed', 'run-failed', 'question']);
+/** Outcomes the conversation shows inline as cezar's own notices. */
+export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forwarded', 'forward-failed', 'run-failed', 'question'];
 export type ScrumChatOutcome = z.infer<typeof scrumChatOutcomeSchema>;
 
 /** One backlog operation the chat agent asked for, or one automatic queue action, and its result. */
@@ -162,7 +173,8 @@ export type ScrumChatMessageResponse = z.infer<typeof scrumChatMessageResponseSc
 
 export const scrumChatMessageSchema = z.strictObject({
   seq: z.number().int().nonnegative(),
-  role: z.enum(['user', 'agent']),
+  /** `system`: a cezar notice from the change log (delivery, failure, question), not a model turn. */
+  role: z.enum(['user', 'agent', 'system']),
   text: z.string().max(200_000),
   at: z.string().max(64),
 });

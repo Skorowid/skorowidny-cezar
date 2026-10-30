@@ -5,11 +5,12 @@ import { buildScrumPrompt, scrumItemMarker } from './prompt.ts';
 import { implementationBlockers } from './validate.ts';
 
 /**
- * SCRUM-CHAT-01 automatic queue: a chat-made item that has become executable gets exactly one
+ * SCRUM-CHAT-01 automatic queue: a chat-made item that has become executable gets one
  * implementation run, started through the same launcher as the Implement button (provider gate +
- * `RunManager.startRun`), so it waits for a free `maxParallel` slot like any other task. Runs
- * under the Scrum state lock; `autoRunId` is written in the same save, which is what keeps a
- * retry, a restart or a concurrent turn from starting a second run.
+ * `RunManager.startRun`), so it waits for a free `maxParallel` slot like any other task. A further
+ * attempt starts only for an explicit chat retry instruction (`autoRetry`, Q2), which the start
+ * consumes. Runs under the Scrum state lock; `autoRunId` is written in the same save, which is
+ * what keeps a retried request, a restart or a concurrent turn from starting a second run.
  *
  * @author Skorowid
  */
@@ -35,12 +36,14 @@ export async function autoQueue(
   const ordered = [...state.items].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
   for (const candidate of ordered) {
     const item = current.items.find(entry => entry.id === candidate.id);
-    if (!item?.autoQueue || item.autoRunId || item.deliveryStatus !== 'open' || busy.has(item.id)) continue;
+    if (!item || item.deliveryStatus !== 'open' || busy.has(item.id)) continue;
+    const retry = item.autoRetry !== undefined;
+    if (!retry && (!item.autoQueue || item.autoRunId)) continue;
     if (implementationBlockers(current, item).length) continue;
     const at = origin ?? { runId: null, turnSeq: 0 };
     const marker = scrumItemMarker(item.id);
     // Someone already started an implementation attempt by hand: the automatic one is spent.
-    if (item.runIds.some(runId => store.getRun(runId)?.task.includes(marker))) continue;
+    if (!retry && item.runIds.some(runId => store.getRun(runId)?.task.includes(marker))) continue;
     // A run started before a crash could not record itself: adopt it instead of starting another.
     const orphan = store.listRuns().find(run => !item.runIds.includes(run.id) && run.task.includes(marker));
     let runId: string;
@@ -54,8 +57,16 @@ export async function autoQueue(
         continue;
       }
     }
-    current = { ...current, items: current.items.map(entry => entry.id === item.id ? { ...entry, autoRunId: runId, runIds: [...entry.runIds, runId] } : entry) };
-    log.push(entry(at, 'autoQueue', 'queued', `"${item.title}" queued for an execution agent as run ${runId.slice(0, 8)}${orphan ? ' (recovered after a restart)' : ''}`, '', item.id));
+    current = {
+      ...current,
+      items: current.items.map(entry => {
+        if (entry.id !== item.id) return entry;
+        const { autoRetry: _used, ...rest } = entry;
+        return { ...rest, autoRunId: runId, runIds: [...entry.runIds, runId] };
+      }),
+    };
+    const why = retry ? ' — another attempt the user asked for in the chat' : '';
+    log.push(entry(at, 'autoQueue', 'queued', `"${item.title}" queued for an execution agent as run ${runId.slice(0, 8)}${why}${orphan ? ' (recovered after a restart)' : ''}`, item.autoRetry?.quote ?? '', item.id));
   }
   return appendLog(current, log);
 }
