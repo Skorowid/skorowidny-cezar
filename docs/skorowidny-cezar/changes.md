@@ -1,5 +1,13 @@
 # Zmiany skorowidny-cezar
 
+## 2026-10-30 — własne README i aktualne screeny
+
+Zastąpiono skopiowaną stronę główną upstreamu opisem skorowidny-cezar: zakresem gotowych dodatków, ich statusem, uruchamianiem z checkoutu forka i planem niezależnego rozwoju UI. Usunięto z głównego README oryginalne materiały promocyjne, nagranie, odznaki npm i odziedziczoną galerię screenów. Pochodzenie projektu i odnośnik do bazowej dokumentacji pozostają jawne.
+
+Dodano trzy własne screeny: rzeczywisty cockpit z izolowanej sesji dry-run oraz widoki dokumentacyjne rzeczywistych wyników backendu i porównania upstreamu. Podpisy rozróżniają istniejące UI od przykładów, które nie są jeszcze ekranami aplikacji. Obok obrazów zapisano źródłowe JSON-y i opis ich pochodzenia. Nie użyto danych ani sesji użytkownika.
+
+Ta aktualizacja dotyczy dokumentacji i obrazów; nie zmienia kodu aplikacji, domyślnego brandingu ani działającej usługi. Samodzielne uruchomienie repozytorium nadal pokazuje odziedziczony cockpit, a nazwę jak na screenie można ustawić funkcją brandingu profilu.
+
 ## 2026-10-30 — fundament publicznego forka
 
 Baza: `open-mercato/cezar`, commit `eb157816aac7e0d4676c007e2f7d14b397588784`, wersja pakietu `0.17.0` na `main`.
