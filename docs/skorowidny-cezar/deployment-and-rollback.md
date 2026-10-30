@@ -1,30 +1,38 @@
-# Wdrożenie skorowidny-cezar i powrót do oryginału
+# Deploying skorowidny-cezar and returning to the original
 
-Status: plan operacyjny; przełączenie usługi nie zostało jeszcze wykonane. Użytkownik zezwolił na zastąpienie działającego Cezara forkiem po zintegrowaniu i sprawdzeniu modułu Scrum. Przed wdrożeniem ten dokument należy uzupełnić o rzeczywiste SHA wydania, ścieżkę release i backupu oraz wyniki weryfikacji.
+Status (2026-10-30): switch of the user service to release `28f4a954` scheduled through a bounded maintenance script that verifies the result and rolls back by itself on failure. The script's local result file, not this document, is the record of whether the switch succeeded. Private paths (backups, logs) stay on the machine and in the task handoff, not in this repository.
 
-## Stan zachowywany przed zmianą
+## State preserved
 
-- Usługa użytkownika: `cezar.service`.
-- Obecny program: globalny pakiet `cezar-run@0.17.0`, uruchamiany przez istniejący unit systemd.
-- Istniejący katalog roboczy, port i konfiguracja dostępu pozostają parametrami instalacji.
-- Należy zachować oryginalny unit i wszystkie istniejące drop-iny. Nowa konfiguracja nie zastępuje cudzych plików.
+- User service `cezar.service`; its unit file and the existing `override.conf` drop-in (`CEZ_AGENT_MODELS_LOCKED=1`) are left untouched.
+- Original program: the global npm package `cezar-run@0.17.0` started by the unit's own `ExecStart`. It stays installed and is not overwritten.
+- Working directory, port (4321, loopback only), branding and `updateChannel` in `~/.cezar/config.json` are not changed by the switch.
+- Copies of the unit and drop-ins were taken before any change; a consistent data backup (`~/.cezar` and each registered project's `.ai/cezar` without `worktrees/`, `tmp/` and `maintenance/`) is taken by the script while the service is stopped. Backups are private, `0700`, and never committed.
 
-Kopia aktualnego unitu i drop-inów została wykonana lokalnie w katalogu utrzymania istniejącej instalacji; dokładne prywatne ścieżki są w handoffie zadania, nie w publicznym repozytorium. Pełny backup danych należy wykonać po zatrzymaniu zapisujących je procesów bezpośrednio przed przełączeniem, aby uniknąć niespójnego snapshotu.
+## Release
 
-## Plan wdrożenia
+- Built from commit `28f4a954` of `skorowidny/main` (`npm run build`, then `npm pack -w @open-mercato/cezar`).
+- Installed from that tarball into `~/.local/share/skorowidny-cezar/releases/28f4a954/` with `npm install --omit=dev`, then made read-only. Production never runs from the checkout that is being rebuilt.
+- Smoke-checked before the switch on a separate port and `CEZ_HOME` with synthetic data: health 200, version 0.17.0, `GET /api/v1/scrum` 200, `/p/default/scrum` 200.
+- The cockpit's self-update only installs when a user applies it from the update dialog; it never runs on its own. Running from a release directory under `node_modules` it reports itself as an npm install. Do not use the update dialog on this deployment: it would offer upstream `@open-mercato/cezar`, not this fork.
 
-1. Zbudować i zweryfikować zintegrowany moduł na osobnym porcie i osobnym profilu danych. Sprawdzić tworzenie/edycję backlogu, zapis po restarcie, przejścia stanów i połączenie z runami zgodnie z zatwierdzonym zakresem.
-2. Przygotować wydanie w osobnym katalogu oznaczonym SHA. Nie nadpisywać globalnego pakietu oryginału ani nie uruchamiać produkcji z przebudowywanego drzewa roboczego.
-3. Zatrzymać usługę i zapisać spójny backup danych projektu oraz profilu użytkownika. Backup zawierający dane lub poświadczenia pozostaje lokalny, z ograniczonym dostępem; nie trafia do Git.
-4. Dodać wyłącznie nowy drop-in `90-skorowidny.conf`, który czyści `ExecStart` i wskazuje sprawdzony plik wejściowy nowego wydania. Zachować dotychczasowy katalog roboczy, ograniczenia dostępu i istniejące drop-iny.
-5. Wykonać `systemctl --user daemon-reload`, uruchomić usługę i sprawdzić health, ładowanie UI, widoczność istniejących projektów oraz zapis danych modułu Scrum.
-6. Dopiero po weryfikacji oznaczyć wdrożenie jako udane. Zapisać SHA, ścieżki release i backupu oraz wyniki sprawdzeń w lokalnej notatce operacyjnej.
+## Switch (what the script does)
 
-Nowe dane modułu powinny być odseparowane od istniejących danych Cezara. Nieodwracalna migracja danych wspólnych wymaga osobnego uzgodnienia i sprawdzonego powrotu. Wdrożenie nie powinno niejawnie przełączać własnej wersji na upstreamowy kanał autoaktualizacji.
+1. Waits 25 s, records the number of registered projects, stops `cezar.service` and writes the data backup.
+2. Adds only `~/.config/systemd/user/cezar.service.d/90-skorowidny.conf`:
 
-## Powrót do oryginału
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=<node 24.21.0> <release>/node_modules/@open-mercato/cezar/dist/index.js
+   ```
 
-Poniższe polecenia dotyczą standardowej ścieżki drop-inów usługi użytkownika. Przed wykonaniem sprawdzić, że plik jest właśnie dodatkiem tego wdrożenia:
+3. `systemctl --user daemon-reload`, starts the service and verifies for up to 90 s: service active, health 200, same project count, UI 200, `ExecStart` points at the release, `GET /api/v1/scrum` 200 and the Scrum page 200. The checks only read; no Scrum data is written.
+4. On any failure it renames the drop-in to `.disabled`, reloads, restarts and verifies the original program.
+
+Restarting the service ends the agent sessions that were open in it; their run records survive and `waiting` runs can be continued.
+
+## Rollback
 
 ```bash
 systemctl --user stop cezar.service
@@ -32,11 +40,10 @@ mv ~/.config/systemd/user/cezar.service.d/90-skorowidny.conf \
    ~/.config/systemd/user/cezar.service.d/90-skorowidny.conf.disabled
 systemctl --user daemon-reload
 systemctl --user start cezar.service
-systemctl --user is-active cezar.service
+systemctl --user show cezar.service -p ExecStart   # must be cezar-run again
+curl -s http://127.0.0.1:4321/api/v1/health
 ```
 
-Zmiana rozszerzenia wyłącza wyłącznie własny drop-in. Oryginalny `ExecStart` i wcześniejsze ustawienia znów obowiązują. Nie usuwa się nowego wydania ani danych Scrum, aby można było je później sprawdzić lub wyeksportować.
+This disables only the fork's drop-in; the original `ExecStart` and the earlier drop-ins apply again. The release directory and the Scrum data (`.ai/cezar/scrum/`, ignored by the original program) are kept so they can be inspected or exported later. Do not restore the data backup as part of a program rollback: it would also undo every change made after it was taken. Restore it only deliberately, with the service stopped, after saving a copy of the current state.
 
-Sprawdzić rzeczywistą linię startową przez `systemctl --user show cezar.service -p ExecStart` oraz health na porcie instalacji. Jeśli wspólne dane zostały uszkodzone, najpierw zachować kopię bieżącego stanu, a dopiero potem świadomie odtworzyć właściwy snapshot przy zatrzymanej usłudze. Odtworzenie snapshotu cofa także zmiany danych wykonane po jego utworzeniu; nie jest automatycznym krokiem zwykłego rollbacku programu.
-
-Nie uznajemy samego `active` za dowód przywrócenia funkcjonalności: trzeba sprawdzić panel i dostęp do projektów.
+`active` alone is not proof of a working rollback: open the cockpit and check that the projects are there.
