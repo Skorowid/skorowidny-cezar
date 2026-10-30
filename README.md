@@ -1,113 +1,238 @@
-# skorowidny-cezar
+> **Skorowidny changes:** This is the place for changes made in the skorowidny-cezar fork. The remainder of this README is the original Cezar authors' documentation.
 
-Fork Cezara rozwijany w kierunku **Scruma wspieranego przez AI**: backlogu opisanego przez BA, refinementu wymagań, dokumentacji pobieranej na żądanie i pracy agentów na niezależnych branchach.
+---
 
-**Obecny etap: dokumentacja projektu, działające przykłady backendu i narzędzia utrzymania forka. Backlog Scrum i notatnik nie są jeszcze zintegrowane z cockpit UI.**
+<p align="center">
+  <img src="docs/brand/cezar-icon-black.svg" alt="" width="104" />
+</p>
 
-[Zakres projektu](docs/skorowidny-cezar/project-note.md) · [Koncepcja Scrum + AI](docs/skorowidny-cezar/scrum-concept.md) · [Zmiany i wyniki testów](docs/skorowidny-cezar/changes.md) · [Zgłoszenia](https://github.com/Skorowid/skorowidny-cezar/issues)
+<div align="center">
+  <h1>Cezar - orchestrate hundreds of AI coding agents, 24/7.</h1>
+</div>
 
-## Co wnosi ten fork
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=nNLJm9gArnE">Demo</a>&nbsp;·
+  <a href="#quick-start">Quick start</a>&nbsp;·
+  <a href="docs/reference.md">Docs</a>&nbsp;·
+  <a href="https://github.com/open-mercato/cezar/issues">Issues</a>
+</p>
 
-| Obszar | Gotowe w skorowidny-cezar | Status |
-|---|---|---|
-| Scrum i wymagania | Mapa odpowiedzialności, wydarzeń, artefaktów i zobowiązań; diagram procesu, przykład refinementu, DoR i otwarte decyzje | Dokumentacja koncepcji |
-| Lokalny backlog | SQLite, zależności i atomowe rezerwacje pracy Sprintu; ponowienia, wygaśnięcie i jawne odzyskanie zadania | Samodzielny przykład Python |
-| Kontekst agenta | Wersjonowane odwołania do dokumentów, streszczenia, hashe treści i wykrywanie nieaktualnego lub zmienionego pakietu | Samodzielny przykład Python |
-| Obliczenia lokalne | `Decimal`, jawna reguła zaokrąglania i raportowanie utraty precyzji | Samodzielny przykład Python |
-| Utrzymanie upstreamu | Zapisany commit bazowy, raport zmian backendu/UI/kontraktów i procedura przejmowania poprawek | Działające narzędzie i dokumentacja |
-| Własny wygląd | Oddzielny kierunek rozwoju, z zachowaniem typowanych kontraktów backendu | Do zaprojektowania i implementacji |
+<p align="center">
+  English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a>
+</p>
 
-Przykłady używają danych syntetycznych i biblioteki standardowej Pythona. Ich reguły są jawnie opisane jako przykładowe; nie stanowią zatwierdzonej specyfikacji produktu. Backendowe przykłady przygotował Claude, a przegląd, integrację i narzędzia utrzymania — Codex.
+> Compatibility note: GitHub list rows may omit `body` in the next minor release. Consumers should
+> hydrate full text from `/api/v1/github/comments/:kind/:number` (`detail.body`) now.
 
-## Screeny aktualnego stanu
+<div align="center">
+  <h2>
+    One control center for Claude Code, Codex, OpenCode and other coding agents.<br />
+    Run agents locally or on a VPS, automate multi-step workflows,<br />
+    and let them keep working while you're away.
+  </h2>
+</div>
 
-### Cockpit uruchomiony z checkoutu forka
+<p align="center">
+  <a href="https://cezar.run/">
+    <img alt="Website: cezar.run" src="https://img.shields.io/badge/website-cezar.run-9655FD" /></a>
+  <a href="LICENSE">
+    <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <a href="https://www.npmjs.com/package/@open-mercato/cezar">
+    <img alt="npm version" src="https://img.shields.io/npm/v/@open-mercato/cezar" /></a>
+  <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-339933" />
+  <a href="https://github.com/open-mercato/cezar/pulls">
+    <img alt="PRs welcome!" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat" /></a>
+</p>
 
-![Cockpit skorowidny-cezar z syntetycznym zadaniem demonstracyjnym](docs/skorowidny-cezar/screenshots/cockpit-demo.png)
+<p align="center">
+  <a href="https://openmercatocloud.com/247agentic-cear" target="_blank" rel="noopener">
+    <img src="docs/screenshots/cloud-banner.svg" alt="Use cezar on a cloud sandbox for 24/7 coding. Start for free." width="720" /></a>
+</p>
 
-Rzeczywisty lokalny podgląd w trybie `CEZ_DRY_RUN=1`, z osobną konfiguracją i danymi demo. Nazwa korzysta z istniejącej funkcji brandingu. **Układ i funkcje tego ekranu pochodzą z upstreamu**; nie przedstawia on nowego modułu Scrum.
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=nNLJm9gArnE" target="_blank" rel="noopener">
+    <img src="docs/screenshots/video-thumbnail.jpg" alt="Meet Cezar, your new parallel coding tool (video)" width="720" />
+  </a>
+  <p align="center"><em>▶ Watch the video: Meet cezar, your new parallel coding tool.</em></p>
+</div>
 
-### Działający przykład backendu
+## Features
 
-![Wyniki uruchomienia przykładu backendu: rezerwacja, kontekst i obliczenia](docs/skorowidny-cezar/screenshots/backend-example.png)
+- 💯&nbsp;Free and open source.
+- 🖥️&nbsp;Uses your own `claude`, `codex`, `copilot`, `cursor`, `junie`, `opencode` or `pi` login. No API key needed.
+- ☁️&nbsp;Easy to set up on a VPS, so your agents keep working when your laptop is closed.
+- 📱&nbsp;Fully responsive. Start and review tasks from your phone.
+- 🔀&nbsp;Every task gets its own git worktree, so several agents can work at the same time. Extra tasks wait in a queue.
+- 🤖&nbsp;Turn on **Autonomous** and a run never stops to ask. It just finishes.
+- 📡&nbsp;Watch it work live: agent text, tool calls, tokens and cost.
+- 🏁&nbsp;Run the same task ×2 or ×3, compare the diffs and keep the best one.
+- 🧩&nbsp;Skills are Markdown files and workflows are short YAML files. Mix agents per step.
+- 🐙&nbsp;Run the agent straight on a GitHub issue. Nothing merges on its own.
+- 📂&nbsp;One cockpit for all your projects.
+- 📊&nbsp;A workspace dashboard shows what needs you, what is running and what finished across your projects.
+- 💸&nbsp;Track reported cost and token usage by project in **Usage & cost**.
+- ⏰&nbsp;Schedule recurring work or launch tasks from GitHub and supported tracker events with **Automations**.
+- 🌳&nbsp;Agents can delegate independent work to child tasks, each in its own worktree, and receive their reports in the parent session.
+- 🎫&nbsp;Connect **Jira or Linear** to browse issues and launch tasks from your project tracker.
+- 💾&nbsp;No database. Everything is saved as plain files in `.ai/cezar/`.
 
-Wyniki rzeczywistego uruchomienia demonstracji, pokazane w widoku dokumentacyjnym. Ilustrują mechanizmy biblioteki Python; nie jest to ekran backlogu w aplikacji.
+## Screenshots
 
-### Porównanie z oryginałem
+**Parallel tasks** — Run and queue many tasks, each in its own git worktree.
 
-![Raport narzędzia porównującego zmiany upstreamu i forka](docs/skorowidny-cezar/screenshots/upstream-comparison.png)
+[![Parallel tasks: Run and queue many tasks, each in its own git worktree.](docs/screenshots/task-view.png)](docs/screenshots/task-view.png)
 
-Widok dokumentacyjny wygenerowany z rzeczywistego raportu JSON. Raport odnosi się do wskazanych SHA, więc liczby na screenie są snapshotem, a nie bieżącym licznikiem GitHuba. [Pochodzenie i odtworzenie screenów](docs/skorowidny-cezar/screenshots/README.md).
+**Live run** — Every step, tool call and token, as it happens.
 
-## Uruchom przykłady
+[![Live run: Every step, tool call and token, as it happens.](docs/screenshots/live-run.png)](docs/screenshots/live-run.png)
 
-Potrzebny jest Python 3; przykłady sprawdzono na Pythonie 3.14.4. Nie wymagają `pip`, kont modeli ani zewnętrznej bazy.
+**Variants** — Run a task ×2 or ×3 and keep the best diff.
+
+[![Variants: Run a task ×2 or ×3 and keep the best diff.](docs/screenshots/variants-compare.png)](docs/screenshots/variants-compare.png)
+
+**Workflows** — Build a task's pipeline as a node graph: agents, checks, loops, gates, PRs and CI, saved as YAML.
+
+[![Workflows: Drag skills and checks into a chain, saved as YAML.](docs/screenshots/workflow-builder.png)](docs/screenshots/workflow-builder.png)
+
+**GitHub** — Hand an open issue to the agent in one click.
+
+[![GitHub: Hand an open issue to the agent in one click.](docs/screenshots/github-issues.png)](docs/screenshots/github-issues.png)
+
+**Skills + Autonomous** — Pick a playbook, flip Autonomous and walk away.
+
+[![Skills + Autonomous: Pick a playbook, flip Autonomous and walk away.](docs/screenshots/skills-autonomous.png)](docs/screenshots/skills-autonomous.png)
+
+**Dashboard** — See what needs your input or review, what is running and what finished across your workspace.
+
+[![Dashboard: Workspace task counts, review requests and recent results.](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png)
+
+**Usage & cost** — Compare reported spend and token usage across projects.
+
+[![Usage and cost: Reported spend, input and output tokens, and a project breakdown.](docs/screenshots/usage-costs.png)](docs/screenshots/usage-costs.png)
+
+**Automations** — Schedule maintenance and reviews, and see the week ahead alongside GitHub triggers.
+
+[![Automations: A weekly calendar of scheduled tasks and a pull-request review trigger.](docs/screenshots/automation-calendar.png)](docs/screenshots/automation-calendar.png)
+
+**On your phone** — the same cockpit, from the task list to the diff.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/mobile-tasks.png" alt="Task list on mobile" /></td>
+    <td width="33%"><img src="docs/screenshots/mobile-session.png" alt="A session on mobile" /></td>
+    <td width="33%"><img src="docs/screenshots/mobile-review.png" alt="Reviewing a diff on mobile" /></td>
+  </tr>
+</table>
+
+## Quick start
+
+You need **Node 20+** and at least one agent CLI you're logged into:
+[Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex),
+[GitHub Copilot CLI](https://github.com/github/copilot-cli), [OpenCode](https://opencode.ai),
+[Cursor Agent](https://cursor.com/docs/cli/overview), [Junie](https://junie.jetbrains.com/cli) or [pi](https://github.com/badlogic/pi-mono).
+`git` and `gh` are optional.
 
 ```bash
-git clone --branch skorowidny/main https://github.com/Skorowid/skorowidny-cezar.git
-cd skorowidny-cezar
-
-# 54 testy przykładowego backendu
-python3 -m unittest discover -s examples/skorowidny-scrum/backend -p 'test_*.py' -v
-
-# Demo: JSON z rezerwacjami, kontekstem dokumentów i obliczeniami
-cd examples/skorowidny-scrum/backend
-python3 -m skorowidny_scrum_example.demo
+cd your-repo
+npx cezar-run
 ```
 
-[README backendu](examples/skorowidny-scrum/backend/README.md) zawiera kod użycia, przykładowe reguły, mapę fixtures i ograniczenia. To niezależna biblioteka demonstracyjna; nie jest importowana przez produkcyjny serwer Cezara.
-
-## Uruchom lokalny cockpit z tego repozytorium
-
-Potrzebne są Node.js 20+ i npm. Po powrocie do katalogu głównego repozytorium:
+This opens the cockpit at `http://localhost:4321`. Type a task, pick a workflow, then hit **Start**. `npx cezar-cli` still works too — it's the same package under its older name.
 
 ```bash
-npm ci
-npm run build
-
-# Osobny profil i port; mock agenta, bez potrzeby logowania do modelu
-CEZ_HOME="$(mktemp -d)" CEZ_DRY_RUN=1 CEZ_SKILLS_AUTO_UPDATE=0 CEZ_TELEMETRY=0 CEZ_NO_BANNER=1 \
-  node packages/cezar/dist/index.js --repo . --port 4322 --no-open
+npx cezar-run run "add a --json flag to the export command"   # headless, no browser
+npx cezar-run init                                            # scaffold .ai/cezar/
+npx cezar-run@nightly                                         # try tonight's build
 ```
 
-Otwórz `http://127.0.0.1:4322`. Zakończ proces przez `Ctrl+C`. To podgląd checkoutu, nie instalacja ani podmiana działającej usługi. Dla rzeczywistej pracy agentów potrzebna jest konfiguracja obsługiwanego CLI; szczegóły odziedziczonych funkcji opisuje [referencja techniczna](docs/reference.md).
+> Just want to look around? Run `CEZ_DRY_RUN=1 npx cezar-run`. It uses a built-in mock agent, so you don't need to log in.
 
-`npx cezar-run` pobiera oryginalną dystrybucję Cezara z npm — nie ten fork. Własny pakiet i kanał aktualizacji skorowidny-cezar nie są jeszcze przygotowane.
-
-## Core, własny UI i aktualizacje
-
-Domyślna gałąź rozwoju to **`skorowidny/main`**. Gałąź **`upstream-main`** wskazuje ostatnią w pełni przyjętą bazę oryginału, zapisaną również w [fork/upstream.json](fork/upstream.json). Odziedziczony `main` jest snapshotem z chwili utworzenia forka, a nie celem naszych zmian.
-
-W obecnym przyroście produkcyjne pakiety backendu, klienta API, kontraktów, UI i desktopu są niezmienione względem zapisanej bazy. Dodatki znajdują się w `examples/skorowidny-scrum/`, `fork/` i `docs/skorowidny-cezar/`.
+### Run it on a server
 
 ```bash
-git remote add upstream https://github.com/open-mercato/cezar.git
-gh repo set-default Skorowid/skorowidny-cezar
-git fetch upstream --tags
-
-# Uruchom z katalogu głównego; plik wynikowy musi jeszcze nie istnieć
-python3 fork/tools/upstream_report.py --output /tmp/skorowidny-upstream-report.md
-
-# Testy narzędzia porównania
-python3 -m unittest discover -s fork/tools -p 'test_*.py' -v
+npx cezar-run server-install --platform ubuntu-vps
 ```
 
-Narzędzie pokazuje nadchodzące commity, kategorie zmian i nakładające się ścieżki. Nie wykonuje merge ani push. Poprawki backendu mogą wymagać zmian wspólnego kontraktu i klienta; sam brak konfliktu plików nie potwierdza zgodności.
+This sets up HTTPS, a login and a system service, so you can open the cockpit from anywhere, including your phone.
+There are guides for [Ubuntu VPS](docs/server-install/ubuntu-vps.md) and [macOS + ngrok](docs/server-install/macosx-ngrok.md).
 
-[Porównaj własne zmiany ze wspólną bazą](https://github.com/Skorowid/skorowidny-cezar/compare/upstream-main...skorowidny%2Fmain) · [Procedura aktualizacji i niezależnego rozwoju UI](docs/skorowidny-cezar/upstream-maintenance.md)
+## How it works
 
-## Następne przyrosty
+1. **You describe a task.** Type it, attach files, or start from a GitHub issue.
+2. **cezar runs a workflow** (agent steps plus shell checks) in a new git worktree, using your agent CLI.
+3. **The cockpit streams every step live.** If a check fails, the agent tries again and sees the error.
+4. **You check the result.** Read the diff, send notes back, or open a draft PR.
 
-Proponowany kierunek: karta PBI powiązana z runami, pytania i decyzje BA, notatnik UI, Product Backlog i Sprint Backlog oraz pobieranie pracy zgodnie z planem zespołu. Przed implementacją kolejnego fragmentu doprecyzujemy jego zachowanie i kryteria akceptacji. Pełna koncepcja jest w [dokumencie Scrum + AI](docs/skorowidny-cezar/scrum-concept.md).
+A workflow is a small YAML file in `.ai/cezar/workflows/`:
 
-## Weryfikacja
+```yaml
+name: fix-and-verify
+steps:
+  - id: implement
+    prompt: "{{task}}"
+    skill: project-conventions   # optional: a Markdown skill from .ai/skills
+    runner: codex                # optional: which agent runs this step
+  - id: verify
+    command: "npm test"          # exit 0 = pass
+    onFail: { retry: implement, max: 2 }
+```
 
-Pierwszy przyrost: **54 testy backendowych przykładów + 8 testów narzędzia porównania**, działające demo, typecheck, build, 48 testów core i 33 testy paczki CLI przeszły lokalnie. Pełny zestaw Vitest upstreamu nie był zielony — szczegółowe błędy i przekroczenie czasu są zapisane w [rejestrze zmian](docs/skorowidny-cezar/changes.md).
+The built-in `quick-task` workflow runs with no setup. A check can also be a
+browser: [browser and mobile e2e as a verification step](docs/e2e-verification.md)
+turns an agentic e2e run — or an independent QA exploration — into the gate a
+task has to pass.
 
-GitHub Actions pozostają wyłączone do osobnej konfiguracji. Obecność pliku workflow nie oznacza wykonanego CI ani opublikowania paczki npm.
+## Automations
 
-## Pochodzenie
+Turn repeatable work into an automation: check dependencies every morning, draft
+release notes on Fridays, or review each new pull request. Each match or scheduled
+occurrence launches an ordinary cezar task with the workflow and agent you choose.
 
-Projekt bazuje na [open-mercato/cezar](https://github.com/open-mercato/cezar). Oryginał dostarcza cockpit, CLI, uruchamianie agentów, worktree, workflow, integracje trackerów i pozostałą infrastrukturę. Nasze zmiany i ich status opisano wyżej oraz w [rejestrze zmian forka](docs/skorowidny-cezar/changes.md).
+Create one in **Automations**, or ask the agent to set it up from a prompt.
+Preview event filters before enabling them. The list shows triggers, upcoming
+runs and recent outcomes; pause an automation whenever you need to.
 
-[Oryginalne README z zapisanej bazy](https://github.com/open-mercato/cezar/blob/eb157816aac7e0d4676c007e2f7d14b397588784/README.md) · [LICENSE](LICENSE)
+[![Automation list: Triggers, next runs and recent task outcomes.](docs/screenshots/automations.png)](docs/screenshots/automations.png)
+
+## Task dispatch
+
+For independent pieces of work, an agent can dispatch child tasks — for example,
+changes in separate modules or a fresh review of a finished branch. Each child
+gets its own worktree, appears under its parent in the task list and reports back
+into the parent session.
+cezar limits a parent to four children in flight; when a parent has a budget,
+its children share that budget. Nothing auto-merges.
+
+## Documentation
+
+The [documentation site](docs/site/README.md) has searchable feature pages, step-by-step guides, and architecture diagrams. Run it locally with `npm run docs:dev`.
+
+Project lifecycle notifications are opt-in: run cezar with `CEZ_WEBHOOKS=1`, then open the project's **Settings → Webhooks**. See the [receiver guide](packages/cezar/docs/webhooks.md) for signed JSON, native Slack/Discord notifications, external automation receivers and delivery limits.
+
+The [reference](docs/reference.md) covers everything else:
+[configuration](docs/reference.md#configuration-optional),
+[environment variables](docs/reference.md#how-it-runs-agents),
+[agent backends](docs/reference.md#coding-agent-backends),
+[multiple projects](docs/reference.md#multiple-projects-one-cockpit),
+[the CLI and HTTP API](docs/reference.md#talking-to-a-running-cockpit),
+[remote access](docs/reference.md#remote-access-host-cezar-on-a-server) and
+[local development](docs/reference.md#local-development).
+
+## Contributing
+
+- Found a bug or missing something? [Open an issue](https://github.com/open-mercato/cezar/issues).
+- Want to contribute? PRs are welcome. See [local development](docs/reference.md#local-development) to get started:
+
+```bash
+git clone https://github.com/open-mercato/cezar.git && cd cezar
+npm install
+npm run dev
+```
+
+## License
+
+**MIT** © Patryk Lewczuk. Full text in [LICENSE](LICENSE).
+
+## Jira and Linear
+
+Connect a project issue tracker in Settings to browse issues, launch workflows and configure event automations. See [setup, permissions and recovery](docs/issue-trackers.md).
