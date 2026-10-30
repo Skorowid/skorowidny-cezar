@@ -1,3 +1,4 @@
+import { createScrumRoutes } from './scrum.ts';
 import { createWebhookRoutes } from './webhooks.ts';
 import { WebhookCoordinator } from '../webhooks/coordinator.ts';
 import { webhooksEnabled } from '../webhooks/service.ts';
@@ -7712,8 +7713,24 @@ export function createApp(deps: ServerDeps) {
       return c.json({ stopped: true });
     });
 
+  // SCRUM-LOCAL-01: keep provider policy and execution in the existing engine.
+  const scrumRoutes = createScrumRoutes(async (project, prompt, readOnly) => {
+    const { workflows } = await loadWorkflows(project.root);
+    const workflow = workflows.find(candidate => candidate.name === 'quick-task');
+    if (!workflow) throw new Error('The quick-task workflow is unavailable');
+    const runner = (await loadConfig(project.root)).defaultRunner ?? 'claude';
+    const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
+    if (blocked) throw new Error(blocked);
+    const run = project.manager.startRun(workflow, {
+      task: prompt, runner, readOnly, worktree: !readOnly,
+      autonomous: false, generateFollowups: false,
+    });
+    return { id: run.id };
+  });
+
   const v1 = new Hono<ProjectApiEnv>()
     .use('*', resolveProjectScope)
+    .route('/', scrumRoutes)
     .route('/', launchKeyRoutes)
     .route('/', skillsRoutes)
     .route('/', uiStateRoutes)

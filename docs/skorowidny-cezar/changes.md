@@ -1,4 +1,22 @@
-# Zmiany skorowidny-cezar
+# skorowidny-cezar changes
+
+## 2026-10-30 — native Scrum module in the cockpit (SCRUM-LOCAL-01)
+
+Added a project-local Scrum page to the cockpit (`/p/:projectId/scrum`, "Scrum" in the navigation) backed by a native API: `GET/PUT /api/v1/scrum` and `POST /api/v1/scrum/items/:id/launch`, also under `/api/v1/p/:projectId`. Contract: `packages/contract/src/scrum.ts`. Service: `packages/cezar/src/scrum/` (validation, locked atomic store, prompt) and `packages/cezar/src/server/scrum.ts`. UI: `packages/web/src/routes/scrum/`, `packages/web/src/api/scrum.ts`. Data stays private in `.ai/cezar/scrum/state.json`. Scope and limitations: [scrum-integration.md](scrum-integration.md). The cockpit's Scrum text is English.
+
+Launches reuse the existing engine (`quick-task`, the provider gate, `RunManager.startRun`): implementation in an isolated worktree, refinement read-only. Screenshots of the real page on synthetic data replaced the earlier prototype images: [screenshots](screenshots/README.md).
+
+### Verification
+
+The user asked to stop running test suites for this increment. `npm test`, `npm run test:unit`, `npm run test:package`, `npm run test:e2e` were NOT run after the Scrum code was added, and no new automated Scrum tests were written; the existing `scrum.test.tsx` and `nav-items.test.ts` were updated to the English text but not re-run.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (contract, client, server, web, release) | PASS |
+| `npm run build`, including `check:pack` | PASS — 1122 files, 174 under web/dist |
+| Manual API scenarios against the built server (sandbox `CEZ_HOME`, `CEZ_DRY_RUN=1`, synthetic data) | 23 of 24 PASS at first run; the one FAIL was the check reading a still-queued run, re-checked a few seconds later: the implementation run had worktree branch `cez/<id8>` and the refinement run `readOnly: true` without a worktree |
+
+Scenarios covered manually: empty state, save, stale revision 409, dangling dependency, dependency cycle, duplicate id, two active Sprints, Sprint over one month, invalid calendar date, Done without evidence, client-edited `runIds`, unknown field, implementation of a not-ready PBI 409, unknown PBI 404, two concurrent launches of one PBI (one 200, one 409), run linked to the PBI, implementation of a ready PBI, duplicate launch while the run is active 409, second project with independent state, corrupt file 503 on GET and PUT with the file left byte-identical, state surviving a server restart. Not covered: a refused agent start (the provider gate cannot refuse under `CEZ_DRY_RUN=1`); the code path writes nothing when the callback throws.
 
 ## 2026-10-30 — własne README i aktualne screeny
 
