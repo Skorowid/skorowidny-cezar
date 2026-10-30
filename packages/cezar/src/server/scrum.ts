@@ -1,15 +1,16 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import {
   SCRUM_CHAT_NOTICE_OUTCOMES, SCRUM_RUN_HISTORY_LIMIT, scrumChatMessageInputSchema, scrumItemParamsSchema, scrumLaunchInputSchema, scrumSaveInputSchema, scrumLaunchResponseSchema,
-  type ScrumChatDelivery, type ScrumChatLogEntry, type ScrumChatMessage, type ScrumChatView, type ScrumState,
+  type ScrumChatDelivery, type ScrumChatMessage, type ScrumChatView, type ScrumState,
 } from '@open-mercato/cezar-contract';
 import type { RunEvent, RunRecord } from '../runs/store.ts';
 import type { ProjectContext } from './project-context.ts';
 import { jsonZodValidator, paramZodValidator } from './validators.ts';
 import { ACTIVE_RUN_STATUSES, autoQueue, busyItemIds } from '../scrum/autoqueue.ts';
-import { appendLog, applyChatOps, chatMessages, emptyChatState, entry, parseTurnOps, turnsAfter, userTexts } from '../scrum/chat.ts';
+import { applyChatOps, chatMessages, emptyChatState, parseTurnOps, turnsAfter, userTexts } from '../scrum/chat.ts';
+import { deliverForwards, planForwards } from '../scrum/forward.ts';
 import { lastAttemptAt, planReadyItems, reportFailedRuns } from '../scrum/policy.ts';
-import { buildScrumChangeMessage, buildScrumPrompt, scrumChangeMarker } from '../scrum/prompt.ts';
+import { buildScrumPrompt } from '../scrum/prompt.ts';
 import { readScrumState, updateScrumState } from '../scrum/store.ts';
 import { implementationBlockers, keepServerOwned, runHistoryProblems, ScrumError, stateProblems } from '../scrum/validate.ts';
 
@@ -17,9 +18,9 @@ import { implementationBlockers, keepServerOwned, runHistoryProblems, ScrumError
  * Scrum route family (SCRUM-LOCAL-01, SCRUM-CHAT-01): `GET/PUT /scrum`,
  * `POST /scrum/items/:id/launch`, `GET /scrum/chat` and `POST /scrum/chat/messages`, mounted by
  * `server.ts` under the project scope. Execution and the chat thread stay in the existing engine:
- * the services are the caller's provider gate + `RunManager`, and a chat message — like a chat
- * change forwarded to an item's active run — travels the same live → queued → start-up →
- * Continue ladder as a message typed into any task.
+ * the services are the caller's provider gate + `RunManager`. A chat message travels the same
+ * live → queued → start-up → Continue ladder as a message typed into any task; a chat change
+ * forwarded to an item's active run goes through the durable outbox in `scrum/forward.ts`.
  *
  * @author Skorowid
  */
@@ -42,11 +43,15 @@ const noStore: MiddlewareHandler<ScrumEnv> = async (c, next) => {
 
 const MAX_VIEW_MESSAGES = 400;
 const RECONCILE_DELAY_MS = 250;
+/** Delivery passes for held changes: at most one per second per project, never postponed by a busy run. */
+const FORWARD_DELAY_MS = 1000;
 
 /** Thread and automatic run ids per data dir, so the listeners can ignore every other run cheaply. */
 const knownThreads = new Map<string, Set<string>>();
 const knownAutoRuns = new Map<string, Set<string>>();
+const knownForwardRuns = new Map<string, Set<string>>();
 const reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const forwardTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingSweeps = new Set<string>();
 const attached = new WeakSet<ProjectContext['store']>();
 
@@ -54,6 +59,7 @@ function remember(dataDir: string, state: ScrumState): void {
   const threads = state.chat?.threads.map(thread => thread.runId) ?? [];
   knownThreads.set(dataDir, new Set(threads));
   knownAutoRuns.set(dataDir, new Set(state.items.flatMap(item => item.autoRunId ? [item.autoRunId] : [])));
+  knownForwardRuns.set(dataDir, new Set((state.chat?.forwards ?? []).map(forward => forward.runId)));
 }
 
 const launcherFor = (services: ScrumServices, project: ProjectContext) =>
@@ -64,7 +70,7 @@ const launcherFor = (services: ScrumServices, project: ProjectContext) =>
  * executable. The cursor moves in the same atomic save as the operations it applied.
  */
 export async function reconcileScrumChat(project: ProjectContext, services: ScrumServices, sweep = false): Promise<ScrumState> {
-  const { state } = await updateScrumState(project.dataDir, null, async current => {
+  const { state: absorbed } = await updateScrumState(project.dataDir, null, async current => {
     remember(project.dataDir, current);
     let next = current;
     let changed = false;
@@ -87,9 +93,8 @@ export async function reconcileScrumChat(project: ProjectContext, services: Scru
         });
         origin = { runId: thread.id, turnSeq: turn.seq };
         next = planReadyItems(applied.state, applied.becameReady, applied.plannedExplicitly, origin);
-        for (const [itemId, quotes] of applied.changedBusy) {
-          next = appendLog(next, await forwardChange(project, services, next, itemId, quotes, origin));
-        }
+        // Q1: recorded in this save, delivered by the pass below — never handed over before it is durable.
+        for (const [itemId, quotes] of applied.changedBusy) next = planForwards(next, project.store, itemId, quotes, origin);
         next = { ...next, chat: { ...(next.chat ?? emptyChatState()), cursor: { runId: thread.id, seq: turn.seq } } };
         changed = true;
       }
@@ -105,49 +110,30 @@ export async function reconcileScrumChat(project: ProjectContext, services: Scru
     if (changed) remember(project.dataDir, next);
     return { state: next, result: undefined, unchanged: !changed };
   });
+  // A busy lock only delays delivery: the outbox is already saved and the next pass picks it up.
+  return absorbed.chat?.forwards?.length ? deliverScrumForwards(project, services).catch(() => absorbed) : absorbed;
+}
+
+/** Q1: one delivery pass over the changes still on their way to active runs (`scrum/forward.ts`). */
+export async function deliverScrumForwards(project: ProjectContext, services: ScrumServices): Promise<ScrumState> {
+  const { state } = await updateScrumState(project.dataDir, null, async current => {
+    const delivered = await deliverForwards(current, {
+      dataDir: project.dataDir, store: project.store, manager: project.manager, runBlocked: run => services.runBlocked(project, run),
+    });
+    if (!delivered.unchanged) remember(project.dataDir, delivered.state);
+    return { state: delivered.state, result: undefined, unchanged: delivered.unchanged };
+  });
   return state;
 }
 
-/**
- * Q1: send one turn's change of an item to each of its queued, running or waiting runs. The
- * message carries a change id derived from the turn, so a reconcile replayed after a lost save
- * finds it in the run and does not send it twice. Every outcome is logged as it really happened.
- */
-async function forwardChange(
-  project: ProjectContext, services: ScrumServices, state: ScrumState, itemId: string, quotes: readonly string[],
-  origin: { runId: string; turnSeq: number },
-): Promise<ScrumChatLogEntry[]> {
-  const item = state.items.find(entry => entry.id === itemId);
-  if (!item) return [];
-  const changeId = `${origin.runId}:${origin.turnSeq}:${itemId}`;
-  const marker = scrumChangeMarker(changeId);
-  const text = buildScrumChangeMessage(state, item, quotes, changeId);
-  const quote = quotes.join(' / ').slice(0, 2000);
-  const log = (outcome: 'forwarded' | 'forward-failed', detail: string) => entry(origin, 'forward', outcome, detail, quote, itemId);
-  const runs = item.runIds.map(id => project.store.getRun(id)).filter((run): run is RunRecord => run !== undefined && ACTIVE_RUN_STATUSES.has(run.status));
-  if (!runs.length) return [log('forward-failed', `The change to "${item.title}" was not sent: its run settled first. The backlog holds the updated item for the next attempt.`)];
-  const results: ScrumChatLogEntry[] = [];
-  for (const run of runs) {
-    const label = `run ${run.id.slice(0, 8)}`;
-    const seen = (run.queuedMessages ?? []).some(message => message.text.includes(marker))
-      || project.store.readEvents(run.id).some(event => event.type === 'user-message' && typeof event.text === 'string' && event.text.includes(marker));
-    if (seen) { results.push(log('forwarded', `The change to "${item.title}" had already reached ${label}; not sent again.`)); continue; }
-    const blocked = run.status === 'queued' ? undefined : await services.runBlocked(project, run).catch(error => String(error));
-    if (blocked) { results.push(log('forward-failed', `The change to "${item.title}" was NOT sent to ${label}: ${blocked}. That agent still works from the previous requirements.`)); continue; }
-    const sent = deliverText(project, run, text);
-    results.push('delivery' in sent
-      ? log('forwarded', `The change to "${item.title}" was sent to ${label} (${DELIVERY_WORDS[sent.delivery]}).`)
-      : log('forward-failed', `The change to "${item.title}" was NOT sent to ${label}: ${sent.error}. That agent still works from the previous requirements.`));
-  }
-  return results;
+/** A held change is retried when its run moves; one pending timer, so a streaming run cannot starve it. */
+function scheduleForwards(project: ProjectContext, services: ScrumServices): void {
+  if (forwardTimers.has(project.dataDir)) return;
+  forwardTimers.set(project.dataDir, setTimeout(() => {
+    forwardTimers.delete(project.dataDir);
+    void deliverScrumForwards(project, services).catch(() => undefined);
+  }, FORWARD_DELAY_MS));
 }
-
-const DELIVERY_WORDS: Record<'delivered' | 'queued' | 'deferred' | 'resumed', string> = {
-  delivered: 'delivered into its live session',
-  queued: 'added to its queued prompt',
-  deferred: 'buffered until its session opens',
-  resumed: 'its session was resumed with it',
-};
 
 function scheduleReconcile(project: ProjectContext, services: ScrumServices, sweep = false): void {
   clearTimeout(reconcileTimers.get(project.dataDir));
@@ -170,10 +156,12 @@ export function attachScrumChat(project: ProjectContext, services: ScrumServices
   attached.add(project.store);
   const listener = ({ runId, event }: { runId: string; event: RunEvent }) => {
     if (event.type === 'turn-end' && knownThreads.get(project.dataDir)?.has(runId)) scheduleReconcile(project, services);
+    if (knownForwardRuns.get(project.dataDir)?.has(runId)) scheduleForwards(project, services);
   };
   // Q2: a failed automatic attempt is reported in the conversation even when no Scrum page is open.
   const runListener = (run: RunRecord) => {
     if (run.status === 'failed' && knownAutoRuns.get(project.dataDir)?.has(run.id)) scheduleReconcile(project, services);
+    if (knownForwardRuns.get(project.dataDir)?.has(run.id)) scheduleForwards(project, services);
   };
   project.store.on('event', listener);
   project.store.on('run', runListener);
@@ -185,6 +173,8 @@ export function attachScrumChat(project: ProjectContext, services: ScrumServices
     attached.delete(project.store);
     clearTimeout(reconcileTimers.get(project.dataDir));
     reconcileTimers.delete(project.dataDir);
+    clearTimeout(forwardTimers.get(project.dataDir));
+    forwardTimers.delete(project.dataDir);
   };
 }
 

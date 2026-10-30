@@ -92,13 +92,15 @@ export const scrumNoteSchema = z.strictObject({
 export type ScrumNote = z.infer<typeof scrumNoteSchema>;
 
 /**
- * `forwarded`/`forward-failed`: a chat change to an item with an active run, and whether it reached
- * that run (Q1). `run-failed`: an automatic attempt failed and is not retried by itself (Q2).
+ * A chat change to an item with an active run (Q1): `forward-pending` — recorded durably, not yet
+ * received by the agent (held, or waiting in the run's queued prompt); `forwarded` — confirmed in
+ * the run's transcript or opening prompt; `forward-failed` — it will not reach that run.
+ * `run-failed`: an automatic attempt failed and is not retried by itself (Q2).
  * `question`: cezar needs the user's answer, e.g. no active Sprint for a READY item (Q4).
  */
-export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forwarded', 'forward-failed', 'run-failed', 'question']);
+export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question']);
 /** Outcomes the conversation shows inline as cezar's own notices. */
-export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forwarded', 'forward-failed', 'run-failed', 'question'];
+export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question'];
 export type ScrumChatOutcome = z.infer<typeof scrumChatOutcomeSchema>;
 
 /** One backlog operation the chat agent asked for, or one automatic queue action, and its result. */
@@ -118,9 +120,35 @@ export type ScrumChatLogEntry = z.infer<typeof scrumChatLogEntrySchema>;
 /** Most log entries kept; older ones fall off (item/Sprint provenance stays). */
 export const SCRUM_CHAT_LOG_LIMIT = 500;
 
+/** Longest forwarded change: the engine's one-turn message limit (`MAX_MESSAGE_TEXT_CHARS`). */
+export const SCRUM_FORWARD_TEXT_LIMIT = 100_000;
+/** Most forwarded changes waiting for delivery at once; a change past it is refused, never dropped silently. */
+export const SCRUM_FORWARD_LIMIT = 50;
+
+/**
+ * SCRUM-CHAT-01 Q1 outbox entry: one accepted chat change for one active run, written to
+ * `state.json` before any delivery is tried. `pending`: nothing handed to the engine yet;
+ * `queued`: stacked onto the still-queued run's prompt, not yet received. Removed once the change
+ * is confirmed delivered or has failed (the outcome stays in `log`).
+ */
+export const scrumForwardSchema = z.strictObject({
+  changeId: text(200),
+  itemId: id,
+  runId: id,
+  text: z.string().max(SCRUM_FORWARD_TEXT_LIMIT),
+  quote: text(2000),
+  origin: z.strictObject({ runId: id, turnSeq: z.number().int().nonnegative() }),
+  createdAt: z.iso.datetime({ offset: true }),
+  status: z.enum(['pending', 'queued']),
+  /** Why it has not been received yet. */
+  detail: text(2000),
+});
+export type ScrumForward = z.infer<typeof scrumForwardSchema>;
+
 /**
  * SCRUM-CHAT-01, server-owned: the project's Scrum chat thread (a real agent run resumed through
- * Continue), the turn the backlog has absorbed up to, and recent client message ids for retries.
+ * Continue), the turn the backlog has absorbed up to, recent client message ids for retries, and
+ * chat changes still on their way to active runs.
  */
 export const scrumChatStateSchema = z.strictObject({
   threadRunId: id.nullable(),
@@ -128,6 +156,7 @@ export const scrumChatStateSchema = z.strictObject({
   cursor: z.strictObject({ runId: id, seq: z.number().int().nonnegative() }).nullable(),
   messageIds: z.array(id).max(100),
   log: z.array(scrumChatLogEntrySchema).max(SCRUM_CHAT_LOG_LIMIT),
+  forwards: z.array(scrumForwardSchema).max(SCRUM_FORWARD_LIMIT).optional(),
 });
 export type ScrumChatState = z.infer<typeof scrumChatStateSchema>;
 
