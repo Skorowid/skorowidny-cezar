@@ -1,0 +1,221 @@
+{
+  "example": "skorowidny-scrum backend (standalone, sample policy)",
+  "now": "2026-10-30T12:00:00+00:00",
+  "steps": [
+    {
+      "step": "explain SPR-1",
+      "result": {
+        "PBI-101": [],
+        "PBI-102": [
+          "dependency_not_done=PBI-101"
+        ],
+        "PBI-103": [
+          "dor_status=BLOCKED"
+        ],
+        "PBI-104": [
+          "not_approved"
+        ],
+        "PBI-105": [
+          "dor_status=NEEDS CLARIFICATION",
+          "not_approved"
+        ],
+        "PBI-106": [],
+        "PBI-107": [],
+        "PBI-108": [],
+        "PBI-109": [
+          "dor_status=CHANGE REQUEST",
+          "not_approved"
+        ]
+      }
+    },
+    {
+      "step": "claim_next demo-run-1",
+      "result": {
+        "claim_id": "3b35e884-eb71-4e61-9b13-5a959e393e2a",
+        "task_id": "PBI-101",
+        "run_id": "demo-run-1",
+        "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+        "expires_at": "2026-10-30T12:15:00.000000+00:00",
+        "status": "active",
+        "reused": false,
+        "note": null
+      }
+    },
+    {
+      "step": "repeat claim_next demo-run-1",
+      "result": {
+        "claim_id": "3b35e884-eb71-4e61-9b13-5a959e393e2a",
+        "task_id": "PBI-101",
+        "run_id": "demo-run-1",
+        "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+        "expires_at": "2026-10-30T12:15:00.000000+00:00",
+        "status": "active",
+        "reused": true,
+        "note": null
+      }
+    },
+    {
+      "step": "context",
+      "result": {
+        "generator": "example-context/2",
+        "task": {
+          "id": "PBI-101",
+          "version": 3,
+          "title": "Sample: write CSV header",
+          "dor_status": "READY",
+          "approved": true,
+          "acceptance": [
+            "Header row equals REQ-001 v2 columns"
+          ]
+        },
+        "sprint": {
+          "id": "SPR-1",
+          "goal": "SAMPLE goal: export a synthetic backlog as CSV",
+          "status": "active"
+        },
+        "dependencies": [],
+        "documents": [
+          {
+            "doc_id": "DEC-001",
+            "version": 1,
+            "status": "approved",
+            "title": "Sample source of truth",
+            "summary": "The local SQLite file is the source of truth for this example.",
+            "body_sha256": "de04976010d300410835c55bd4138c74b3fccf2b349ebe690152d1f92a9a9490"
+          },
+          {
+            "doc_id": "REQ-001",
+            "version": 2,
+            "status": "approved",
+            "title": "Sample export scope",
+            "summary": "Export id, title and status columns of the sample backlog.",
+            "body_sha256": "01ff4c22f9376c8a4078335ed4e4c23bd831f8890ace3bba7ad26144ecdc7c83"
+          }
+        ],
+        "omitted": [
+          "documents.body"
+        ],
+        "context_key": "e4e0a6d6c670be062832d4679ca07fa78f5241dbddd0568fa1dfaf90ae24117f"
+      }
+    },
+    {
+      "step": "complete",
+      "result": {
+        "claim_id": "3b35e884-eb71-4e61-9b13-5a959e393e2a",
+        "task_id": "PBI-101",
+        "run_id": "demo-run-1",
+        "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+        "expires_at": "2026-10-30T12:15:00.000000+00:00",
+        "status": "completed",
+        "reused": false,
+        "note": null
+      }
+    },
+    {
+      "step": "claim_next demo-run-2",
+      "result": {
+        "claim_id": "0081777e-3236-4519-91a1-938045fce8ff",
+        "task_id": "PBI-102",
+        "run_id": "demo-run-2",
+        "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+        "expires_at": "2026-10-30T12:15:00.000000+00:00",
+        "status": "active",
+        "reused": false,
+        "note": null
+      }
+    },
+    {
+      "step": "expired claims",
+      "result": [
+        {
+          "claim_id": "0081777e-3236-4519-91a1-938045fce8ff",
+          "task_id": "PBI-102",
+          "run_id": "demo-run-2",
+          "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+          "expires_at": "2026-10-30T12:15:00.000000+00:00",
+          "status": "active",
+          "reused": false,
+          "note": null
+        }
+      ]
+    },
+    {
+      "step": "recover_expired",
+      "result": {
+        "claim_id": "0081777e-3236-4519-91a1-938045fce8ff",
+        "task_id": "PBI-102",
+        "run_id": "demo-run-2",
+        "claimed_at": "2026-10-30T12:00:00.000000+00:00",
+        "expires_at": "2026-10-30T12:15:00.000000+00:00",
+        "status": "recovered",
+        "reused": false,
+        "note": "SAMPLE: run lost; leftover branch to be verified by a human"
+      }
+    },
+    {
+      "step": "claim_next demo-run-3",
+      "result": {
+        "claim_id": "3ab116c5-0e62-4e52-bf44-3d532a3f33aa",
+        "task_id": "PBI-102",
+        "run_id": "demo-run-3",
+        "claimed_at": "2026-10-30T12:15:01.000000+00:00",
+        "expires_at": "2026-10-30T12:30:01.000000+00:00",
+        "status": "active",
+        "reused": false,
+        "note": null
+      }
+    },
+    {
+      "step": "context PBI-106",
+      "result": {
+        "error": "StaleContextError",
+        "message": "task PBI-106 references REQ-002 v1; latest approved is v2"
+      }
+    },
+    {
+      "step": "calc sum",
+      "result": {
+        "rule_id": "SAMPLE-SUM-HOURS",
+        "rule_version": 1,
+        "operation": "sum",
+        "inputs": {
+          "values": [
+            "0.125",
+            "0.5"
+          ]
+        },
+        "unrounded": "0.625",
+        "inexact": false,
+        "precision": 50,
+        "result": "0.62",
+        "quantum": "0.01",
+        "rounding": "ROUND_HALF_EVEN",
+        "warnings": [
+          "rounded 0.625 -> 0.62 using ROUND_HALF_EVEN to 0.01"
+        ]
+      }
+    },
+    {
+      "step": "calc percent",
+      "result": {
+        "rule_id": "SAMPLE-PERCENT-DONE",
+        "rule_version": 1,
+        "operation": "percent_of",
+        "inputs": {
+          "part": "1",
+          "whole": "3"
+        },
+        "unrounded": "33.333333333333333333333333333333333333333333333333",
+        "inexact": true,
+        "precision": 50,
+        "result": "33.3",
+        "quantum": "0.1",
+        "rounding": "ROUND_HALF_UP",
+        "warnings": [
+          "intermediate result rounded to 50 significant digits (precision loss)",
+          "rounded 33.333333333333333333333333333333333333333333333333 -> 33.3 using ROUND_HALF_UP to 0.1"
+        ]
+      }
+    }
+  ]
+}

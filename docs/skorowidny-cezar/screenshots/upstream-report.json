@@ -1,0 +1,191 @@
+{
+  "baseline": "eb157816aac7e0d4676c007e2f7d14b397588784",
+  "upstream": "3a60bb0319628eda7867ae2854d2f30703c9df60",
+  "fork": "56ecd741639161017e707cff56fa60a4ae17574e",
+  "upstream_commit_count": 4,
+  "incoming_commits": [
+    "3a60bb03 fix(web): stop panel drag highlights flickering (#1556) (#1830)",
+    "2cbea21a fix(opencode): don't count the cost stamped on a usage-limit rejection (#1756) (#1828)",
+    "a7a06932 fix(telemetry): classify 402 credit errors and Claude's N-hour limit as account state (#1581) (#1827)",
+    "9cc76cba fix(desktop): keep the agent clone path stable so macOS privacy grants survive updates (#1696) (#1822)"
+  ],
+  "commits_truncated": false,
+  "upstream_changes": [
+    {
+      "path": "packages/cezar/src/core/__fixtures__/opencode/mock-opencode-serve.mjs",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/agent-failure-class.test.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/agent-failure-class.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/disclaim-spawn.test.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/disclaim-spawn.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/opencode-server-runner.test.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/opencode-server-runner.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/usage-limit.test.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/core/usage-limit.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/cezar/src/runs/agent-error-telemetry.test.ts",
+      "category": "backend"
+    },
+    {
+      "path": "packages/web/src/routes/task-workspace/layout-cards.tsx",
+      "category": "presentation"
+    },
+    {
+      "path": "packages/web/src/routes/task-workspace/use-drag-hover.ts",
+      "category": "presentation"
+    },
+    {
+      "path": "packages/web/src/routes/task-workspace/view-drop-zones.test.tsx",
+      "category": "presentation"
+    },
+    {
+      "path": "packages/web/src/routes/task-workspace/view-drop-zones.tsx",
+      "category": "presentation"
+    },
+    {
+      "path": "packages/web/src/routes/task-workspace/workspace-columns.tsx",
+      "category": "presentation"
+    }
+  ],
+  "fork_changes": [
+    {
+      "path": ".github/workflows/skorowidny-foundation.yml",
+      "category": "shared-infrastructure"
+    },
+    {
+      "path": "README.md",
+      "category": "shared-infrastructure"
+    },
+    {
+      "path": "docs/skorowidny-cezar/changes.md",
+      "category": "fork-addition"
+    },
+    {
+      "path": "docs/skorowidny-cezar/project-note.md",
+      "category": "fork-addition"
+    },
+    {
+      "path": "docs/skorowidny-cezar/scrum-concept.md",
+      "category": "fork-addition"
+    },
+    {
+      "path": "docs/skorowidny-cezar/upstream-maintenance.md",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/.gitignore",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/README.md",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/fixtures/sample_backlog.json",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/fixtures/sample_rules.json",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/__init__.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/calc.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/context.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/demo.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/errors.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/fixtures.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/skorowidny_scrum_example/store.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/__init__.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/helpers.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/test_calc.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/test_context.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/test_fixtures_and_demo.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/test_review_regressions.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "examples/skorowidny-scrum/backend/tests/test_store.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "fork/.gitignore",
+      "category": "fork-addition"
+    },
+    {
+      "path": "fork/tools/test_upstream_report.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "fork/tools/upstream_report.py",
+      "category": "fork-addition"
+    },
+    {
+      "path": "fork/upstream.json",
+      "category": "fork-addition"
+    }
+  ],
+  "overlapping_paths": [],
+  "warning": "Path overlap is a review hint, not a merge simulation or proof of compatibility. Review contract, lockfile and UI dependencies even without overlap."
+}
