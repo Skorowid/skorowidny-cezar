@@ -10,6 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrumChat } from './scrum-chat'
+import { CoordinatorSettings, ReadinessPanel, UNCERTAIN_ESTIMATE, formatMinutes } from './scrum-coordinator'
+import { ScrumDocuments } from './scrum-documents'
+import { ScrumWorkPanel } from './scrum-work'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-card px-2 text-sm'
 const dorStatuses = ['NEEDS CLARIFICATION', 'READY', 'BLOCKED', 'CHANGE REQUEST'] as const
@@ -27,6 +30,15 @@ function LinesInput({ value, onChange, rows = 3 }: { value: string[]; onChange: 
   return <Textarea rows={rows} value={raw} onChange={event => { setRaw(event.target.value); onChange(lines(event.target.value)) }} />
 }
 
+/** The Sprint's forecast from what is estimated, and how much is not; a sum of uncertain numbers stays uncertain. */
+function SprintEstimate({ items }: { items: ScrumItem[] }) {
+  const estimated = items.filter(row => row.estimate)
+  if (!items.length) return null
+  const base = estimated.reduce((sum, row) => sum + (row.estimate?.baseMinutes ?? 0), 0)
+  const buffered = estimated.reduce((sum, row) => sum + (row.estimate?.bufferedMinutes ?? 0), 0)
+  return <p className="text-sm">Forecast for {estimated.length} of {items.length} items: base {formatMinutes(base)} · ×3 buffered {formatMinutes(buffered)}. <span className="text-xs text-soft-foreground">{UNCERTAIN_ESTIMATE}</span></p>
+}
+
 export function ScrumRoute() {
   const scope = useProjectScope()
   const queryClient = useQueryClient()
@@ -39,7 +51,7 @@ export function ScrumRoute() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [tab, setTab] = useState<'backlog' | 'sprints' | 'notes' | 'product'>('backlog')
+  const [tab, setTab] = useState<'readiness' | 'backlog' | 'documents' | 'agents' | 'sprints' | 'notes' | 'product'>('backlog')
   const [selected, setSelected] = useState<string | null>(null)
   const [noteBody, setNoteBody] = useState('')
   const [noteKind, setNoteKind] = useState<ScrumNote['kind']>('general')
@@ -112,12 +124,15 @@ export function ScrumRoute() {
         <div className="rounded-xl border border-border bg-card p-4"><p className="text-xs text-soft-foreground">Product Backlog</p><p className="mt-1 text-xl font-semibold">{draft.items.length} PBI <span className="text-sm font-normal text-soft-foreground">· {draft.items.filter(x => x.dorStatus === 'READY').length} READY · {draft.items.filter(x => x.deliveryStatus === 'done').length} Done</span></p></div>
       </section>
       <ScrumChat onState={onChatState} />
-      <nav aria-label="Scrum views" className="flex flex-wrap gap-2">{([['backlog', 'Backlog'], ['sprints', 'Sprints'], ['notes', 'Notebook'], ['product', 'Product settings']] as const).map(([value, title]) => <Button key={value} variant={tab === value ? 'primary' : 'outline'} aria-pressed={tab === value} onClick={() => setTab(value)}>{title}</Button>)}</nav>
+      {tab === 'readiness' && <ReadinessPanel state={query.data ?? draft} />}
+      {tab === 'documents' && <ScrumDocuments state={query.data ?? draft} onState={onChatState} />}
+      {tab === 'agents' && <ScrumWorkPanel state={query.data ?? draft} onState={onChatState} />}
+      <nav aria-label="Scrum views" className="flex flex-wrap gap-2">{([['readiness', 'Readiness'], ['backlog', 'Backlog'], ['documents', 'Documents'], ['agents', 'Agents and results'], ['sprints', 'Sprints'], ['notes', 'Notebook'], ['product', 'Product settings']] as const).map(([value, title]) => <Button key={value} variant={tab === value ? 'primary' : 'outline'} aria-pressed={tab === value} onClick={() => setTab(value)}>{title}</Button>)}</nav>
       <fieldset disabled={busy} className="min-w-0">
         {tab === 'backlog' && <div className="grid items-start gap-5 lg:grid-cols-[minmax(230px,1fr)_minmax(0,2fr)]">
           <section className="grid gap-3">
-            {draft.items.length === 0 && <p className="rounded-xl border border-dashed border-border p-5 text-sm text-soft-foreground">The backlog is empty. Describe the work to the Scrum assistant above; it records items, asks for what is missing and splits complex work into tasks.</p>}
-            {[...draft.items].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id)).map(row => <button key={row.id} onClick={() => setSelected(row.id)} className={`rounded-xl border p-4 text-left ${item?.id === row.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}><p className="text-xs text-soft-foreground">#{row.priority} · {row.dorStatus}{row.group ? ` · ${row.group}` : ''}</p><p className="mt-1 font-medium">{row.title}</p><p className="mt-2 text-xs text-soft-foreground">{row.deliveryStatus} · {row.runIds.length} runs · {row.questions.length} questions{row.autoRunId ? ' · queued automatically' : ''}</p></button>)}
+            {draft.items.length === 0 && <p className="rounded-xl border border-dashed border-border p-5 text-sm text-soft-foreground">The backlog is empty. Describe your product to the coordinator above; it asks what it needs, prepares the documents for your approval and then splits the work into tasks.</p>}
+            {[...draft.items].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id)).map(row => <button key={row.id} onClick={() => setSelected(row.id)} className={`rounded-xl border p-4 text-left ${item?.id === row.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}><p className="text-xs text-soft-foreground">#{row.priority} · {row.dorStatus}{row.group ? ` · ${row.group}` : ''}</p><p className="mt-1 font-medium">{row.title}</p><p className="mt-2 text-xs text-soft-foreground">{row.deliveryStatus} · {row.runIds.length} runs · {row.questions.length} questions{row.autoRunId ? ' · queued automatically' : ''}</p>{row.estimate && <p className="mt-1 text-xs text-soft-foreground">Estimate {formatMinutes(row.estimate.baseMinutes)} · ×3 buffered {formatMinutes(row.estimate.bufferedMinutes)} (uncertain)</p>}</button>)}
           </section>
           {item ? <section className="grid gap-4 rounded-xl border border-border bg-card p-5" aria-label="Edit PBI">
             <Field title="PBI title"><Input value={item.title} onChange={e => changeItem(item.id, { title: e.target.value })} /></Field>
@@ -130,6 +145,10 @@ export function ScrumRoute() {
             <Field title="Delivery status"><select className={selectClass} value={item.deliveryStatus} onChange={e => changeItem(item.id, { deliveryStatus: e.target.value as ScrumItem['deliveryStatus'] })}><option value="open">Open</option><option value="in_progress">In progress</option><option value="done">Done — confirmed</option></select></Field>
             <Field title="Definition of Done evidence"><Textarea rows={3} placeholder="Check results, review and links to the usable Increment" value={item.doneEvidence} onChange={e => changeItem(item.id, { doneEvidence: e.target.value })} /></Field>
             <div className="rounded-lg bg-muted p-3 text-sm"><strong>Definition of Done</strong><p className="mt-1 whitespace-pre-wrap">{draft.definitionOfDone || 'Set it in product settings.'}</p></div>
+            <div className="rounded-lg bg-muted p-3 text-sm" aria-label="Estimate"><strong>Estimate</strong>{item.estimate
+              ? <><p className="mt-1">Base {formatMinutes(item.estimate.baseMinutes)} · ×3 buffered {formatMinutes(item.estimate.bufferedMinutes)}</p>{item.estimate.rationale && <p className="mt-1 text-xs text-soft-foreground">{item.estimate.rationale}</p>}<p className="mt-1 text-xs text-soft-foreground">{UNCERTAIN_ESTIMATE}</p></>
+              : <p className="mt-1 text-soft-foreground">Not estimated yet. Ask the coordinator.</p>}</div>
+            {item.traces && item.traces.length > 0 && <div className="rounded-lg bg-muted p-3 text-sm"><strong>Requirements it implements</strong><ul className="mt-1 grid gap-1">{item.traces.map(trace => { const document = draft.documents?.find(entry => entry.id === trace.documentId); return <li key={`${trace.documentId}-${trace.version}`}>{document?.code ?? trace.documentId} v{trace.version}{trace.section ? ` § ${trace.section}` : ''}{document && document.approval?.version !== trace.version ? ' — not the approved version' : ''}</li> })}</ul></div>}
             {item.autoQueue && <p className="rounded-lg bg-muted p-3 text-sm">{item.autoRunId ? <>Latest automatic attempt: run <Link className="text-primary underline" to={`/tasks/${item.autoRunId}`}>{item.autoRunId.slice(0, 8)}</Link>. A failed attempt is not retried by itself; ask for another one in the chat.</> : 'Created in the Scrum chat: it is queued for a free agent automatically as soon as it is executable.'}{item.autoRetry && ' Another attempt was requested in the chat; it starts as soon as the item is executable.'}</p>}
             {item.provenance && item.provenance.length > 0 && <details className="text-sm"><summary className="cursor-pointer text-soft-foreground">Chat decisions behind this item ({item.provenance.length})</summary><ul className="mt-2 grid gap-1">{item.provenance.map((source, index) => <li key={index} className="rounded-md bg-muted p-2">“{source.quote}” <span className="text-xs text-soft-foreground">· {new Date(source.at).toLocaleString()} · thread {source.runId.slice(0, 8)}</span></li>)}</ul></details>}
             <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={dirty} onClick={() => void launch(item, 'refine')}><SparklesIcon className="size-4" /> BA refinement</Button><Button variant="outline" disabled={dirty} onClick={() => void launch(item, 'implement')}><PlayIcon className="size-4" /> Start another attempt</Button></div>
@@ -138,12 +157,13 @@ export function ScrumRoute() {
             <p className="text-xs text-soft-foreground">A finished run does not mean Done. Check the result against the Definition of Done.</p>
           </section> : <div className="rounded-xl border border-dashed border-border p-8 text-sm text-soft-foreground">Select a backlog item.</div>}
         </div>}
-        {tab === 'sprints' && <section className="grid gap-5"><div><Button onClick={() => edit({ ...draft, sprints: [...draft.sprints, { id: crypto.randomUUID(), name: 'New Sprint', goal: '', startsOn: '', endsOn: '', status: 'planned', itemIds: [] }] })}>Plan a Sprint</Button><p className="mt-2 text-sm text-soft-foreground">Agree the goal, dates and plan with the Developers. A Sprint lasts at most one month and only one can be active. Dates are not chosen for the team; set both before saving.</p></div>
+        {tab === 'sprints' && <section className="grid gap-5"><div><Button onClick={() => edit({ ...draft, sprints: [...draft.sprints, { id: crypto.randomUUID(), name: 'New Sprint', goal: '', startsOn: '', endsOn: '', status: 'planned', itemIds: [] }] })}>Plan a Sprint</Button><p className="mt-2 text-sm text-soft-foreground">A Sprint lasts at most one month and only one can be active. The coordinator may plan goals and dates by itself only inside the limits you agreed with it in the chat{draft.product?.planning ? ` (now: at most ${draft.product.planning.maxSprintDays} days, from ${draft.product.planning.earliestStart}${draft.product.planning.latestEnd ? ` to ${draft.product.planning.latestEnd}` : ''}, ${draft.product.planning.mayActivate ? 'may activate' : 'may not activate'})` : ' (none agreed yet)'}. You can also plan here; set both dates before saving.</p></div>
           {draft.sprints.map(sprint => <article key={sprint.id} className="grid gap-4 rounded-xl border border-border bg-card p-5">
             <div className="grid gap-3 sm:grid-cols-2"><Field title="Sprint name"><Input value={sprint.name} onChange={e => changeSprint(sprint.id, { name: e.target.value })} /></Field><Field title="Sprint status"><select className={selectClass} value={sprint.status} onChange={e => changeSprint(sprint.id, { status: e.target.value as ScrumSprint['status'] })}><option value="planned">Planned</option><option value="active">Active</option><option value="closed">Closed</option><option value="cancelled">Cancelled by the PO</option></select></Field></div>
             <Field title="Sprint Goal"><Textarea value={sprint.goal} onChange={e => changeSprint(sprint.id, { goal: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-2"><Field title="Starts on"><Input type="date" required value={sprint.startsOn} onChange={e => changeSprint(sprint.id, { startsOn: e.target.value })} /></Field><Field title="Ends on"><Input type="date" required value={sprint.endsOn} onChange={e => changeSprint(sprint.id, { endsOn: e.target.value })} /></Field></div>
             <Field title="Sprint Backlog — the Developers' plan"><div className="grid gap-2">{draft.items.map(row => <label key={row.id} className="flex items-center gap-2 rounded-md bg-muted p-2 text-sm"><input type="checkbox" checked={sprint.itemIds.includes(row.id)} onChange={e => changeSprint(sprint.id, { itemIds: e.target.checked ? [...sprint.itemIds, row.id] : sprint.itemIds.filter(x => x !== row.id) })} />{row.title}<span className="ml-auto text-xs text-soft-foreground">{row.deliveryStatus}</span></label>)}</div></Field>
+            <SprintEstimate items={draft.items.filter(row => sprint.itemIds.includes(row.id))} />
             <p className="text-xs text-soft-foreground">A closed Sprint keeps its plan for inspection. Unfinished PBIs return to the Product Backlog for reconsideration; they do not move to the next Sprint automatically.</p>
           </article>)}
         </section>}
@@ -155,6 +175,7 @@ export function ScrumRoute() {
           <p className="text-xs text-soft-foreground">The notebook records the team's work. Saving a note does not approve requirements or replace a Scrum event.</p>
         </form>{[...draft.notes].reverse().map(note => <article key={note.id} className="rounded-xl border border-border bg-card p-5"><p className="text-xs text-soft-foreground">{noteLabels[note.kind]} · {new Date(note.createdAt).toLocaleString()} {note.itemId && `· ${draft.items.find(x => x.id === note.itemId)?.title ?? note.itemId}`} {note.sprintId && `· ${draft.sprints.find(x => x.id === note.sprintId)?.name ?? note.sprintId}`}</p><p className="mt-3 whitespace-pre-wrap text-sm">{note.body}</p></article>)}</section>}
         {tab === 'product' && <section className="grid max-w-3xl gap-5 rounded-xl border border-border bg-card p-5"><Field title="Product Goal"><Textarea rows={5} value={draft.productGoal} onChange={e => edit({ ...draft, productGoal: e.target.value })} /></Field><Field title="Definition of Done"><Textarea rows={6} value={draft.definitionOfDone} onChange={e => edit({ ...draft, definitionOfDone: e.target.value })} /></Field><Field title="Guidelines for every task"><Textarea rows={5} value={draft.guidelines ?? ''} onChange={e => edit({ ...draft, guidelines: e.target.value })} /></Field><p className="text-sm text-soft-foreground">The Product Owner is accountable for the Product Goal and Product Backlog order. The Developers create and adapt the Sprint plan. The Scrum Master supports the effectiveness of the process. AI does not take over business decisions.</p></section>}
+        {tab === 'product' && <div className="mt-5 max-w-3xl"><CoordinatorSettings /></div>}
       </fieldset>
     </div>
   </div>
