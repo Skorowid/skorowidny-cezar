@@ -8,6 +8,7 @@ import { useProjectScope } from '@/api/project-scope-context'
 import { Link } from '@/lib/project-router'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Markdown } from '@/routes/task-thread/markdown'
 
 const LIVE = new Set(['queued', 'running'])
 const outcomeLabel: Record<ScrumChatLogEntry['outcome'], string> = {
@@ -73,8 +74,8 @@ export function ScrumChat({ onState }: { onState: (state: ScrumState) => void })
         ? <div key={`${message.seq}-${index}`} role="note" className="mx-auto max-w-[90%] whitespace-pre-wrap rounded-lg border border-border px-3 py-2 text-xs text-soft-foreground">
           <p className="mb-1 text-[11px] font-medium">cezar</p>{message.text}
         </div>
-        : <div key={`${message.seq}-${index}`} className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${message.role === 'user' ? 'ml-auto bg-primary/10' : 'bg-card'}`}>
-          <p className="mb-1 text-[11px] text-soft-foreground">{message.role === 'user' ? 'You' : 'Coordinator'}</p>{message.text}
+        : <div key={`${message.seq}-${index}`} className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${message.role === 'user' ? 'ml-auto whitespace-pre-wrap bg-primary/10' : 'bg-card'}`}>
+          <p className="mb-1 text-[11px] text-soft-foreground">{message.role === 'user' ? 'You' : 'Coordinator'}</p>{message.role === 'user' ? message.text : <Markdown>{message.text}</Markdown>}
         </div>)}
     </div>
     <form className="grid gap-2" onSubmit={event => { event.preventDefault(); void send() }}>

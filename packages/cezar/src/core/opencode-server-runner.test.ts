@@ -424,7 +424,7 @@ describe('dc1a91a6 an OpenCode 2.x server', () => {
     expect(events.filter((e) => e.type === 'error')).toEqual([
       { type: 'error', message: `opencode: ${unsupportedServerMessage(405)}` },
     ]);
-    expect(unsupportedServerMessage(405)).toMatch(/OpenCode 2\.x .* not supported yet — install OpenCode 1\.x/);
+    expect(unsupportedServerMessage(405)).toMatch(/no 2\.x \/api surface/);
   }, 30_000);
 });
 
