@@ -37,7 +37,7 @@ A Scrum Team is made of people. This module supports one human using agents, ins
 | COORD-8 | Cockpit views | READY, implemented | Approved |
 | COORD-9 | Result presentation | READY, implemented | Approved. No preview is deployed by cezar; reuse is linking and the task's existing Preview tab |
 
-Earlier questions stay as recorded in [scrum-chat.md](scrum-chat.md): Q3 (is a cited quote enough to approve?) stays open for items. For documents the author can use the chat or the explicit Approve button; both name one exact version.
+Earlier questions stay as recorded in [scrum-chat.md](scrum-chat.md). Q3 is decided: a cited quote is enough to approve an item. For documents the author can use the chat or the explicit Approve button; both name one exact version.
 
 ## Coordinator
 
@@ -140,7 +140,7 @@ New chat operations: `setVision`, `setValueObjectives`, `setDefinitionOfReady`, 
 | ID | Priority | Issue | Who decides | Options |
 |---|---|---|---|---|
 | OC-1 | Resolved 2026-11-03 | The host's OpenCode 2.2.5 had no 1.x API | Owner order to complete the coordinator | The runner drives 2.x; OpenCode, its configuration and credentials were left unchanged |
-| Q3 | Open, from SCRUM-CHAT-01 | Is a cited quote sufficient approval of an item? | Owner | Now: quote accepted for items and documents; button also available for documents |
+| Q3 | Resolved 2026-11-03 by the owner | Is a cited quote sufficient approval of an item? | Owner | Yes. Current behaviour stands: quote accepted for items and documents; button also available for documents |
 
 ## Known limitations
 

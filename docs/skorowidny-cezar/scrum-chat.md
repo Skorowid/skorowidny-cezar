@@ -57,7 +57,7 @@ These were implemented as the most restrictive reading because the request does 
 
 | ID | Question | Current behaviour | Priority |
 |---|---|---|---|
-| Q3 | Is a verbatim quote of the user's words sufficient evidence of explicit approval / Sprint instructions, or must approval be a separate confirmation step (e.g. a button)? | Quote must exist in the user's messages; the agent is instructed to ask again on ambiguous answers. The server can verify the quote exists, not what it means. | BLOCKING for approval semantics |
+| Q3 | Is a verbatim quote of the user's words sufficient evidence of explicit approval / Sprint instructions, or must approval be a separate confirmation step (e.g. a button)? | **Decided by the owner, 2026-11-03: a cited quote is sufficient to approve a backlog item.** No separate confirmation step. The quote must exist in the user's messages; the agent is instructed to ask again on ambiguous answers. The server can verify the quote exists, not what it means. | RESOLVED |
 | Q5 | How are conflicting acceptance criteria resolved? | Never merged; the agent describes the conflict and asks. | BLOCKING for that behaviour |
 | Q6 | Should changing the description or criteria of an approved item withdraw approval? | Yes (CHANGE REQUEST rule from the project instructions). | NON-BLOCKING |
 | Q7 | Should automatically queued runs be autonomous (never park for the user)? | No; same as the existing Implement button. | NON-BLOCKING |
@@ -98,7 +98,7 @@ Contract: `packages/contract/src/scrum.ts` (`scrumChatStateSchema`, `scrumChatLo
 ## Known limitations
 
 - Codex runs with the sandbox cezar configures for every Codex task; "read-only" for the chat is enforced by its instructions (cezar's existing read-only task mode), not by the OS. A misbehaving agent could edit `state.json` directly; a write that breaks the schema is detected as corrupt (503) and never overwritten.
-- The quote check proves the words exist in the conversation, not that they mean consent (see Q3).
+- The quote check proves the words exist in the conversation, not that they mean consent. The owner accepted this for item approval (Q3).
 - The cockpit polls `GET /scrum/chat` (2 s while the assistant works, 10 s otherwise) instead of a WebSocket topic.
 - Any backlog change by the assistant bumps the revision; an unsaved manual edit then gets the existing 409 and must be reloaded.
 - Forwarded changes: delivery semantics and their limits are under [Forwarding semantics](#forwarding-semantics-pol-1-delivery). The earlier limits (in-memory start-up buffer, replay guard blind to it, no queued-prompt bounds, waiting runs failed) were removed on 2026-10-30.
