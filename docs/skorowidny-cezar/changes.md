@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-03 — decision Q3
+
+The owner decided that a cited quote is sufficient to approve a backlog item. This confirms existing behaviour; no code changed.
+
 ## 2026-11-03 — upgrade to upstream v0.18.0, OpenCode 2.x runner, coordinator verified live (OC-1)
 
 **Upstream:** merged the verified release tag `v0.18.0` of `open-mercato/cezar`, commit `0d801132ecc4a628e650c4cc1b5072e5d256ff15`. Verified with `gh release view` (published, not draft or prerelease), the GitHub tag ref API and `git ls-remote`; the commit's `packages/cezar/package.json` says `0.18.0`. Its parent line is 13 commits over the fork's earlier base `eb157816`. No file conflicted and no fork file needed adaptation; `fork/upstream.json` records the new baseline. Behaviour to know from upstream: onboarding for first-run users, OpenCode native question cards, and vault key changes (new keychain keys are unreadable by older binaries).
