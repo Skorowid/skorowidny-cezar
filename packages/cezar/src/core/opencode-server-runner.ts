@@ -149,12 +149,13 @@ export function unsupportedServerMessage(status: number): string {
 
 /**
  * 2.x can enforce what 1.x could only ask: a tool list without edits or shell (a read-only run)
- * becomes session rules that remove those tools. Absent list: no rules, as before.
+ * becomes session rules that remove those tools and reads outside the working directory. Absent list: no rules, as before.
  */
 export function readOnlyPermissions(allowedTools: readonly string[] | undefined): { permissions?: { action: string; resource: string; effect: 'deny' }[] } {
   if (!allowedTools) return {};
   const denied = [
-    ...(allowedTools.includes('Edit') || allowedTools.includes('Write') ? [] : ['edit', 'write']),
+    // Outside the working directory too: a read-only agent has no business in other projects or home.
+    ...(allowedTools.includes('Edit') || allowedTools.includes('Write') ? [] : ['edit', 'write', 'external_directory']),
     ...(allowedTools.includes('Bash') ? [] : ['shell']),
   ];
   return denied.length > 0 ? { permissions: denied.map(action => ({ action, resource: '*', effect: 'deny' as const })) } : {};

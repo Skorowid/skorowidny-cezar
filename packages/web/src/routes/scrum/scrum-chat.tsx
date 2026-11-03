@@ -60,10 +60,11 @@ export function ScrumChat({ onState }: { onState: (state: ScrumState) => void })
       <h2 className="flex items-center gap-2 font-semibold"><MessageSquareIcon className="size-4" /> Product coordinator</h2>
       <p className="text-xs text-soft-foreground">
         {data?.threadRunId
-          ? <>{data.threadRunner === 'opencode' ? 'OpenCode' : `Earlier ${data.threadRunner ?? 'agent'}`} thread {data.threadRunId.slice(0, 8)} · {statusLabel[data.threadStatus ?? ''] ?? data.threadStatus} · <Link className="text-primary underline" to={`/tasks/${data.threadRunId}`}>open the full session</Link></>
-          : 'No conversation yet — your first message starts this project\'s coordinator on OpenCode.'}
+          ? <>{data.threadRunner === 'opencode' ? 'OpenCode' : coordinator.data?.runner === data.threadRunner ? 'Codex (took over from OpenCode)' : `Earlier ${data.threadRunner ?? 'agent'}`} thread {data.threadRunId.slice(0, 8)} · {statusLabel[data.threadStatus ?? ''] ?? data.threadStatus} · <Link className="text-primary underline" to={`/tasks/${data.threadRunId}`}>open the full session</Link></>
+          : `No conversation yet — your first message starts this project's coordinator on ${coordinator.data?.runner === 'codex' ? 'Codex, because OpenCode cannot do the work now' : 'OpenCode'}.`}
       </p>
     </div>
+    {coordinator.data?.runner === 'codex' && coordinator.data.takeoverReason && <p role="status" className="rounded-lg border border-border bg-muted p-3 text-sm">Codex holds the coordinator's role: {coordinator.data.takeoverReason}</p>}
     {coordinator.data?.blocker && <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">{coordinator.data.blocker}</p>}
     <div ref={listRef} className="grid max-h-[28rem] gap-2 overflow-y-auto rounded-lg bg-muted p-3" aria-live="polite">
       {query.isPending && <p role="status" className="text-sm">Loading the conversation…</p>}

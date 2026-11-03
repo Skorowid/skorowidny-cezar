@@ -13,7 +13,8 @@ import { AGENT_MODELS_LOCKED_ERROR, agentModelsLocked } from '../core/agent-mode
 import { modelConflictsWithRunner } from '../core/model-presets.ts';
 import { artifactsDir, probePreview, validatePreviewUrl } from '../scrum/artifacts.ts';
 import { ACTIVE_RUN_STATUSES, autoQueue, busyItemIds, type ScrumLaunchOptions } from '../scrum/autoqueue.ts';
-import { SCRUM_COORDINATOR_RUNNER, SCRUM_INTERNAL_PREFIX, appendLog, applyChatOps, chatMessages, emptyChatState, entry, parseTurnOps, turnsAfter, userTexts } from '../scrum/chat.ts';
+import { classifyAgentFailure } from '../core/agent-failure-class.ts';
+import { SCRUM_COORDINATOR_RUNNER, SCRUM_FALLBACK_RUNNER, SCRUM_INTERNAL_PREFIX, SCRUM_TAKEOVER_HOLD_MS, handoverSection, holdsCoordinatorRole, unansweredAuthorText, type ScrumChatRunner, appendLog, applyChatOps, chatMessages, emptyChatState, entry, parseTurnOps, turnsAfter, userTexts } from '../scrum/chat.ts';
 import { buildContextPacket, storeContextPacket } from '../scrum/context.ts';
 import { addWork, coordinatorConfig, kickoffBlockers, latestVersion, newWork, settleKickoff, startKickoff } from '../scrum/coordinator-state.ts';
 import { readDocumentVersion, writeDerivedViews } from '../scrum/documents.ts';
@@ -38,12 +39,14 @@ import { deliverInbox, refinementPrompt, startPendingWork, syncWork } from '../s
 export interface ScrumServices {
   /** Start an implementation, review or read-only consultation run on the given agent choice. */
   launch(project: ProjectContext, prompt: string, options: ScrumLaunchOptions): Promise<{ id: string }>;
-  /** Start a new coordinator thread: a read-only OpenCode run whose task is the author's message. */
-  startChat(project: ProjectContext, text: string, model: string | undefined): Promise<{ id: string }>;
+  /** Start a new coordinator thread: a read-only run whose task is the author's message. */
+  startChat(project: ProjectContext, text: string, model: string | undefined, options: { runner: ScrumChatRunner; handover: string }): Promise<{ id: string }>;
+  /** Who should hold the coordinator's role now; `blocker` when neither OpenCode nor Codex can. */
+  coordinatorRunner(project: ProjectContext): Promise<{ runner: ScrumChatRunner; reason: string | null; blocker: string | null }>;
+  /** OpenCode just failed on real work: keep it out of new work for a while. Process-wide, like its login. */
+  opencodeFailed(reason: string, at: number): void;
   /** Which model the coordinator runs on, from the project's configured OpenCode choice. Never a hardcoded name. */
   coordinatorModel(project: ProjectContext, override: string | null): Promise<{ model: string | null; source: ScrumCoordinatorModelSource; locked: boolean }>;
-  /** Why the coordinator cannot run on this machine right now; null when nothing is known against it. */
-  coordinatorBlocker(project: ProjectContext): Promise<string | null>;
   /** Why an existing run's provider (the chat thread's or an item run's) cannot take a message now; empty when it can. */
   runBlocked(project: ProjectContext, run: RunRecord): Promise<string | null | undefined>;
 }
@@ -76,6 +79,51 @@ function remember(dataDir: string, state: ScrumState): void {
   knownAutoRuns.set(dataDir, new Set(state.items.flatMap(item => item.autoRunId ? [item.autoRunId] : [])));
   knownForwardRuns.set(dataDir, new Set((state.chat?.forwards ?? []).map(forward => forward.runId)));
   knownWorkRuns.set(dataDir, new Set((state.work ?? []).flatMap(work => work.runId && ['active', 'waiting', 'pending'].includes(work.status) ? [work.runId] : [])));
+}
+
+const failureOf = (run: RunRecord) => run.error?.trim().slice(0, 300) || 'its session failed';
+/** When it failed, not when it was noticed: passes repeat, and that must not extend the hold. */
+const failedAt = (run: RunRecord) => Date.parse(run.finishedAt ?? run.createdAt);
+
+/**
+ * The owner's rule: when OpenCode cannot do the work, Codex takes its role. A failed OpenCode thread
+ * with something still unanswered passes to a new Codex thread at once. One hand-over per thread, so
+ * a Codex that fails too ends in a notice, not a loop; the engine's own short retry goes first.
+ */
+async function takeOverThread(project: ProjectContext, services: ScrumServices, state: ScrumState): Promise<ScrumState> {
+  const chat = state.chat;
+  const thread = chat?.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
+  if (!chat || !thread || thread.runner !== SCRUM_COORDINATOR_RUNNER || thread.status !== 'failed') return state;
+  if (thread.autoResumeAt && thread.autoResumeReason !== 'usage_limit') return state;
+  const reason = failureOf(thread);
+  services.opencodeFailed(reason, failedAt(thread));
+  const text = unansweredAuthorText(thread.task, project.store.readEvents(thread.id));
+  // Nothing waits: the next author message or result moves the role, through the same check.
+  if (!text && !chat.inbox?.length) return state;
+  const choice = await services.coordinatorRunner(project);
+  const notice = (detail: string) => appendLog(state, [entry({ runId: null, turnSeq: 0 }, 'takeover', 'question', detail, '')]);
+  if (choice.runner !== SCRUM_FALLBACK_RUNNER) {
+    const detail = `OpenCode could not continue the coordinator's thread (${reason}). ${choice.blocker ?? 'Your next message starts a new thread.'}`;
+    return chat.log.some(logged => logged.op === 'takeover' && logged.detail === detail) ? state : notice(detail);
+  }
+  project.manager.cancelAutoResume(thread.id);
+  writeDerivedViews(project.dataDir, state);
+  const opening = text || `${SCRUM_INTERNAL_PREFIX} — you took over the coordinator's role from OpenCode; the results of other agents follow in your next message. Tell the author you took over.]`;
+  let started: { id: string };
+  try {
+    started = await services.startChat(project, opening, undefined, { runner: SCRUM_FALLBACK_RUNNER, handover: handoverSection(chatView(project, state).messages) });
+  } catch (error) {
+    const detail = `OpenCode could not continue the coordinator's thread (${reason}), and Codex could not start: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000);
+    return chat.log.some(logged => logged.op === 'takeover' && logged.detail === detail) ? state : notice(detail);
+  }
+  const moved: ScrumState = {
+    ...state,
+    chat: {
+      ...chat, threadRunId: started.id, cursor: { runId: started.id, seq: 0 },
+      threads: [...chat.threads, { runId: started.id, startedAt: new Date().toISOString(), reason: `OpenCode could not continue: ${reason}`.slice(0, 500), takeover: true }].slice(-200),
+    },
+  };
+  return appendLog(moved, [entry({ runId: null, turnSeq: 0 }, 'takeover', 'agent-started', `OpenCode could not continue (${reason}). Codex took over the coordinator's role as run ${started.id.slice(0, 8)}.`, '')]);
 }
 
 const launcherFor = (services: ScrumServices, project: ProjectContext) =>
@@ -116,6 +164,8 @@ export async function reconcileScrumChat(project: ProjectContext, services: Scru
         changed = true;
       }
     }
+    const handed = await takeOverThread(project, services, next);
+    if (handed !== next) { next = handed; changed = true; }
     const reported = reportFailedRuns(next, project.store);
     if (reported !== next) { next = reported; changed = true; }
     // Results read from the runs' transcripts; may record a review to start below.
@@ -195,6 +245,10 @@ export function attachScrumChat(project: ProjectContext, services: ScrumServices
   };
   // Q2: a failed automatic attempt is reported in the conversation even when no Scrum page is open.
   const runListener = (run: RunRecord) => {
+    if (run.status === 'failed' && run.runner === SCRUM_COORDINATOR_RUNNER && (knownWorkRuns.get(project.dataDir)?.has(run.id) || knownAutoRuns.get(project.dataDir)?.has(run.id))) {
+      // Only what says OpenCode or its provider cannot serve; an agent's own failure says nothing about them.
+      if (['usage_limit', 'billing', 'auth'].includes(classifyAgentFailure(run.error)) || /opencode serve |server API|Model unavailable/i.test(run.error ?? '')) services.opencodeFailed(failureOf(run), failedAt(run));
+    }
     if (run.status === 'failed' && knownAutoRuns.get(project.dataDir)?.has(run.id)) scheduleReconcile(project, services);
     // SCRUM-COORD-01: a settled or parked agent returns its result even when no Scrum page is open.
     if (run.status !== 'queued' && run.status !== 'running' && knownWorkRuns.get(project.dataDir)?.has(run.id)) scheduleReconcile(project, services);
@@ -233,6 +287,11 @@ function chatView(project: ProjectContext, state: ScrumState): ScrumChatView {
     if (SCRUM_CHAT_NOTICE_OUTCOMES.includes(logged.outcome)) messages.push({ seq: 0, role: 'system', text: logged.outcome === 'refused' ? `Refused ${logged.op}: ${logged.detail}` : logged.detail, at: logged.at });
   }
   messages.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  // A takeover opens its thread with the unanswered message; the author said it once.
+  for (let index = messages.length - 1; index > 0; index -= 1) {
+    const [before, message] = [messages[index - 1]!, messages[index]!];
+    if (message.role === 'user' && before.role === 'user' && message.text === before.text) messages.splice(index, 1);
+  }
   const thread = chat.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
   return {
     threadRunId: thread ? thread.id : null,
@@ -352,14 +411,19 @@ export function createScrumRoutes(services: ScrumServices) {
         if (chat.messageIds.includes(clientMessageId) && chat.threadRunId) {
           return { state: stored, result: { delivery: 'duplicate' as const, threadRunId: chat.threadRunId }, unchanged: true };
         }
-        const unavailable = await services.coordinatorBlocker(project);
-        if (unavailable) throw new ScrumError(409, unavailable);
         const current = startKickoff(stored);
-        const resolved = await services.coordinatorModel(project, coordinatorConfig(current).model);
-        const model = resolved.locked ? undefined : resolved.model ?? undefined;
         const known = chat.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
-        // SCRUM-COORD-01: an older thread on another runner stays readable; the coordinator is always OpenCode.
-        const thread = known?.runner === SCRUM_COORDINATOR_RUNNER ? known : undefined;
+        if (known?.runner === SCRUM_COORDINATOR_RUNNER && known.status === 'failed' && !(known.autoResumeAt && known.autoResumeReason !== 'usage_limit')) services.opencodeFailed(failureOf(known), failedAt(known));
+        const choice = await services.coordinatorRunner(project);
+        if (choice.blocker) throw new ScrumError(409, choice.blocker);
+        const holding = known && holdsCoordinatorRole(chat, known) ? known : undefined;
+        // Codex keeps the role for the hold, then the next message tries OpenCode again. An older thread on another runner stays readable.
+        const takeoverAt = holding?.runner === SCRUM_FALLBACK_RUNNER ? chat.threads.find(entry => entry.runId === holding.id)?.startedAt : undefined;
+        const held = takeoverAt !== undefined && Date.now() - Date.parse(takeoverAt) < SCRUM_TAKEOVER_HOLD_MS && holding?.status !== 'failed';
+        const runner: ScrumChatRunner = held ? SCRUM_FALLBACK_RUNNER : choice.runner;
+        const resolved = await services.coordinatorModel(project, coordinatorConfig(current).model);
+        const model = runner === SCRUM_COORDINATOR_RUNNER && !resolved.locked ? resolved.model ?? undefined : undefined;
+        const thread = holding?.runner === runner ? holding : undefined;
         if (known && !thread && ACTIVE_RUN_STATUSES.has(known.status) && known.status !== 'waiting') {
           throw new ScrumError(409, 'The previous assistant is still answering; send your message when its reply has finished');
         }
@@ -376,22 +440,34 @@ export function createScrumRoutes(services: ScrumServices) {
           next = { ...chat, messageIds: [...chat.messageIds, clientMessageId].slice(-100) };
         } else {
           let started: { id: string };
+          let startedOn: ScrumChatRunner = runner;
+          const handover = handoverSection(chatView(project, current).messages);
+          writeDerivedViews(project.dataDir, current);
           try {
-            writeDerivedViews(project.dataDir, current);
-            started = await services.startChat(project, text, model);
+            started = await services.startChat(project, text, model, { runner, handover });
           } catch (error) {
-            throw new ScrumError(409, `The coordinator could not start on OpenCode: ${error instanceof Error ? error.message : String(error)}`);
+            if (runner !== SCRUM_COORDINATOR_RUNNER) throw new ScrumError(409, `The coordinator could not start on Codex: ${error instanceof Error ? error.message : String(error)}`);
+            const problem = error instanceof Error ? error.message : String(error);
+            services.opencodeFailed(problem, Date.now());
+            try {
+              started = await services.startChat(project, text, undefined, { runner: SCRUM_FALLBACK_RUNNER, handover });
+              startedOn = SCRUM_FALLBACK_RUNNER;
+            } catch (second) {
+              throw new ScrumError(409, `The coordinator could not start on OpenCode (${problem}) or on Codex (${second instanceof Error ? second.message : String(second)})`);
+            }
           }
           const runId = scrumLaunchResponseSchema.shape.runId.safeParse(started.id);
           if (!runId.success) throw new ScrumError(503, 'The run engine returned an invalid run id');
-          const reason = thread
+          const takeover = startedOn === SCRUM_FALLBACK_RUNNER;
+          const reason = takeover ? `OpenCode could not do the work: ${choice.reason ?? 'it failed to start'}`.slice(0, 500)
+            : thread
             ? `the previous thread ${thread.id.slice(0, 8)} could not be resumed`
             : known ? `the coordinator moved to OpenCode; the previous ${known.runner ?? 'agent'} thread ${known.id.slice(0, 8)} stays readable`
             : chat.threadRunId ? 'the previous thread is no longer in the run history' : 'first message';
           next = {
             ...chat,
             threadRunId: runId.data,
-            threads: [...chat.threads, { runId: runId.data, startedAt: new Date().toISOString(), reason }].slice(-200),
+            threads: [...chat.threads, { runId: runId.data, startedAt: new Date().toISOString(), reason, ...(takeover ? { takeover: true } : {}) }].slice(-200),
             cursor: { runId: runId.data, seq: 0 },
             messageIds: [...chat.messageIds, clientMessageId].slice(-100),
           };
@@ -497,6 +573,12 @@ export function createScrumRoutes(services: ScrumServices) {
 async function coordinatorView(project: ProjectContext, services: ScrumServices, state: ScrumState): Promise<ScrumCoordinatorView> {
   const config = coordinatorConfig(state);
   const resolved = await services.coordinatorModel(project, config.model);
+  const choice = await services.coordinatorRunner(project);
+  const chat = state.chat;
+  const thread = chat?.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
+  const entry = thread ? chat?.threads.find(known => known.runId === thread.id) : undefined;
+  // While a takeover thread holds the role it is what answers, even if OpenCode is back.
+  const onCodex = choice.runner === SCRUM_FALLBACK_RUNNER || entry?.takeover === true;
   const answers = new Map((state.kickoff?.answers ?? []).map(answer => [answer.questionId, answer]));
   const started = state.kickoff !== undefined;
   // Before the coordinator started, an empty project is under the gate as soon as it does.
@@ -504,11 +586,12 @@ async function coordinatorView(project: ProjectContext, services: ScrumServices,
   return {
     revision: state.revision,
     config,
-    runner: SCRUM_COORDINATOR_RUNNER,
-    resolvedModel: resolved.model,
-    modelSource: resolved.source,
+    runner: onCodex ? SCRUM_FALLBACK_RUNNER : SCRUM_COORDINATOR_RUNNER,
+    takeoverReason: onCodex ? (entry?.takeover ? entry.reason : choice.reason ?? 'OpenCode could not do the work').slice(0, 1000) : null,
+    resolvedModel: onCodex ? null : resolved.model,
+    modelSource: onCodex ? 'codex-own-default' : resolved.source,
     modelsLocked: resolved.locked,
-    blocker: (await services.coordinatorBlocker(project))?.slice(0, 1000) ?? null,
+    blocker: choice.blocker?.slice(0, 1000) ?? null,
     kickoff: {
       required: preview.kickoff?.required ?? false,
       complete: preview.kickoff?.completedAt != null,
