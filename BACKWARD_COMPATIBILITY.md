@@ -53,6 +53,18 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   outcomes `forwarded`, `forward-failed`, `run-failed` and `question`, and the conversation
   message role `system`; all additive. A file written by them is not readable by a cezar that
   predates them (strict schemas), so a downgrade must not reuse such a `state.json`.
+- skorowidny-cezar fork, product coordinator (additive, SCRUM-COORD-01), under `/api/v1/p/:projectId` too:
+  `GET /api/v1/scrum/coordinator`,
+  `PUT /api/v1/scrum/coordinator`,
+  `GET /api/v1/scrum/documents/:id`,
+  `POST /api/v1/scrum/documents/:id/decision`,
+  `POST /api/v1/scrum/artifacts/:id/check`,
+  `GET /api/v1/scrum/artifacts/:id/content`.
+  The Scrum state gains optional fields only (`coordinator`, `kickoff`, `product`, `documents`, `work`,
+  `chat.inbox`, item `estimate`/`traces`) and the log outcomes `agent-started`/`agent-result`; the chat
+  view gains `threadRunner`. Behaviour change: the chat thread now runs on OpenCode. A thread on another
+  runner stays readable and the next message starts its OpenCode successor, and `POST /scrum/chat/messages`
+  answers 409 when OpenCode is missing or is a version the runner cannot drive. The same downgrade caveat applies.
   The forwarding outbox (2026-10-30) adds the optional chat field `forwards` and the log outcome
   `forward-pending`; additive, same downgrade note.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,

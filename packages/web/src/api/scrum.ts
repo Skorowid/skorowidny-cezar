@@ -1,7 +1,7 @@
 /** Native project-local Scrum boundary (SCRUM-LOCAL-01). Author: Skorowid. */
 import {
-  getApiScope, scrumChatMessageResponseSchema, scrumChatViewSchema, scrumStateSchema, scrumLaunchResponseSchema,
-  type ScrumChatMessageInput, type ScrumLaunchMode, type ScrumSaveInput,
+  apiPath, getApiScope, scrumChatMessageResponseSchema, scrumChatViewSchema, scrumCoordinatorViewSchema, scrumDocumentContentSchema, scrumStateSchema, scrumLaunchResponseSchema,
+  type ScrumChatMessageInput, type ScrumCoordinatorSave, type ScrumDocumentDecision, type ScrumLaunchMode, type ScrumSaveInput,
 } from '@open-mercato/cezar-api-client'
 import { cez, unwrap } from './client'
 
@@ -28,4 +28,32 @@ export async function getScrumChat() {
 
 export async function sendScrumChat(json: ScrumChatMessageInput) {
   return scrumChatMessageResponseSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.chat.messages.$post({ param: { projectId: scope() }, json }), '/scrum/chat/messages'))
+}
+
+/** SCRUM-COORD-01: coordinator and agent configuration, and the initial readiness gate. */
+export async function getScrumCoordinator() {
+  return scrumCoordinatorViewSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.coordinator.$get({ param: { projectId: scope() } }), '/scrum/coordinator'))
+}
+
+export async function saveScrumCoordinator(json: ScrumCoordinatorSave) {
+  return scrumCoordinatorViewSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.coordinator.$put({ param: { projectId: scope() }, json }), '/scrum/coordinator'))
+}
+
+export async function getScrumDocument(id: string, version?: number) {
+  return scrumDocumentContentSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.documents[':id'].$get({
+    param: { projectId: scope(), id }, query: version === undefined ? {} : { version: String(version) },
+  }), '/scrum/documents/:id'))
+}
+
+export async function decideScrumDocument(id: string, json: ScrumDocumentDecision) {
+  return scrumStateSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.documents[':id'].decision.$post({ param: { projectId: scope(), id }, json }), '/scrum/documents/:id/decision'))
+}
+
+export async function checkScrumArtifact(id: string) {
+  return scrumStateSchema.parse(await unwrap(await cez.api.v1.p[':projectId'].scrum.artifacts[':id'].check.$post({ param: { projectId: scope(), id } }), '/scrum/artifacts/:id/check'))
+}
+
+/** Same-origin address of a verified copy; the server refuses anything else. */
+export function scrumArtifactUrl(id: string) {
+  return apiPath(`/scrum/artifacts/${encodeURIComponent(id)}/content`)
 }
