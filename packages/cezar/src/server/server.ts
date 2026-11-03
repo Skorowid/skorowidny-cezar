@@ -7867,19 +7867,15 @@ export function createApp(deps: ServerDeps) {
 
   // SCRUM-LOCAL-01 / SCRUM-CHAT-01 / SCRUM-COORD-01: keep provider policy, execution and the
   // coordinator thread in the existing engine — the Scrum module only decides WHAT to start.
-  // The runner speaks OpenCode's 1.x server API and fails every session on 2.x (`unsupportedServerMessage`):
-  // say so before a thread is opened. Cached briefly, since the cockpit polls and the binary is slow to answer.
+  // Say so before a thread is opened. Cached briefly, since the cockpit polls and the binary is slow to answer.
   let opencodeCheck: { at: number; problem: string | null } | undefined;
   const opencodeProblem = async (): Promise<string | null> => {
     if (process.env.CEZ_DRY_RUN === '1') return null;
     if (opencodeCheck && Date.now() - opencodeCheck.at < 60_000) return opencodeCheck.problem;
     const found = (await detectEnvironment()).find(check => check.name === 'opencode');
-    const major = /(\d+)\.\d+/.exec(found?.version ?? '')?.[1];
     const problem = !found?.available
-      ? 'OpenCode is not installed, and the product coordinator runs on OpenCode. Install OpenCode 1.x and configure a provider.'
-      : major !== undefined && Number(major) >= 2
-        ? `OpenCode ${found.version?.replace(/^opencode\s+/i, '')} is installed, but cezar's OpenCode runner speaks only the 1.x server API, so the product coordinator cannot start. Install OpenCode 1.x (npm install -g opencode-ai@1), or point CEZ_OPENCODE_BIN at a 1.x binary.`
-        : null;
+      ? 'OpenCode is not installed, and the product coordinator runs on OpenCode. Install OpenCode and configure a provider.'
+      : null;
     opencodeCheck = { at: Date.now(), problem };
     return problem;
   };

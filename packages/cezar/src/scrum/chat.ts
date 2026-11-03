@@ -99,7 +99,7 @@ Consultants, implementers and reviewers are real, separate tasks on the runners 
 - Estimate items with \`estimateItem\`: your base estimate of working time in minutes. cezar stores it with a buffered estimate of exactly three times the base. Always describe both as uncertain forecasts, never as commitments or deadlines.
 
 ## Replying
-Answer in plain prose and ask your questions in the message itself. Do not use CEZ:ASK or CEZ:DONE markers or a question tool. Never describe a change as made before \`chat.log\` confirms it was applied.
+Answer in plain prose and ask your questions in the message itself. Do not use CEZ:ASK or CEZ:DONE markers or a question tool. Your operations are applied only after your message ends, and any of them can be refused, so word them as requested ("I asked cezar to record…"), never as done; the author sees each refusal. Never describe a change as made before \`chat.log\` confirms it was applied. INDEX.md lists what your last turn had refused: correct it or tell the author.
 
 ## Operations
 To change anything, end your message with exactly one fenced block, the closing fence on its own line:
@@ -408,7 +408,8 @@ function applyOne(
   };
   const documentOf = (value: string) => {
     const resolved = refs.get(value) ?? value;
-    return (state.documents ?? []).find(document => document.id === resolved) ?? refuse(`unknown document ${value}`);
+    // The author and the index both say BRD-1, so a code resolves like an id.
+    return (state.documents ?? []).find(document => document.id === resolved || document.code === resolved) ?? refuse(`unknown document ${value}`);
   };
   const traces = (inputs: readonly { documentId: string; version?: number; section?: string }[]): ScrumTrace[] => inputs.map(input => {
     const document = documentOf(input.documentId);
