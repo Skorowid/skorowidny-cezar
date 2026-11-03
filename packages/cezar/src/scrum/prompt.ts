@@ -22,7 +22,7 @@ export function scrumChangeMarker(changeId: string): string {
   return `Scrum change id: ${changeId}`;
 }
 
-function itemContext(state: ScrumState, item: ScrumItem): string {
+export function itemContext(state: ScrumState, item: ScrumItem): string {
   const byId = new Map(state.items.map(entry => [entry.id, entry]));
   const sprint = activeSprintOf(state, item.id);
   const plan = sprint
@@ -46,13 +46,28 @@ function itemContext(state: ScrumState, item: ScrumItem): string {
   ].join('\n\n');
 }
 
-export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: ScrumLaunchMode): string {
-  const context = itemContext(state, item);
+/** SCRUM-COORD-01: the fence an agent's final message carries, so its result reaches the coordinator structured. */
+export const SCRUM_RESULT_FENCE = 'cezar-agent-result';
+
+/** How an assigned agent hands back its result. `fields` names what this kind of work must fill in. */
+export function resultInstructions(fields: string): string {
+  return `## Returning your result\nEnd your final message with exactly one fenced block, then the line CEZ:DONE. cezar reads it from your transcript and hands it to the project's coordinator; the author does not talk to you directly.\n\n\`\`\`${SCRUM_RESULT_FENCE}\n{"summary":"what you found or did, in plain words", ${fields}}\n\`\`\`\n\nKeep the JSON on its own lines. State only what you actually did and observed. Never list a file or link you did not really produce: cezar verifies each one and reports what it refuses.`;
+}
+
+export const IMPLEMENT_RESULT_FIELDS = '"gaps":["requirement gaps you found"],"blockers":["what stopped you"],"artifacts":[{"kind":"screenshot","label":"…","path":"relative/path/inside/this/worktree.png"},{"kind":"file","label":"…","path":"relative/path"},{"kind":"preview","label":"…","url":"http://127.0.0.1:PORT/"}]';
+
+/**
+ * `packet`: the item-scoped context packet (`context.ts`), when the project has documents.
+ * Refinement is a consultation, so its result block follows `consult` instructions too.
+ */
+export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: ScrumLaunchMode, packet?: string): string {
+  const context = packet ? `${itemContext(state, item)}\n\n${packet}` : itemContext(state, item);
   if (mode === 'refine') {
     return [
       `Backlog refinement (read-only analysis) for the Product Backlog Item "${item.title}".`,
       context,
       '## Instructions\n- Do not change product code, files or the backlog; this is analysis only.\n- Identify ambiguity, missing data, failure scenarios, dependencies and untestable criteria.\n- Propose concrete, answerable questions for the Business/Systems Analyst, each marked BLOCKING or NON-BLOCKING.\n- You may suggest acceptance criteria or a DoR status, labelled as proposals. You never approve requirements; a human decides.',
+      resultInstructions('"gaps":["each question, marked BLOCKING or NON-BLOCKING"],"blockers":[],"feasibility":"what you can say about feasibility"'),
     ].join('\n\n');
   }
   return [
@@ -60,6 +75,7 @@ export function buildScrumPrompt(state: ScrumState, item: ScrumItem, mode: Scrum
     context,
     scrumItemMarker(item.id),
     '## Instructions\n- Implement exactly the approved requirements and acceptance criteria; respect the BA decisions above and do not invent business rules.\n- If you find a new gap or conflict, stop work on the affected behaviour and report it as a question instead of guessing.\n- Work in this isolated task worktree. Never merge or push; the result goes to human review.\n- Verify against the acceptance criteria and the Definition of Done, and report the evidence. Finishing this run does not mark the item Done.',
+    resultInstructions(IMPLEMENT_RESULT_FIELDS),
   ].join('\n\n');
 }
 

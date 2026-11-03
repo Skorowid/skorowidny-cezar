@@ -1,4 +1,6 @@
 > **Skorowidny changes:** This is the place for changes made in the skorowidny-cezar fork. The remainder of this README is the original Cezar authors' documentation.
+>
+> - **Product coordinator (SCRUM-COORD-01):** each project's Scrum page has one persistent coordinator on OpenCode that the author talks to. It gathers the vision and the author's own objectives, prepares versioned Markdown BRD/FRD/stories for human approval, plans Sprints within agreed limits, keeps base and ×3 buffered estimates, and reports what other configurable agents really returned. The human stays the accountable Product Owner. The runner drives OpenCode 1.x and 2.x. Based on upstream `v0.18.0`, see [docs/skorowidny-cezar/changes.md](docs/skorowidny-cezar/changes.md).
 
 ---
 

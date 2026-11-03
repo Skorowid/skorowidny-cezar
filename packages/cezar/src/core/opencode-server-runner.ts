@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, dirname, join, resolve, sep } from 'node:path';
@@ -32,6 +33,7 @@ import {
   type OpencodeUiMapperState,
   type OpencodeUiMapping,
 } from './opencode-ui-mapper.ts';
+import { OpencodeV2Translator, opencodeV2FormOf, opencodeV2PermissionOf } from './opencode-v2-events.ts';
 import { opencodeConfigContent } from './private-mcp.ts';
 import { armInactivityDeadline, inactivityTimeoutMessage, type InactivityDeadline } from './inactivity-deadline.ts';
 
@@ -94,6 +96,9 @@ const QUOTA_REASON_RE = /limit|quota/i;
  * nothing can answer a permission prompt, so the runner answers each one
  * itself (`opencodePermissionReply`). OpenCode has no per-tool allowlist, so
  * `spec.allowedTools` is ignored. `spec.model` is `provider/model`.
+ *
+ * OpenCode 2.x (OC-1) serves a different API under `/api` and needs a password; `bootstrap()`
+ * detects it and the 2.x path resumes `spec.sessionId` when that session still exists.
  */
 export class OpencodeServerRunner implements AgentRunner {
   readonly backend = 'opencode' as const;
@@ -134,14 +139,29 @@ class OpencodeStatusError extends Error {
   }
 }
 
-/** The installed `opencode serve` has no 1.x session route — in practice OpenCode 2.x. */
+/** Neither the 1.x session route nor the 2.x `/api` answered: not a server this runner knows. */
 export function unsupportedServerMessage(status: number): string {
   return (
-    `this OpenCode server has no POST /session route (HTTP ${status}). ` +
-    'OpenCode 2.x replaced the server API cezar drives and is not supported yet — ' +
-    'install OpenCode 1.x (npm install -g opencode-ai@1) to run OpenCode tasks.'
+    `this OpenCode server has no POST /session route (HTTP ${status}) and no 2.x /api surface. ` +
+    'cezar drives the OpenCode 1.x and 2.x server APIs — check the installed version with `opencode --version`.'
   );
 }
+
+/**
+ * 2.x can enforce what 1.x could only ask: a tool list without edits or shell (a read-only run)
+ * becomes session rules that remove those tools. Absent list: no rules, as before.
+ */
+export function readOnlyPermissions(allowedTools: readonly string[] | undefined): { permissions?: { action: string; resource: string; effect: 'deny' }[] } {
+  if (!allowedTools) return {};
+  const denied = [
+    ...(allowedTools.includes('Edit') || allowedTools.includes('Write') ? [] : ['edit', 'write']),
+    ...(allowedTools.includes('Bash') ? [] : ['shell']),
+  ];
+  return denied.length > 0 ? { permissions: denied.map(action => ({ action, resource: '*', effect: 'deny' as const })) } : {};
+}
+
+/** OpenCode's fixed Basic-auth user; the password is per session and never leaves this process and its child. */
+const OPENCODE_SERVER_USER = 'opencode';
 
 /** One live `opencode serve` process driving a single session. */
 class OpencodeSession implements AgentSession {
@@ -157,6 +177,10 @@ class OpencodeSession implements AgentSession {
   private serverOpen = true;
   private baseUrl: string | undefined;
   private sessionId: string | undefined;
+  /** Sent as Basic auth; 2.x refuses every API call without it, 1.x honours the same variable. */
+  private readonly serverPassword = randomBytes(24).toString('hex');
+  /** Set once `bootstrap()` found a 2.x server: its routes and events differ, the turn logic does not. */
+  private v2: OpencodeV2Translator | undefined;
   private ready!: Promise<void>;
   private exited!: Promise<void>;
   private readonly sse = new AbortController();
@@ -175,7 +199,7 @@ class OpencodeSession implements AgentSession {
   private readonly toolsSeen = new Set<string>();
   private readonly permissionsAnswered = new Set<string>();
   /** The native `question` tool call the session is blocked on; the next user message answers it (#1652). */
-  private pendingQuestion: { id: string; questions: AskQuestion[] } | undefined;
+  private pendingQuestion: { id: string; questions: AskQuestion[]; fields?: Record<string, unknown>[]; route?: string } | undefined;
   /** messageID → role. Parts carry no role; only assistant parts are surfaced
    *  (the user's own message also streams as parts over the same SSE feed). */
   private readonly msgRole = new Map<string, string>();
@@ -315,7 +339,8 @@ class OpencodeSession implements AgentSession {
   interrupt(): void {
     this.serverOpen = false;
     if (this.baseUrl && this.sessionId) {
-      void this.http('POST', `/session/${this.sessionId}/abort`, undefined).catch(() => undefined);
+      const route = this.v2 ? `/api/session/${encodeURIComponent(this.sessionId)}/interrupt` : `/session/${this.sessionId}/abort`;
+      void this.http('POST', route, undefined).catch(() => undefined);
     }
     this.finishTurn();
     this.sse.abort();
@@ -368,6 +393,8 @@ class OpencodeSession implements AgentSession {
       if (this.spec.mcpServers?.length) {
         env.OPENCODE_CONFIG_CONTENT = opencodeConfigContent(this.spec.mcpServers, env.OPENCODE_CONFIG_CONTENT);
       }
+      env.OPENCODE_SERVER_USERNAME = OPENCODE_SERVER_USER;
+      env.OPENCODE_SERVER_PASSWORD = this.serverPassword;
       const [file, argv] = disclaimedCommand(this.bin, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], env);
       child = nodeSpawn(file, argv, { cwd: this.spec.cwd, env });
     } catch (err) {
@@ -482,7 +509,7 @@ class OpencodeSession implements AgentSession {
         if (m) succeed(m[0].replace('//localhost:', '//127.0.0.1:'));
       };
       const probe = setInterval(() => {
-        void opencodeRequest(`${probeUrl}/path`, { method: 'GET', signal: AbortSignal.any([probeAbort.signal, AbortSignal.timeout(2_000)]) })
+        void opencodeRequest(`${probeUrl}/path`, { method: 'GET', headers: this.authHeaders(), signal: AbortSignal.any([probeAbort.signal, AbortSignal.timeout(2_000)]) })
           .then((res) => {
             if (res.status !== 200) return;
             const dir = stringField(parseRecord(res.body), 'directory');
@@ -514,12 +541,15 @@ class OpencodeSession implements AgentSession {
   }
 
   private async bootstrap(): Promise<void> {
+    if (await this.isV2Server()) {
+      await this.bootstrapV2();
+      return;
+    }
     let created: Record<string, unknown>;
     try {
       created = await this.http('POST', '/session', { title: 'cezar task' });
     } catch (err) {
-      // OpenCode 2.x moved its whole server API under `/api` with new payloads
-      // and events, so its server refuses the 1.x route (telemetry dc1a91a6).
+      // Neither surface: a build that dropped the 1.x route without the 2.x one (telemetry dc1a91a6).
       if (err instanceof OpencodeStatusError && (err.status === 404 || err.status === 405)) {
         throw new Error(unsupportedServerMessage(err.status));
       }
@@ -538,6 +568,46 @@ class OpencodeSession implements AgentSession {
 
     const first = prependSystemPrompt(this.spec.systemPrompt, this.spec.userPrompt);
     await this.prompt(first);
+  }
+
+  /** 2.x answers `GET /api/location` with JSON; a 1.x server has no such route. */
+  private async isV2Server(): Promise<boolean> {
+    if (!this.baseUrl) return false;
+    const res = await opencodeRequest(`${this.baseUrl}/api/location`, { method: 'GET', headers: this.authHeaders() }).catch(() => undefined);
+    return res?.status === 200 && typeof parseRecord(res.body).directory === 'string';
+  }
+
+  private async bootstrapV2(): Promise<void> {
+    const directory = this.spec.cwd ?? process.cwd();
+    const id = parseModelIdentity(this.spec.model);
+    const model = id ? { id: id.model, providerID: id.provider } : undefined;
+    let sessionId: string | undefined;
+    if (this.spec.sessionId) {
+      // The session survives the server, so Continue keeps its history; gone or moved → a new one.
+      const found = await this.http('GET', `/api/session/${encodeURIComponent(this.spec.sessionId)}`, undefined).catch(() => undefined);
+      const data = found && isRecord(found.data) ? found.data : undefined;
+      const location = data && isRecord(data.location) ? stringField(data.location, 'directory') : undefined;
+      if (data && location && canonicalPath(location) === canonicalPath(directory)) {
+        sessionId = this.spec.sessionId;
+        if (model) await this.http('POST', `/api/session/${encodeURIComponent(sessionId)}/model`, { model });
+      }
+    }
+    if (!sessionId) {
+      const created = await this.http('POST', '/api/session', {
+        title: 'cezar task',
+        location: { directory },
+        ...(model ? { model } : {}),
+        ...readOnlyPermissions(this.spec.allowedTools),
+      });
+      sessionId = isRecord(created.data) ? stringField(created.data, 'id') : undefined;
+    }
+    if (!sessionId) throw new Error('opencode did not return a session id');
+    this.sessionId = sessionId;
+    this.v2 = new OpencodeV2Translator(sessionId);
+    this.emit({ type: 'session', sessionId });
+    this.emitUi((state) => opencodeSessionStarted(sessionId, state));
+    await this.consumeEvents();
+    await this.prompt(prependSystemPrompt(this.spec.systemPrompt, this.spec.userPrompt));
   }
 
   /**
@@ -572,6 +642,19 @@ class OpencodeSession implements AgentSession {
     });
     // v2 turn boundary — the prompt POST is the turn start (§7.1).
     this.emitUi(opencodeTurnStarted);
+    if (this.v2) {
+      // Admitted durably and answered at once; only `session.execution.*` ends the turn, and a quiet
+      // provider is no signal, so no grace window — the inactivity deadline bounds it instead.
+      try {
+        await this.http('POST', `/api/session/${encodeURIComponent(this.sessionId)}/prompt`, { text });
+      } catch (err) {
+        this.finishTurn();
+        throw err;
+      }
+      this.turnPostSettled = true;
+      await turnEnded;
+      return;
+    }
     const body: Record<string, unknown> = { parts: [{ type: 'text', text }] };
     // `spec.model` arrives already normalised to canonical `provider/model`
     // (the run wiring's fail-loud gate). Split it with the shared parser — the
@@ -646,6 +729,7 @@ class OpencodeSession implements AgentSession {
    */
   private armTurnGrace(): void {
     if (!this.turnInFlight || !this.turnPostSettled) return;
+    if (this.v2 && this.sseConnected && !this.sseClosed) return;
     if (this.turnGraceTimer) {
       clearTimeout(this.turnGraceTimer);
       this.turnGraceTimer = undefined;
@@ -673,7 +757,8 @@ class OpencodeSession implements AgentSession {
    *  event emitted after this resolves can be missed. */
   private async consumeEvents(): Promise<void> {
     if (!this.baseUrl) return;
-    this.sseConnected = await openOpencodeEventStream(`${this.baseUrl}/event`, {
+    this.sseConnected = await openOpencodeEventStream(`${this.baseUrl}${this.v2 ? '/api/event' : '/event'}`, {
+      headers: this.authHeaders(),
       signal: this.sse.signal,
       onFrame: (frame) => this.handleFrame(frame),
       // The bus is the turn's evidence of life; once it is gone a turn waiting
@@ -697,10 +782,82 @@ class OpencodeSession implements AgentSession {
     } catch {
       return;
     }
+    if (this.v2) {
+      this.handleV2Frame(evt, this.v2);
+      return;
+    }
     // The bus's own keep-alives prove the server is up, not that the agent is working.
     if (evt.type !== 'server.heartbeat' && evt.type !== 'server.connected') this.deadline.touch();
     this.emitUi((state) => mapOpencodeEvent(evt, state));
     this.handleEvent(evt);
+  }
+
+  private handleV2Frame(evt: OpencodeEvent, translator: OpencodeV2Translator): void {
+    if (evt.type !== 'server.heartbeat' && evt.type !== 'server.connected') this.deadline.touch();
+    const permission = opencodeV2PermissionOf(evt);
+    if (permission) {
+      void this.answerPermissionV2(permission);
+      return;
+    }
+    const form = opencodeV2FormOf(evt);
+    if (form) {
+      this.handleFormV2(form);
+      return;
+    }
+    const { events, failure } = translator.translate(evt);
+    // Reported before the idle that follows it, so the turn ends already knowing it failed.
+    if (failure) this.emit({ type: 'error', message: `opencode: ${failure}` });
+    for (const legacy of events) {
+      this.emitUi((state) => mapOpencodeEvent(legacy, state));
+      this.handleEvent(legacy);
+    }
+  }
+
+  private async answerPermissionV2(request: { id: string; sessionID: string; checks: Record<string, unknown>[] }): Promise<void> {
+    if (this.permissionsAnswered.has(request.id)) return;
+    this.permissionsAnswered.add(request.id);
+    const refused = request.checks.find(check => opencodePermissionReply(check, this.spec.env) === 'reject');
+    if (refused) {
+      const path = isRecord(refused.metadata) ? stringField(refused.metadata, 'filepath') : undefined;
+      this.emit({ type: 'note', message: `opencode: refused ${stringField(refused, 'permission') ?? 'unknown'} permission${path ? ` for ${path}` : ''}` });
+    }
+    await this.http('POST', `/api/session/${encodeURIComponent(request.sessionID)}/permission/${encodeURIComponent(request.id)}/reply`, {
+      decision: refused ? 'reject' : 'once',
+    }).catch(() => undefined);
+  }
+
+  /** 2.x asks through forms. Single and multi choice become an ask card; anything the card cannot
+   *  carry is cancelled rather than left blocking the session (same rule as `handleQuestion`). */
+  private handleFormV2(form: Record<string, unknown>): void {
+    const id = stringField(form, 'id');
+    const sessionID = stringField(form, 'sessionID');
+    if (!id || !sessionID) return;
+    const route = `/api/session/${encodeURIComponent(sessionID)}/form/${encodeURIComponent(id)}`;
+    const fields = (Array.isArray(form.fields) ? form.fields : []).filter(isRecord);
+    const questions = sessionID === this.sessionId
+      ? parseAskRequest({
+        questions: fields.map((field, index) => {
+          const text = stringField(field, 'description') ?? stringField(field, 'title') ?? stringField(form, 'title') ?? '';
+          return {
+            id: stringField(field, 'key') ?? String(index),
+            header: (stringField(field, 'title') ?? stringField(form, 'title') ?? text).slice(0, 12),
+            question: text,
+            options: (Array.isArray(field.options) ? field.options : []).filter(isRecord).map(option => ({
+              label: stringField(option, 'title') ?? stringField(option, 'label') ?? stringField(option, 'value') ?? '',
+              ...(stringField(option, 'description') ? { description: stringField(option, 'description') } : {}),
+            })),
+            multiSelect: field.type === 'multiselect',
+          };
+        }),
+      })?.questions
+      : undefined;
+    if (!questions) {
+      this.emit({ type: 'note', message: 'opencode: declined a form the cockpit cannot render' });
+      void this.http('DELETE', route, undefined).catch(() => undefined);
+      return;
+    }
+    this.pendingQuestion = { id, questions, fields, route };
+    this.opts.onUiEvent?.({ type: 'ask.requested', requestId: `opencode-${id}`, questions });
   }
 
   private handleEvent(evt: OpencodeEvent): void {
@@ -806,8 +963,33 @@ class OpencodeSession implements AgentSession {
     this.opts.onUiEvent?.({ type: 'ask.requested', requestId: `opencode-${id}`, questions });
   }
 
-  private async replyQuestion(pending: { id: string; questions: AskQuestion[] }, text: string): Promise<void> {
+  private async replyQuestion(
+    pending: { id: string; questions: AskQuestion[]; fields?: Record<string, unknown>[]; route?: string },
+    text: string,
+  ): Promise<void> {
     const byId = userInputAnswers(pending.questions, text);
+    if (pending.route) {
+      const answer: Record<string, unknown> = {};
+      pending.questions.forEach((q, i) => {
+        const key = q.id ?? String(i);
+        const answers = byId[key]?.answers ?? [];
+        const field = pending.fields?.[i];
+        // A choice replies with its stored value, the card shows its label.
+        const options = field && Array.isArray(field.options) ? field.options.filter(isRecord) : [];
+        const values = answers.map(label => {
+          const option = options.find(o => (stringField(o, 'title') ?? stringField(o, 'label') ?? stringField(o, 'value')) === label);
+          return (option && stringField(option, 'value')) ?? label;
+        });
+        answer[key] = field?.type === 'multiselect' ? values : values[0] ?? '';
+      });
+      try {
+        await this.http('POST', `${pending.route}/reply`, { answer });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.emit({ type: 'note', message: `opencode: form reply failed: ${message}` });
+      }
+      return;
+    }
     const answers = pending.questions.map((q, i) => byId[q.id ?? String(i)]?.answers ?? []);
     try {
       await this.http('POST', `/question/${encodeURIComponent(pending.id)}/reply`, { answers });
@@ -874,7 +1056,9 @@ class OpencodeSession implements AgentSession {
       }
     }
     const cost = info.cost;
-    if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 && (this.lastCost === undefined || cost > this.lastCost)) {
+    // A turn the provider turned away for a usage limit spent nothing, whatever list-price estimate
+    // OpenCode stamped on it (#1756); costs of earlier messages and of other failures stay (#1346).
+    if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 && !isUsageLimitRejection(info.error) && (this.lastCost === undefined || cost > this.lastCost)) {
       this.emit({ type: 'cost', usd: cost - (this.lastCost ?? 0) });
       this.lastCost = cost;
     }
@@ -897,7 +1081,7 @@ class OpencodeSession implements AgentSession {
     body: unknown,
   ): Promise<Record<string, unknown>> {
     if (!this.baseUrl) throw new Error('opencode server not ready');
-    const res = await opencodeRequest(`${this.baseUrl}${path}`, { method, body });
+    const res = await opencodeRequest(`${this.baseUrl}${path}`, { method, body, headers: this.authHeaders() });
     if (res.status < 200 || res.status >= 300) {
       const envelope = parseRecord(res.body);
       const data = isRecord(envelope.data) ? envelope.data : {};
@@ -912,6 +1096,10 @@ class OpencodeSession implements AgentSession {
     } catch {
       return {};
     }
+  }
+
+  private authHeaders(): Record<string, string> {
+    return { authorization: `Basic ${Buffer.from(`${OPENCODE_SERVER_USER}:${this.serverPassword}`).toString('base64')}` };
   }
 
   private emit(event: AgentEvent): void {
@@ -981,6 +1169,15 @@ export function opencodePermissionReply(
 
 /** Random high port, clear of opencode's own 4096 (#1179); the bound URL is read back from
  *  the server's output or a `/path` probe. */
+/** An assistant message's `error` that says the quota, not the model, ended the turn. */
+export function isUsageLimitRejection(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const data = isRecord(error.data) ? error.data : {};
+  const status = typeof data.statusCode === 'number' ? data.statusCode : undefined;
+  if (status === 429 || status === 402) return true;
+  return QUOTA_REASON_RE.test(`${stringField(error, 'name') ?? ''} ${stringField(data, 'message') ?? ''}`);
+}
+
 function randomServerPort(): number {
   return 40000 + Math.floor(Math.random() * 20000);
 }

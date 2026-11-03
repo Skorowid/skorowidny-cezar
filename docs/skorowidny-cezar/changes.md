@@ -1,5 +1,63 @@
 # skorowidny-cezar changes
 
+## 2026-11-03 — upgrade to upstream v0.18.0, OpenCode 2.x runner, coordinator verified live (OC-1)
+
+**Upstream:** merged the verified release tag `v0.18.0` of `open-mercato/cezar`, commit `0d801132ecc4a628e650c4cc1b5072e5d256ff15`. Verified with `gh release view` (published, not draft or prerelease), the GitHub tag ref API and `git ls-remote`; the commit's `packages/cezar/package.json` says `0.18.0`. Its parent line is 13 commits over the fork's earlier base `eb157816`. No file conflicted and no fork file needed adaptation; `fork/upstream.json` records the new baseline. Behaviour to know from upstream: onboarding for first-run users, OpenCode native question cards, and vault key changes (new keychain keys are unreadable by older binaries).
+
+**OC-1 resolved without changing OpenCode:** the runner now also drives the OpenCode 2.x server API (`opencode-v2-events.ts`, `opencode-server-runner.ts`). It detects 2.x from `GET /api/location`; 1.x keeps its path. Each server gets a random Basic-auth password that stays between cezar and that child. Continue resumes the persisted 2.x session when it is still in the same directory. On 2.x, read-only runs get session rules that remove edit, write and shell, so the coordinator and consultants are read-only by enforcement rather than instruction alone (reading outside the project is not blocked by these rules).
+
+**Found by a real conversation and fixed:**
+- A document cited by its code (`BRD-1`) was refused; it now resolves by code as well as id.
+- A model can report success for an operation cezar refused. Refusals now appear in the conversation as cezar notices, and `INDEX.md` lists what the last turn had refused. The coordinator is told to word operations as requested, but wording is the model's; the notice is the guarantee.
+- After a restart the engine's own resume prompt was shown as the author's message and could have backed a quote. Engine resume prompts are now internal, like agent results.
+- Coordinator messages rendered as raw Markdown; they now use the cockpit's Markdown renderer.
+
+### Verification
+
+Test suites stay paused at the user's request: `npm test`, `npm run test:unit`, `npm run test:package`, `npm run test:e2e` were NOT run, and no tests were added. One expectation in `opencode-server-runner.test.ts` was reworded to the new message, unrun. `scrum.test.tsx` was already stale.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck`, `npm run build` with `check:pack` | PASS |
+| Runner against real OpenCode 2.2.5 and the configured Gemini model | Two turns in one session, shell tool, usage and cost events, question form with its answer returned, unknown model reported as an error |
+| Built server, sandbox `CEZ_HOME` and repository, real OpenCode and Gemini, no dry run | Initial questions asked, nothing invented; BRD and FRD drafted; first split refused until approved; approval by chat; ×3 estimate stored; Sprint planned inside constraints; consultation, implementation and review ran as real runs and their results returned to the coordinator; screenshot verified with hash; preview link probed, cockpit self-link refused; `.py` file rejected with its reason; stale revision 409; no item reached Done on its own |
+| Restart with an implementation running (same sandbox) | `cezar restarted — resuming the interrupted task`, same OpenCode session id, work finished |
+| Headless Chromium on the new views | Readiness, Documents with one opened, Agents and results, Backlog, Sprints and Product settings rendered with no page or console errors; coordinator Markdown (lists, bold, inline code) rendered, with no raw `**` in its messages |
+
+Not exercised: retry instructed through chat after a real failure, a forwarded change delivered to a live OpenCode run, a usage-limit hold on 2.x (`session.retry.scheduled` shape read from the binary, never seen), a real permission prompt on 2.x (none appeared), subtask rendering (child sessions are not shown). The run stack on other runners (Claude, Codex) received only the upstream merge, no live check here.
+
+## 2026-11-03 — product coordinator on OpenCode (SCRUM-COORD-01)
+
+The project's Scrum chat becomes one persistent OpenCode coordinator that assists the human Product Owner. Specification, DoR per slice, the Scrum/extension split and limits: [scrum-coordinator.md](scrum-coordinator.md).
+
+- **Coordinator:** the thread runs on OpenCode, with the model resolved from the project's configured OpenCode choice; no model name is hardcoded. An older Codex thread stays readable. A missing OpenCode is reported up front.
+- **Initial readiness gate:** on a new project cezar refuses the first decomposition until the initial questions are handled, and the author has approved a minimum BRD and FRD in Markdown. Existing backlogs keep working without it.
+- **Documents as memory:** versioned, hashed Markdown (BRD, FRD, stories, decisions, context packets, agent results), approval of one exact version, item traces that block on a changed baseline, a compact `INDEX.md` and per-item cards.
+- **Planning:** Sprint Goals and dates may be planned by the coordinator only inside constraints the author agreed. This supersedes the earlier manual-only Sprint rule. Estimates keep a base and a deterministic ×3 buffered value, shown as uncertain.
+- **Agents:** consultations, implementation attempts and reviews are real runs on configurable runners and models. Their persisted results return through a durable inbox into the coordinator's thread and leave it only once the coordinator answered. Agent output can never be quoted as the author's decision.
+- **Results:** declared screenshots and files are verified and copied with a hash; preview links must be local and are only probed or linked. Anything else is recorded as rejected with the reason.
+- **Cockpit:** new Readiness, Documents, and Agents and results views; estimates on items and Sprints; coordinator and agent settings under Product settings.
+
+Unchanged: business approval by the human, no automatic Done, retry only on the author's explicit chat instruction, durable forwarding to active runs, dependencies, the revision guard.
+
+Code: `packages/contract/src/scrum.ts`, `packages/cezar/src/scrum/` (`coordinator-state.ts`, `documents.ts`, `context.ts`, `artifacts.ts`, `work.ts` are new), `packages/cezar/src/server/scrum.ts`, `server.ts`, `packages/web/src/routes/scrum/`, `packages/web/src/api/scrum.ts`.
+
+The first entry above records the blocker this commit left (OC-1) and its resolution.
+
+### Verification
+
+Test suites remain paused at the user's request: `npm test`, `npm run test:unit`, `npm run test:package` and `npm run test:e2e` were NOT run, and no tests were added or updated. The existing `scrum.test.tsx` is stale (it clicks the removed "Add PBI" button and mocks only part of `@/api/scrum`). Contract-parity and route-inventory tests were not run against the new routes.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (contract, client, server, web, release) | PASS |
+| `npm run build`, including `check:pack` | PASS — 1151 files, 176 under web/dist |
+| Throwaway script on synthetic data with a fake run store (not committed) | 54/54 as expected: gate refusals and passage, code fences inside a document, version-exact approval, exact ×3, Sprint planning inside and outside constraints, one queued run, artifact verification (real image accepted; fake image, traversal, symlink, missing file, `file:`, remote URL refused), one report per result, one automatic review, consultation cap, inbox held, handed over, kept when the session dies, resent after the author spoke, removed once answered, agent text refused as the author's quote, changed baseline blocks an item, server-owned fields kept, legacy state unaffected |
+| Built server, sandbox `HOME`/`CEZ_HOME`, temporary repository, `CEZ_DRY_RUN=1` (mock agents through the real RunManager) | Boot sweep queued a ready item; the attempt's result was captured from its transcript into `RESULT-1`; finishing that run started one `REVIEW-1` run in its own worktree; the results waited in the inbox; config save, stale revision 409, foreign model 400, document and artifact 404, Scrum page 200 |
+| Built server, sandbox `HOME`/`CEZ_HOME`, no dry-run | The installed OpenCode 2.2.5 is reported in `GET /scrum/coordinator` and `POST /scrum/chat/messages` answers 409 with the reason; no run is started |
+
+Not exercised: **any real coordinator conversation on OpenCode**, because the host's version is unsupported, so the instructions' effect on a real model, reading the memory files, and emitting operations are unverified; real consultation and review agents returning a structured block; delivery of the inbox into a live OpenCode session and through Continue; the cockpit's new views in a browser; artifact serving and the preview probe against real files and servers; restart recovery with open work.
+
 ## 2026-10-30 — durable delivery of forwarded Scrum changes (SCRUM-CHAT-01 POL-1, technical correction)
 
 Fixes the delivery gaps the POL-1 implementation documented; the approved policies (forward to active agents, ask before retrying, active Sprint by default) and the run retry policy are unchanged.

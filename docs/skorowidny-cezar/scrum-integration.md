@@ -1,5 +1,7 @@
 # SCRUM-LOCAL-01 — integrated local Scrum module
 
+> Extended by [SCRUM-COORD-01](scrum-coordinator.md): runs may now use configured runners and models, and an item with document traces needs its traced versions approved.
+
 Status: implemented (2026-10-30). Extended by [SCRUM-CHAT-01](scrum-chat.md): items are now created through the Scrum chat and queued automatically; the Add PBI form was removed. The user confirmed that the backlog lives inside skorowidny-cezar, asked for a working module in the cockpit and allowed switching the running service with a rollback procedure. Jira is not a data source for this increment.
 
 The increment covers a per-project Product Goal and Definition of Done, an editable Product Backlog, BA questions and DoR status, Sprint Goal and Sprint Backlog, an event notebook, and starting the existing agent engine with PBI context. State is stored locally and survives restarts. Every agent attempt is linked to its PBI. A finished run never marks a PBI Done by itself. BA refinement is a read-only analysis; it never approves requirements on a human's behalf.

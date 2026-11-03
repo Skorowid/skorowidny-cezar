@@ -455,6 +455,14 @@ export function parseOwnerName(nameWithOwner: string): { owner: string; name: st
 const listCache = new Map<string, { at: number; limit: number; data: GithubData }>();
 const LIST_CACHE_MAX = 50;
 const CACHE_MS = 60_000;
+
+/** A sign-in changes what every cached `unavailable` answer means: a GitHub tab that cached "gh is
+ *  not authenticated" would keep saying so for a minute after the user just signed in. Called by
+ *  the login route the moment `gh` exits 0; the signed-in state is the only thing that moves. */
+export function forgetGithubListCache(): void {
+  listCache.clear();
+  enterpriseHostByRoot.clear();
+}
 export const GH_MAX_LIMIT = 1000;
 /** GitHub GraphQL rejects `first` above 100 (EXCESSIVE_PAGINATION); larger limits page. */
 const GH_GRAPHQL_PAGE_MAX = 100;
@@ -1520,6 +1528,42 @@ export async function fetchGithubChecks(repoRoot: string, numbers: number[]): Pr
         ? 'gh CLI not found — install it and run `gh auth login`'
         : firstLine(message),
     };
+  }
+}
+
+export type HeadChecksVerdict =
+  | { kind: 'unavailable' }
+  | { kind: 'stale'; headOid: string }
+  | { kind: 'conflict' }
+  | { kind: 'checks'; glyph: ChecksGlyph };
+
+/**
+ * CI verdict for one exact commit of a PR (#1533), never the 60 s PR-number cache: `stale` while
+ * the PR's head is not `sha` yet (a push not landed), `conflict` for a CONFLICTING PR at that head,
+ * else the rollup for `sha` itself. Offline or gh logged out is `unavailable`, not a verdict.
+ */
+export async function fetchPrHeadChecks(repoRoot: string, number: number, sha: string): Promise<HeadChecksVerdict> {
+  try {
+    const pr = JSON.parse(await gh(repoRoot, ['pr', 'view', String(number), '--json', 'headRefOid,mergeable'])) as {
+      headRefOid?: unknown;
+      mergeable?: unknown;
+    };
+    if (typeof pr.headRefOid !== 'string' || !pr.headRefOid) return { kind: 'unavailable' };
+    if (pr.headRefOid.toLowerCase() !== sha.toLowerCase()) return { kind: 'stale', headOid: pr.headRefOid };
+    if (pr.mergeable === 'CONFLICTING') return { kind: 'conflict' };
+    const ownerName = parseOwnerName(await gh(repoRoot, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']));
+    if (!ownerName) return { kind: 'unavailable' };
+    const runGraphql: GraphqlRunner = (query, variables) => {
+      const args = ['api', 'graphql', '-f', `query=${query}`];
+      for (const [key, value] of Object.entries(variables)) args.push('-f', `${key}=${value}`);
+      return gh(repoRoot, args);
+    };
+    const checks = await fetchCommitChecks(runGraphql, ownerName.owner, ownerName.name, [sha]);
+    // The query failed or the SHA is unknown to GitHub yet: keep polling, do not guess.
+    if (!(sha in checks)) return { kind: 'unavailable' };
+    return { kind: 'checks', glyph: checks[sha] ?? null };
+  } catch {
+    return { kind: 'unavailable' };
   }
 }
 

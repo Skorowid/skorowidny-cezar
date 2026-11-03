@@ -1,5 +1,7 @@
 # SCRUM-CHAT-01 — conversational Scrum and automatic queue
 
+> Updated by [SCRUM-COORD-01](scrum-coordinator.md) on 2026-11-03: the thread now runs on OpenCode instead of Codex, and the coordinator may plan Sprints within limits the author agreed. Approval, no automatic Done, retry only on the author's instruction and durable forwarding (POL-1, POL-2) are unchanged and described here.
+
 Status: implemented on `skorowidny/main` (2026-10-30); the user's decisions on Q1, Q2 and Q4 were implemented the same day (see [Approved follow-up policies](#approved-follow-up-policies-2026-10-30)). Not deployed: the locally running cezar service stays on release `28f4a954` by the user's explicit instruction. This increment builds on [SCRUM-LOCAL-01](scrum-integration.md).
 
 ## CHANGE REQUEST and DoR assessment

@@ -1,4 +1,5 @@
 import { completionReason } from './completion-reason.ts';
+import { AUTO_RESUME_PROMPT, RESTART_CONTINUATION_PROMPT, TRANSIENT_RETRY_PROMPT } from './continuation-prompts.ts';
 import { WorktreeLifecycleCoordinator } from '../worktree-lifecycle/coordinator.ts';
 import type { WebhookAttentionRequest, TrackerAssociation, UsageWindowsObservation } from '@open-mercato/cezar-contract';
 import { saveUsageWindows } from '../workspace/usage-windows.ts';
@@ -90,7 +91,7 @@ import {
   worktreeDiff,
   worktreeShortstat,
 } from '../git-worktree.ts';
-import { commentOnIssue, commentOnPr, fetchGithubChecks, updatePr } from '../server/forge/github.ts';
+import { commentOnIssue, commentOnPr, fetchPrHeadChecks, updatePr } from '../server/forge/github.ts';
 import { createDraftPr } from '../server/pr.ts';
 import { createOrSwitchBranch } from '../server/git-changes.ts';
 import { getHeadCommit, getRepoInfo } from '../server/git.ts';
@@ -853,11 +854,7 @@ function deferredBindingActive(run: Pick<RunRecord, 'id' | 'deferredBinding' | '
   return true;
 }
 
-const AUTO_RESUME_PROMPT =
-  'The provider usage limit that interrupted this task has reset. Read the handoff file (CEZ_HANDOFF_FILE) to recover context, then continue the task from where you left off.';
 type AutoResumeReason = NonNullable<RunRecord['autoResumeReason']>;
-const TRANSIENT_RETRY_PROMPT =
-  'Your previous turn stopped on a temporary provider error (overloaded, unreachable or a login refresh race), not on anything in the task. Read the handoff file (CEZ_HANDOFF_FILE) to recover context, then continue the task from where you left off.';
 
 /** Which automatic resume a failure earns: a usage limit's reset window or a transient retry. */
 function autoResumeReasonFor(error: string | undefined): AutoResumeReason | undefined {
@@ -1242,8 +1239,6 @@ export const VARIANT_HINTS: Record<string, string | undefined> = {
   C: 'Approach hint: prefer a thorough, structural approach.',
 };
 
-const RESTART_CONTINUATION_PROMPT =
-  'The cezar process restarted while you were working on this task. Read the handoff file (CEZ_HANDOFF_FILE) to recover context, then continue the task from where you left off.';
 
 interface PendingContinuation {
   stepId: string;
@@ -6615,21 +6610,33 @@ export class RunManager {
           outputs.set(node.id, { status: 'passing' });
           return 'green';
         }
-        note(`waiting for CI on PR #${number} (up to ${Math.round(node.timeoutMs / 60_000)} min)`);
+        // #1533: the verdict is for the commit this node was entered with, never a PR's previous head.
+        const headSha = await getHeadCommit(state.cwd);
+        if (!headSha) {
+          note('cannot read the worktree HEAD — nothing to wait for', 'danger');
+          outputs.set(node.id, { status: 'no-head' });
+          return 'failed';
+        }
+        note(`waiting for CI on PR #${number} at ${headSha.slice(0, 8)} (up to ${Math.round(node.timeoutMs / 60_000)} min)`);
         let glyph = 'pending';
         const outcome = await this.parkGraphNode(runId, state, node.id, { activity: 'monitoring', timeoutMs: node.timeoutMs }, (resolve) => {
           let stopped = false;
           const poll = async () => {
             if (stopped) return;
-            const data = await fetchGithubChecks(this.repoRoot, [number]);
-            // Unavailable (offline, gh logged out) is not a verdict: keep polling until the timeout.
-            const g = data.available ? data.checks[number] : null;
-            if (g === 'passing' || g === 'failing') {
-              glyph = g;
-              resolve({ kind: 'answer', text: g });
+            const v = await fetchPrHeadChecks(this.repoRoot, number, headSha);
+            if (stopped) return;
+            // Unavailable (offline, gh logged out) and stale are not verdicts: keep polling until the timeout.
+            if (v.kind === 'conflict') {
+              glyph = 'conflict';
+              resolve({ kind: 'answer', text: 'conflict' });
               return;
             }
-            if (!stopped) timer = setTimeout(() => void poll(), node.pollMs);
+            if (v.kind === 'checks' && (v.glyph === 'passing' || v.glyph === 'failing')) {
+              glyph = v.glyph;
+              resolve({ kind: 'answer', text: v.glyph });
+              return;
+            }
+            timer = setTimeout(() => void poll(), node.pollMs);
           };
           let timer: NodeJS.Timeout | undefined = setTimeout(() => void poll(), 0);
           return () => {
@@ -6640,6 +6647,12 @@ export class RunManager {
         if (outcome.kind === 'finished') return 'finished';
         outputs.set(node.id, { status: outcome.kind === 'timeout' ? 'timeout' : glyph });
         if (outcome.kind === 'timeout') return 'timeout';
+        if (glyph === 'conflict') {
+          // Through `failed`, not a new port: a saved graph wires only the ports that existed, and an
+          // unwired `conflict` would dead-end it. `failed` is already "nothing for a fixer to retry".
+          note(`PR #${number} has merge conflicts with its base — resolve them; CI will not run on it`, 'danger');
+          return 'failed';
+        }
         return glyph === 'passing' ? 'green' : 'red';
       }
     }
