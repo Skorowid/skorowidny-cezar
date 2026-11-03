@@ -1,4 +1,4 @@
-# SCRUM-COORD-01 — product coordinator on OpenCode
+# SCRUM-COORD-01 — product coordinator on OpenCode, with Codex as its stand-in
 
 Status: implemented, merged and exercised with a real OpenCode 2.2.5 coordinator on 2026-11-03 (evidence in [changes.md](changes.md)). This living specification extends [SCRUM-CHAT-01](scrum-chat.md) and [SCRUM-LOCAL-01](scrum-integration.md). The behaviour below was approved in the task order of 2026-11-02, which explicitly supersedes the earlier manual-only Sprint planning rule.
 
@@ -43,10 +43,26 @@ Earlier questions stay as recorded in [scrum-chat.md](scrum-chat.md). Q3 is deci
 
 - A cezar run on the `opencode` runner, one-step workflow `scrum-chat`, read-only, in place, resumed through the engine's message ladder. There is one per project, in `chat.threadRunId`. A thread on another runner stays readable, and the next message starts the OpenCode successor (recorded in `chat.threads`).
 - **Model resolution, first match wins:** `modelsLocked` → no model sent, OpenCode's own settings decide; the override saved in the cockpit; the project's `defaultModels.opencode`; OpenCode's settings file; otherwise no model is sent and OpenCode decides. No model name is written in the code. A changed choice applies when the session reopens.
-- **Availability:** a missing OpenCode is reported by `GET /scrum/coordinator`, shown in the chat panel, and refuses `POST /scrum/chat/messages` with 409, rather than opening a thread that fails.
-- **Read-only:** on OpenCode 2.x, session rules remove edit, write and shell. Reads outside the project are not blocked by those rules, so that part stays an instruction. On 1.x all of it is by instruction.
+- **Availability:** `GET /scrum/coordinator` reports the runner holding the role, why Codex holds it, and a blocker only when neither can work.
+- **Read-only:** on OpenCode 2.x, session rules remove edit, write and shell and refuse the external directory, so reads outside the project fail. On 1.x all of it is by instruction. On Codex it is the engine's read-only mode.
 - **Resume:** on 2.x, Continue and restart recovery reopen the same OpenCode session. cezar's resume prompts are internal: not shown as the author's and not usable as a quote.
 - **Refusals:** an operation cezar refuses appears in the conversation as a cezar notice and in `INDEX.md` for the next turn. Documents resolve by id or code.
+
+## Codex takes over when OpenCode cannot do the work
+
+Owner's decision, 2026-11-03: "when OpenCode cannot handle tasks, its role is taken over by Codex". What follows are the technical readings of that sentence; they are proposals the owner may change (see Open items).
+
+| Situation | What happens |
+|---|---|
+| OpenCode is not installed or has no login, or failed for real within the last hour | A new coordinator thread, and any Scrum agent configured for OpenCode, starts on Codex. No model is sent to Codex: its own configuration decides |
+| The OpenCode coordinator thread fails with a message or a result still unanswered | A new Codex thread starts at once and answers it. A short automatic retry by the engine goes first; a usage-limit resume is cancelled, since Codex now holds the role |
+| The thread fails with nothing waiting | The next author message goes to Codex |
+| An OpenCode implementer fails | Reported, and **not** retried by itself: the retry rule stands. A failure that names OpenCode or its provider keeps OpenCode out for the hour, so the attempt the author asks for runs on Codex |
+| Neither can work | The chat refuses with 409 and gives both reasons |
+
+Codex keeps the role for at least an hour from its takeover. After that the next author message tries OpenCode again; if it fails, Codex takes over again. One hand-over per thread, so a failing Codex ends in a notice, not a loop.
+
+A new thread gets the last 30 messages (at most 20 000 characters) in its system prompt as context. They cannot back a quote: a decision that needs one is asked again. Memory is still `INDEX.md` and the documents. The failure hour is kept in memory, so a restart forgets it and only the thread's own hold remains.
 
 ## Initial readiness gate
 
@@ -140,6 +156,9 @@ New chat operations: `setVision`, `setValueObjectives`, `setDefinitionOfReady`, 
 | ID | Priority | Issue | Who decides | Options |
 |---|---|---|---|---|
 | OC-1 | Resolved 2026-11-03 | The host's OpenCode 2.2.5 had no 1.x API | Owner order to complete the coordinator | The runner drives 2.x; OpenCode, its configuration and credentials were left unchanged |
+| CDX-1 | NON-BLOCKING, proposal in force | Does a failed consultation or review on OpenCode restart on Codex by itself? | Owner | Now: no, it is reported and the next request runs on Codex. Automatic restart would be a small change |
+| CDX-2 | NON-BLOCKING, proposal in force | Does the takeover also cover ordinary tasks outside Scrum? | Owner | Now: Scrum only. Ordinary tasks keep the runner the author picked |
+| CDX-3 | NON-BLOCKING, proposal in force | How long does Codex keep the role? | Owner | Now: one hour, then OpenCode is tried on the next message |
 | Q3 | Resolved 2026-11-03 by the owner | Is a cited quote sufficient approval of an item? | Owner | Yes. Current behaviour stands: quote accepted for items and documents; button also available for documents |
 
 ## Known limitations
@@ -147,6 +166,7 @@ New chat operations: `setVision`, `setValueObjectives`, `setDefinitionOfReady`, 
 - See [changes.md](changes.md) for what was and was not exercised. Only one small sandbox product has run through a real model, so how well models follow these instructions on larger work is unknown. In that run the model reported an operation as done before cezar applied it, which is why refusals are shown independently.
 - An implementer that ends its turn without `CEZ:DONE` parks as `waiting`; its result still reaches the coordinator, and the run is closed by the idle timeout.
 - `opencode serve` is not stopped by a cezar killed outside systemd. Under the service, the unit's control group ends it. Child sessions and their subtasks are not rendered, only their prompts are answered.
+- In a project that is not a git repository (such as a workspace folder) an implementer works in place, without a branch, so no review can start. Use a project with git for delivery work.
 - Splitting quality, whether a quote really means consent and whether an agent told the truth in its summary cannot be verified by software. File and link claims can, and are.
 - A run parked with a question (`waiting`) is reported to the coordinator, which tells the author, but the answer must be typed in that task's own page; the coordinator does not relay answers into other runs.
 - Automatic review needs a branch. If the worktree was reclaimed before capture, declared files are recorded as rejected.

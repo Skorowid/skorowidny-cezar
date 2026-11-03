@@ -31,13 +31,45 @@ const FENCE = /```cezar-scrum[^\n]*\n([\s\S]*?)(?:\n```[ \t]*(?=\n|$)|```\s*$)/g
 /** SCRUM-COORD-01: the one project-facing thread is always on this runner; its model is never named here. */
 export const SCRUM_COORDINATOR_RUNNER = 'opencode' as const;
 
-/** The chat thread's one-step workflow, pinned to OpenCode whatever the project's `quick-task` says. */
-export const SCRUM_CHAT_WORKFLOW: WorkflowDef = {
+/** Owner's decision 2026-11-03: when OpenCode cannot do the work, Codex takes its role. */
+export const SCRUM_FALLBACK_RUNNER = 'codex' as const;
+export type ScrumChatRunner = typeof SCRUM_COORDINATOR_RUNNER | typeof SCRUM_FALLBACK_RUNNER;
+/** How long Codex keeps the role before the next author message tries OpenCode again. */
+export const SCRUM_TAKEOVER_HOLD_MS = 60 * 60_000;
+
+/** The chat thread's one-step workflow, pinned to its runner whatever the project's `quick-task` says. */
+export const scrumChatWorkflow = (runner: ScrumChatRunner): WorkflowDef => ({
   name: 'scrum-chat',
   description: 'Project product coordinator (SCRUM-COORD-01).',
   source: 'built-in',
-  steps: [{ id: 'task', name: 'Product coordinator', prompt: '{{task}}', runner: SCRUM_COORDINATOR_RUNNER }],
-};
+  steps: [{ id: 'task', name: 'Product coordinator', prompt: '{{task}}', runner }],
+});
+
+/** OpenCode's own thread, or the Codex thread that took the role over. An older thread on another runner is neither. */
+export function holdsCoordinatorRole(chat: ScrumChatState, run: { id: string; runner?: string | null }): boolean {
+  if (run.runner === SCRUM_COORDINATOR_RUNNER) return true;
+  return run.runner === SCRUM_FALLBACK_RUNNER && chat.threads.some(thread => thread.runId === run.id && thread.takeover === true);
+}
+
+/** What the author said after the thread's last reply, i.e. what still waits for an answer. */
+export function unansweredAuthorText(task: string, events: readonly RunEvent[]): string {
+  let pending: string[] = isInternal(task) ? [] : [task];
+  for (const event of events) {
+    if (event.type === 'user-message' && !isInternal(textOf(event))) pending.push(textOf(event));
+    else if (event.type === 'text') pending = [];
+  }
+  return pending.join('\n\n');
+}
+
+/** The earlier conversation, for a new thread. In the system prompt, so it can never back a quote. */
+export function handoverSection(messages: readonly { role: string; text: string }[]): string {
+  const said = messages.filter(message => message.role !== 'system').slice(-30)
+    .map(message => `${message.role === 'user' ? 'Author' : 'Coordinator'}: ${message.text.slice(0, 2000)}`);
+  if (!said.length) return '';
+  let body = said.join('\n\n');
+  if (body.length > 20_000) body = `[older part omitted]\n${body.slice(-20_000)}`;
+  return `## Conversation so far\nYou take over this conversation from an earlier coordinator session. It is context only: what is recorded is in INDEX.md, and a quote must come from the author's messages in THIS session, so ask again when a decision needs one.\n\n${body}`;
+}
 
 /**
  * Starts every message cezar itself puts into the coordinator's thread. Such a message is an
@@ -50,7 +82,7 @@ export function emptyChatState(): ScrumChatState {
   return { threadRunId: null, threads: [], cursor: null, messageIds: [], log: [] };
 }
 
-export function chatSystemPrompt(): string {
+export function chatSystemPrompt(handover = ''): string {
   const questions = SCRUM_KICKOFF_QUESTIONS.map(question => `- ${question.id}${question.essential ? ' (essential)' : ''} — ${question.topic}: ${question.question}`).join('\n');
   return `You are the product coordinator of this one project, working inside the cezar cockpit: an AI assistant to the human author, who stays the accountable Product Owner. The author talks only to you. You gather the vision and the author's own objectives, prepare requirements as versioned Markdown, split approved work, plan within agreed limits, and report what other agents return. cezar applies your operations, runs other agents as real tasks and hands their persisted results back to you.
 
@@ -134,7 +166,7 @@ Most operations need a \`quote\`: a short VERBATIM excerpt of the author's own m
 - {"op":"retryItem","id":"<id>","quote":"<the author's explicit retry instruction, given after the failure>"}
 - {"op":"addNote","kind":"decision","body":"…","itemId":null,"sprintId":null,"quote":"…"} (kinds: general, planning, daily, review, retrospective, refinement, decision, question)
 
-DoR statuses: READY, NEEDS CLARIFICATION, BLOCKED, CHANGE REQUEST. Omit the block when nothing changes.`;
+DoR statuses: READY, NEEDS CLARIFICATION, BLOCKED, CHANGE REQUEST. Omit the block when nothing changes.${handover ? `\n\n${handover}` : ''}`;
 }
 
 const quote = z.string().trim().min(1).max(2000);
