@@ -45,6 +45,7 @@ Earlier questions stay as recorded in [scrum-chat.md](scrum-chat.md): Q3 (is a c
 - **Model resolution, first match wins:** `modelsLocked` → no model sent, OpenCode's own settings decide; the override saved in the cockpit; the project's `defaultModels.opencode`; OpenCode's settings file; otherwise no model is sent and OpenCode decides. No model name is written in the code. A changed choice applies when the session reopens.
 - **Availability:** a missing OpenCode is reported by `GET /scrum/coordinator`, shown in the chat panel, and refuses `POST /scrum/chat/messages` with 409, rather than opening a thread that fails.
 - **Read-only:** on OpenCode 2.x, session rules remove edit, write and shell. Reads outside the project are not blocked by those rules, so that part stays an instruction. On 1.x all of it is by instruction.
+- **Resume:** on 2.x, Continue and restart recovery reopen the same OpenCode session. cezar's resume prompts are internal: not shown as the author's and not usable as a quote.
 - **Refusals:** an operation cezar refuses appears in the conversation as a cezar notice and in `INDEX.md` for the next turn. Documents resolve by id or code.
 
 ## Initial readiness gate
