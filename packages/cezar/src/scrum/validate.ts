@@ -1,4 +1,5 @@
-import type { ScrumItem, ScrumSprint, ScrumState } from '@open-mercato/cezar-contract';
+import { SCRUM_ESTIMATE_BUFFER_FACTOR, type ScrumItem, type ScrumSprint, type ScrumState } from '@open-mercato/cezar-contract';
+import { kickoffBlockers, traceBlockers } from './coordinator-state.ts';
 
 /**
  * Cross-reference rules of SCRUM-LOCAL-01 that a per-field schema cannot express. Each function
@@ -83,6 +84,8 @@ export function stateProblems(state: ScrumState): string[] {
     ['item', state.items.map(item => item.id)],
     ['Sprint', state.sprints.map(sprint => sprint.id)],
     ['note', state.notes.map(note => note.id)],
+    ['document', (state.documents ?? []).map(document => document.id)],
+    ['agent work', (state.work ?? []).map(work => work.id)],
   ] as const) {
     for (const repeated of duplicates(ids)) problems.push(`duplicate ${kind} id ${repeated}`);
   }
@@ -97,6 +100,14 @@ export function stateProblems(state: ScrumState): string[] {
     if (item.deliveryStatus === 'done') {
       if (!state.definitionOfDone.trim()) problems.push(`${label} is done but the Definition of Done is empty`);
       if (!item.doneEvidence.trim()) problems.push(`${label} is done without doneEvidence`);
+    }
+    if (item.estimate && item.estimate.bufferedMinutes !== item.estimate.baseMinutes * SCRUM_ESTIMATE_BUFFER_FACTOR) {
+      problems.push(`${label}: the buffered estimate must be exactly ${SCRUM_ESTIMATE_BUFFER_FACTOR} × the base estimate`);
+    }
+    for (const trace of item.traces ?? []) {
+      const document = state.documents?.find(entry => entry.id === trace.documentId);
+      if (!document) problems.push(`${label} traces unknown document ${trace.documentId}`);
+      else if (!document.versions.some(version => version.version === trace.version)) problems.push(`${label} traces ${document.code} v${trace.version}, which does not exist`);
     }
   }
   if (problems.every(problem => !problem.includes('depends on'))) {
@@ -148,6 +159,7 @@ export function implementationBlockers(state: ScrumState, item: ScrumItem): stri
   const sprint = activeSprintOf(state, item.id);
   if (!sprint) blockers.push('item is not planned in the active Sprint');
   else if (!sprint.goal.trim()) blockers.push('the active Sprint has no Sprint Goal');
+  blockers.push(...kickoffBlockers(state).map(blocker => `initial readiness: ${blocker}`), ...traceBlockers(state, item));
   return blockers;
 }
 
@@ -156,18 +168,24 @@ export function activeSprintOf(state: ScrumState, itemId: string): ScrumSprint |
 }
 
 /**
- * SCRUM-CHAT-01: `chat`, `autoQueue`, `autoRunId`, `autoRetry`, `autoFailureReported` and `provenance` are written by the server
+ * SCRUM-CHAT-01, SCRUM-COORD-01: `chat`, `coordinator`, `kickoff`, `product`, `documents`, `work` and the item fields
+ * `autoQueue`, `autoRunId`, `autoRetry`, `autoFailureReported`, `provenance`, `estimate`, `traces` are written by the server
  * only. A client save carries whatever it read; the stored values always win.
  */
 export function keepServerOwned(previous: ScrumState, next: ScrumState): ScrumState {
   const items = new Map(previous.items.map(item => [item.id, item]));
   const sprints = new Map(previous.sprints.map(sprint => [sprint.id, sprint]));
-  const { chat: _sent, ...rest } = next;
+  const { chat: _sent, coordinator: _c, kickoff: _k, product: _o, documents: _d, work: _w, ...rest } = next;
   return {
     ...rest,
     ...(previous.chat ? { chat: previous.chat } : {}),
+    ...(previous.coordinator ? { coordinator: previous.coordinator } : {}),
+    ...(previous.kickoff ? { kickoff: previous.kickoff } : {}),
+    ...(previous.product ? { product: previous.product } : {}),
+    ...(previous.documents ? { documents: previous.documents } : {}),
+    ...(previous.work ? { work: previous.work } : {}),
     items: next.items.map(item => {
-      const { autoQueue: _q, autoRunId: _r, autoRetry: _t, autoFailureReported: _f, provenance: _p, ...plain } = item;
+      const { autoQueue: _q, autoRunId: _r, autoRetry: _t, autoFailureReported: _f, provenance: _p, estimate: _e, traces: _x, ...plain } = item;
       const before = items.get(item.id);
       return {
         ...plain,
@@ -176,6 +194,8 @@ export function keepServerOwned(previous: ScrumState, next: ScrumState): ScrumSt
         ...(before?.autoRetry !== undefined ? { autoRetry: before.autoRetry } : {}),
         ...(before?.autoFailureReported !== undefined ? { autoFailureReported: before.autoFailureReported } : {}),
         ...(before?.provenance !== undefined ? { provenance: before.provenance } : {}),
+        ...(before?.estimate !== undefined ? { estimate: before.estimate } : {}),
+        ...(before?.traces !== undefined ? { traces: before.traces } : {}),
       };
     }),
     sprints: next.sprints.map(sprint => {
