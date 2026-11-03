@@ -202,7 +202,11 @@ export type ScrumInboxEntry = z.infer<typeof scrumInboxEntrySchema>;
  */
 export const scrumChatStateSchema = z.strictObject({
   threadRunId: id.nullable(),
-  threads: z.array(z.strictObject({ runId: id, startedAt: z.iso.datetime({ offset: true }), reason: text(500) })).max(200),
+  threads: z.array(z.strictObject({
+    runId: id, startedAt: z.iso.datetime({ offset: true }), reason: text(500),
+    /** SCRUM-COORD-01: this thread took the coordinator's role over from OpenCode. */
+    takeover: z.boolean().optional(),
+  })).max(200),
   cursor: z.strictObject({ runId: id, seq: z.number().int().nonnegative() }).nullable(),
   messageIds: z.array(id).max(100),
   log: z.array(scrumChatLogEntrySchema).max(SCRUM_CHAT_LOG_LIMIT),
@@ -487,19 +491,21 @@ export const scrumChatViewSchema = z.strictObject({
 export type ScrumChatView = z.infer<typeof scrumChatViewSchema>;
 
 /** Where the coordinator's model comes from. `locked`: `modelsLocked` makes OpenCode's native settings authoritative. */
-export const scrumCoordinatorModelSourceSchema = z.enum(['override', 'project-default', 'opencode-settings', 'opencode-own-default', 'locked']);
+export const scrumCoordinatorModelSourceSchema = z.enum(['override', 'project-default', 'opencode-settings', 'opencode-own-default', 'locked', 'codex-own-default']);
 export type ScrumCoordinatorModelSource = z.infer<typeof scrumCoordinatorModelSourceSchema>;
 
 /** `GET /scrum/coordinator`: the configuration, the model it resolves to and the readiness gate. */
 export const scrumCoordinatorViewSchema = z.strictObject({
   revision,
   config: scrumCoordinatorConfigSchema,
-  runner: z.literal('opencode'),
-  /** Null: OpenCode decides by its own configuration; cezar names no model. */
+  runner: z.enum(['opencode', 'codex']),
+  /** Why Codex holds the role now; null while OpenCode does. */
+  takeoverReason: z.string().max(1000).nullable(),
+  /** Null: the runner decides by its own configuration; cezar names no model. */
   resolvedModel: z.string().max(200).nullable(),
   modelSource: scrumCoordinatorModelSourceSchema,
   modelsLocked: z.boolean(),
-  /** Why the coordinator cannot run on this machine right now, e.g. an unsupported OpenCode version. */
+  /** Why neither OpenCode nor Codex can hold the role on this machine right now. */
   blocker: z.string().max(1000).nullable(),
   kickoff: z.strictObject({
     required: z.boolean(),

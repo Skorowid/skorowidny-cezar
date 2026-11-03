@@ -1,5 +1,27 @@
 # skorowidny-cezar changes
 
+## 2026-11-03 — Codex takes over when OpenCode cannot do the work
+
+By the owner's decision, Codex now takes the role of OpenCode in Scrum: the coordinator's thread and the agents, before starting and after a real failure. Rules and open choices: [scrum-coordinator.md](scrum-coordinator.md#codex-takes-over-when-opencode-cannot-do-the-work). Unchanged: no automatic retry of a failed attempt, human approval, no automatic Done.
+
+Also: read-only OpenCode 2.x runs now refuse reads outside their directory; the author's message is no longer shown twice after a hand-over; `origin/upstream-main` moved to `v0.18.0`.
+
+### Verification
+
+Test suites stay paused: `npm test`, `test:unit`, `test:package`, `test:e2e` NOT run, no tests added, `scrum.test.tsx` still stale.
+
+| Check | Result |
+|---|---|
+| `npm run typecheck`, `npm run build` with `check:pack` | PASS |
+| Sandbox with a simulated broken OpenCode and real Codex | OpenCode thread failed at start; Codex answered the same message; the conversation continued on Codex through a restart with BRD and FRD, approval by chat, item and Sprint |
+| Same sandbox, implementer configured for OpenCode | Attempt failed and was NOT retried; the coordinator asked; "try again" ran on Codex |
+| Change sent while that attempt ran | `forward-pending`, then `forwarded`, and the committed code reflects the change |
+| Real OpenCode 2.2.5, read-only rules | Read outside the directory refused, no write or shell tool available |
+| Real OpenCode 2.2.5, `permission.asked` | Observed; the shape matches the runner's reading; reply accepted (204) |
+| Real OpenCode in a directory without git | Coordinator answered |
+
+Not exercised: a real usage limit on OpenCode (simulated failure was a server that would not start; `session.retry.scheduled` never seen), a real lost login, and the return to OpenCode after the hour. The takeover UI text was not viewed in a browser.
+
 ## 2026-11-03 — decision Q3
 
 The owner decided that a cited quote is sufficient to approve a backlog item. This confirms existing behaviour; no code changed.

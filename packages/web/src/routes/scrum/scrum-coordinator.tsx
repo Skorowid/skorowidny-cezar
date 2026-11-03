@@ -28,6 +28,7 @@ const SOURCE: Record<string, string> = {
   'opencode-settings': 'OpenCode\'s own settings file',
   'opencode-own-default': 'OpenCode decides by its own configuration; cezar names no model',
   locked: 'models are locked on this server: OpenCode\'s own settings are authoritative',
+  'codex-own-default': 'Codex\'s own configuration, while it holds the role',
 }
 
 export function useCoordinatorView(revision?: number) {
@@ -99,7 +100,7 @@ export function CoordinatorSettings() {
   return <section aria-label="Coordinator and agents" className="grid gap-4 rounded-xl border border-border bg-card p-5">
     <h2 className="font-semibold">Coordinator and agents</h2>
     <div className="grid gap-1.5 text-sm">
-      <p>The coordinator always runs on <strong>OpenCode</strong>. Current model: <strong>{view.data.resolvedModel ?? 'OpenCode\'s own choice'}</strong> <span className="text-soft-foreground">— from {SOURCE[view.data.modelSource]}.</span></p>
+      <p>The coordinator runs on <strong>OpenCode</strong>; when OpenCode cannot do the work, <strong>Codex</strong> takes its role, for coordinator and agents alike. Now on <strong>{view.data.runner === 'codex' ? 'Codex' : 'OpenCode'}</strong>. Current model: <strong>{view.data.resolvedModel ?? (view.data.runner === 'codex' ? 'Codex\'s own choice' : 'OpenCode\'s own choice')}</strong> <span className="text-soft-foreground">— from {SOURCE[view.data.modelSource]}.</span></p>
       <label className="grid gap-1"><span className="font-medium">Coordinator model override</span>
         <Input list="scrum-opencode-models" disabled={locked} placeholder="Empty: use the configured OpenCode choice" value={form.model ?? ''} onChange={event => setConfig({ ...form, model: event.target.value.trim() || null })} /></label>
       <datalist id="scrum-opencode-models">{models.data?.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}</datalist>
