@@ -1,6 +1,8 @@
-import type { RunStatus, ScrumChatLogEntry, ScrumState } from '@open-mercato/cezar-contract';
+import type { RunStatus, ScrumAgentChoice, ScrumChatLogEntry, ScrumState } from '@open-mercato/cezar-contract';
 import type { RunStore } from '../runs/store.ts';
 import { appendLog, entry } from './chat.ts';
+import { buildContextPacket, storeContextPacket } from './context.ts';
+import { addWork, coordinatorConfig, newWork } from './coordinator-state.ts';
 import { buildScrumPrompt, scrumItemMarker } from './prompt.ts';
 import { implementationBlockers } from './validate.ts';
 
@@ -18,7 +20,9 @@ import { implementationBlockers } from './validate.ts';
 /** A run in one of these still holds the item: a second attempt would race it. */
 export const ACTIVE_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(['queued', 'running', 'waiting']);
 
-export type ScrumLauncher = (prompt: string, readOnly: boolean) => Promise<{ id: string }>;
+/** How one assignment runs: read-only consultation, or a worktree task on the configured runner and model. */
+export interface ScrumLaunchOptions { readOnly: boolean; agent: ScrumAgentChoice }
+export type ScrumLauncher = (prompt: string, options: ScrumLaunchOptions) => Promise<{ id: string }>;
 
 export function busyItemIds(state: ScrumState, store: RunStore): Set<string> {
   return new Set(state.items.filter(item => item.runIds.some(runId => {
@@ -28,7 +32,7 @@ export function busyItemIds(state: ScrumState, store: RunStore): Set<string> {
 }
 
 export async function autoQueue(
-  state: ScrumState, store: RunStore, launch: ScrumLauncher, origin: { runId: string; turnSeq: number } | null,
+  state: ScrumState, store: RunStore, launch: ScrumLauncher, origin: { runId: string; turnSeq: number } | null, dataDir: string,
 ): Promise<ScrumState> {
   const busy = busyItemIds(state, store);
   const log: ScrumChatLogEntry[] = [];
@@ -51,7 +55,9 @@ export async function autoQueue(
       runId = orphan.id;
     } else {
       try {
-        runId = (await launch(buildScrumPrompt(current, item, 'implement'), false)).id;
+        const packet = buildContextPacket(dataDir, current, item);
+        runId = (await launch(buildScrumPrompt(current, item, 'implement', packet), { readOnly: false, agent: coordinatorConfig(current).agents.implement })).id;
+        current = storeContextPacket(dataDir, current, item, packet, runId);
       } catch (error) {
         log.push(entry(at, 'autoQueue', 'queue-failed', `"${item.title}" could not be queued: ${error instanceof Error ? error.message : String(error)}`, '', item.id));
         continue;
@@ -65,6 +71,11 @@ export async function autoQueue(
         return { ...rest, autoRunId: runId, runIds: [...entry.runIds, runId] };
       }),
     };
+    // The attempt's result returns to the coordinator through this entry (`work.ts`).
+    const run = store.getRun(runId);
+    current = addWork(current, newWork('implement', {
+      itemId: item.id, request: `Implement "${item.title}"`.slice(0, 4000), runId, status: 'active', runner: run?.runner ?? null, model: run?.model ?? null,
+    }));
     const why = retry ? ' — another attempt the user asked for in the chat' : '';
     log.push(entry(at, 'autoQueue', 'queued', `"${item.title}" queued for an execution agent as run ${runId.slice(0, 8)}${why}${orphan ? ' (recovered after a restart)' : ''}`, item.autoRetry?.quote ?? '', item.id));
   }

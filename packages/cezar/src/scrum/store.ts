@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { scrumStateSchema, type ScrumState } from '@open-mercato/cezar-contract';
 import { renameWithRetry } from '../fs-rename.ts';
+import { writeDerivedViews } from './documents.ts';
 import { ScrumError, stateProblems } from './validate.ts';
 
 /**
@@ -91,6 +92,7 @@ export async function updateScrumState<T>(
       const problems = checked.success ? stateProblems(next) : checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`);
       if (problems.length) throw new ScrumError(400, problems.join('; '));
       await writeAtomic(scrumStatePath(dataDir), next);
+      writeDerivedViews(dataDir, next);
       return { state: next, result };
     } finally {
       await release().catch(() => undefined);

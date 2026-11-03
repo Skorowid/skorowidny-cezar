@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { runnerSchema } from './health.ts';
 import { runStatusSchema } from './runs.ts';
 
 /**
@@ -39,6 +40,32 @@ export const scrumProvenanceSchema = z.strictObject({
 });
 export type ScrumProvenance = z.infer<typeof scrumProvenanceSchema>;
 
+/**
+ * SCRUM-COORD-01 (docs/skorowidny-cezar/scrum-coordinator.md): an uncertain forecast, never a
+ * promise. `bufferedMinutes` is always `baseMinutes * SCRUM_ESTIMATE_BUFFER_FACTOR`; the service
+ * computes it and refuses a state where it differs.
+ */
+export const SCRUM_ESTIMATE_BUFFER_FACTOR = 3;
+const MAX_ESTIMATE_MINUTES = 1_000_000;
+export const scrumEstimateSchema = z.strictObject({
+  baseMinutes: z.number().int().min(1).max(MAX_ESTIMATE_MINUTES),
+  bufferedMinutes: z.number().int().min(SCRUM_ESTIMATE_BUFFER_FACTOR).max(MAX_ESTIMATE_MINUTES * SCRUM_ESTIMATE_BUFFER_FACTOR),
+  factor: z.literal(SCRUM_ESTIMATE_BUFFER_FACTOR),
+  rationale: text(2000),
+  at: z.iso.datetime({ offset: true }),
+  /** The coordinator thread that estimated, or null for an estimate recorded elsewhere. */
+  runId: id.nullable(),
+});
+export type ScrumEstimate = z.infer<typeof scrumEstimateSchema>;
+
+/** Which exact document version an item was derived from (traceability, CHANGE REQUEST guard). */
+export const scrumTraceSchema = z.strictObject({
+  documentId: id,
+  version: z.number().int().min(1),
+  section: text(200).optional(),
+});
+export type ScrumTrace = z.infer<typeof scrumTraceSchema>;
+
 export const scrumItemSchema = z.strictObject({
   id,
   title: text(300),
@@ -65,6 +92,10 @@ export const scrumItemSchema = z.strictObject({
   autoFailureReported: id.optional(),
   /** Server-owned: the chat decisions that created or changed this item. */
   provenance: z.array(scrumProvenanceSchema).max(200).optional(),
+  /** Server-owned (SCRUM-COORD-01): base and deterministic ×3 buffered forecast. */
+  estimate: scrumEstimateSchema.optional(),
+  /** Server-owned (SCRUM-COORD-01): the document versions this item implements. */
+  traces: z.array(scrumTraceSchema).max(50).optional(),
 });
 export type ScrumItem = z.infer<typeof scrumItemSchema>;
 
@@ -98,9 +129,9 @@ export type ScrumNote = z.infer<typeof scrumNoteSchema>;
  * `run-failed`: an automatic attempt failed and is not retried by itself (Q2).
  * `question`: cezar needs the user's answer, e.g. no active Sprint for a READY item (Q4).
  */
-export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question']);
+export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question', 'agent-started', 'agent-result']);
 /** Outcomes the conversation shows inline as cezar's own notices. */
-export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question'];
+export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question', 'agent-started', 'agent-result'];
 export type ScrumChatOutcome = z.infer<typeof scrumChatOutcomeSchema>;
 
 /** One backlog operation the chat agent asked for, or one automatic queue action, and its result. */
@@ -145,6 +176,25 @@ export const scrumForwardSchema = z.strictObject({
 });
 export type ScrumForward = z.infer<typeof scrumForwardSchema>;
 
+/** Most agent results waiting to enter the coordinator's thread at once; more wait on their work entry. */
+export const SCRUM_INBOX_LIMIT = 100;
+/**
+ * SCRUM-COORD-01: one persisted agent result on its way into the coordinator's thread. Same
+ * discipline as `forwards`: written before delivery, removed once confirmed in the transcript.
+ */
+export const scrumInboxEntrySchema = z.strictObject({
+  id,
+  workId: id,
+  text: text(12_000),
+  createdAt: z.iso.datetime({ offset: true }),
+  /** Why it has not reached the coordinator yet. */
+  detail: text(2000),
+  /** Handed to this thread at this time; the entry stays until the coordinator has answered. */
+  handedAt: z.iso.datetime({ offset: true }).optional(),
+  handedRunId: id.optional(),
+});
+export type ScrumInboxEntry = z.infer<typeof scrumInboxEntrySchema>;
+
 /**
  * SCRUM-CHAT-01, server-owned: the project's Scrum chat thread (a real agent run resumed through
  * Continue), the turn the backlog has absorbed up to, recent client message ids for retries, and
@@ -157,8 +207,214 @@ export const scrumChatStateSchema = z.strictObject({
   messageIds: z.array(id).max(100),
   log: z.array(scrumChatLogEntrySchema).max(SCRUM_CHAT_LOG_LIMIT),
   forwards: z.array(scrumForwardSchema).max(SCRUM_FORWARD_LIMIT).optional(),
+  /** SCRUM-COORD-01: agent results still on their way into the coordinator's thread. */
+  inbox: z.array(scrumInboxEntrySchema).max(SCRUM_INBOX_LIMIT).optional(),
 });
 export type ScrumChatState = z.infer<typeof scrumChatStateSchema>;
+
+/** Longest one Markdown document version, in characters. */
+export const SCRUM_DOCUMENT_TEXT_LIMIT = 200_000;
+export const SCRUM_DOCUMENT_LIMIT = 2000;
+export const SCRUM_DOCUMENT_VERSION_LIMIT = 100;
+/** Longest context packet handed to a run; what does not fit is listed by path, never cut silently. */
+export const SCRUM_CONTEXT_PACKET_LIMIT = 60_000;
+
+/**
+ * SCRUM-COORD-01: `brd`, `frd`, `story`, `decision` are prepared by the coordinator and need human
+ * approval; `context` is generated per item; `consultation`, `review` and `implementation` are
+ * what agents actually returned.
+ */
+export const scrumDocumentKindSchema = z.enum(['brd', 'frd', 'story', 'decision', 'context', 'consultation', 'review', 'implementation']);
+export type ScrumDocumentKind = z.infer<typeof scrumDocumentKindSchema>;
+/** Kinds whose content is a requirement or decision: only a human approval gives them force. */
+export const SCRUM_APPROVABLE_DOCUMENT_KINDS: readonly ScrumDocumentKind[] = ['brd', 'frd', 'story', 'decision'];
+
+export const scrumDocumentVersionSchema = z.strictObject({
+  version: z.number().int().min(1),
+  /** SHA-256 of the Markdown file; a read that does not match reports the file as altered. */
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  chars: z.number().int().nonnegative().max(SCRUM_DOCUMENT_TEXT_LIMIT),
+  /** Markdown headings found in this version; the minimum BRD/FRD check reads them. */
+  headings: z.array(text(200)).max(200),
+  summary: text(500),
+  at: z.iso.datetime({ offset: true }),
+  /** Who wrote it: the coordinator's draft, cezar's generator, or an agent run's result. */
+  source: z.enum(['coordinator', 'cezar', 'agent']),
+  provenance: scrumProvenanceSchema.nullable(),
+  runId: id.nullable(),
+});
+export type ScrumDocumentVersion = z.infer<typeof scrumDocumentVersionSchema>;
+
+export const scrumDocumentSchema = z.strictObject({
+  id,
+  /** Human-readable, stable: `BRD-1`, `FRD-2`, `REVIEW-3`. */
+  code: text(40),
+  kind: scrumDocumentKindSchema,
+  title: text(300),
+  itemIds: z.array(id).max(500),
+  versions: z.array(scrumDocumentVersionSchema).min(1).max(SCRUM_DOCUMENT_VERSION_LIMIT),
+  /** The one version a human approved; a newer version is not approved by it. */
+  approval: z.strictObject({
+    version: z.number().int().min(1),
+    by: z.enum(['chat', 'cockpit']),
+    at: z.iso.datetime({ offset: true }),
+    provenance: scrumProvenanceSchema.nullable(),
+  }).nullable(),
+});
+export type ScrumDocument = z.infer<typeof scrumDocumentSchema>;
+
+/** Questions the coordinator must have answered (or, where allowed, explicitly deferred) before the first decomposition. */
+export const SCRUM_KICKOFF_QUESTIONS = [
+  { id: 'vision', topic: 'Vision', essential: true, question: 'What should this product be and for whom, in your own words?' },
+  { id: 'value', topic: 'Value and profit objectives', essential: true, question: 'What value or profit objectives do you define, and how would you measure them? State "none defined" if you have none; none are assumed for you.' },
+  { id: 'users', topic: 'Users and accountability', essential: true, question: 'Who are the users and stakeholders, and who approves requirements as the accountable Product Owner?' },
+  { id: 'scope', topic: 'Scope', essential: true, question: 'What is in scope now, explicitly out of scope, and deferred?' },
+  { id: 'behavior', topic: 'Functional behaviour', essential: true, question: 'What are the main actors, triggers, flows and expected results of the first slice?' },
+  { id: 'dor', topic: 'Definition of Ready', essential: true, question: 'What must be true before a task may start (Definition of Ready)?' },
+  { id: 'dod', topic: 'Definition of Done', essential: true, question: 'What must be true before work counts as Done (Definition of Done)?' },
+  { id: 'planning', topic: 'Sprint planning constraints', essential: true, question: 'What Sprint length and date limits apply, and may the coordinator plan and activate Sprints within them on its own?' },
+  { id: 'data', topic: 'Data and business rules', essential: false, question: 'Which data, validation and business rules apply?' },
+  { id: 'failures', topic: 'Failure scenarios', essential: false, question: 'Which errors, boundary cases and recovery behaviour matter?' },
+  { id: 'integrations', topic: 'Dependencies', essential: false, question: 'Which external systems, APIs or decisions does the work depend on?' },
+  { id: 'quality', topic: 'Quality constraints', essential: false, question: 'Which performance, security, compliance or availability constraints apply?' },
+  { id: 'limits', topic: 'Cost and time limits', essential: false, question: 'Which budget or time limits apply to agent work?' },
+  { id: 'delivery', topic: 'Delivery', essential: false, question: 'Which repositories are affected, and who may merge or publish?' },
+] as const;
+export const scrumKickoffQuestionIdSchema = z.enum(['vision', 'value', 'users', 'scope', 'behavior', 'dor', 'dod', 'planning', 'data', 'failures', 'integrations', 'quality', 'limits', 'delivery']);
+export type ScrumKickoffQuestionId = z.infer<typeof scrumKickoffQuestionIdSchema>;
+
+export const scrumKickoffSchema = z.strictObject({
+  /** True when the project had no backlog when the coordinator started: the gate applies. An existing backlog keeps working without it. */
+  required: z.boolean(),
+  startedAt: z.iso.datetime({ offset: true }),
+  answers: z.array(z.strictObject({
+    questionId: scrumKickoffQuestionIdSchema,
+    status: z.enum(['answered', 'deferred']),
+    answer: text(5000),
+    provenance: scrumProvenanceSchema,
+  })).max(100),
+  completedAt: z.iso.datetime({ offset: true }).nullable(),
+});
+export type ScrumKickoff = z.infer<typeof scrumKickoffSchema>;
+
+/** The limits within which the coordinator may plan Sprints by itself; only the author sets them. */
+export const scrumPlanningConstraintsSchema = z.strictObject({
+  maxSprintDays: z.number().int().min(1).max(31),
+  earliestStart: z.iso.date(),
+  latestEnd: z.iso.date().nullable(),
+  mayActivate: z.boolean(),
+  notes: text(2000),
+  provenance: scrumProvenanceSchema,
+});
+export type ScrumPlanningConstraints = z.infer<typeof scrumPlanningConstraintsSchema>;
+
+/** The author's own product statements. Nothing here has a default: an empty value means not stated. */
+export const scrumProductSchema = z.strictObject({
+  vision: text(10_000),
+  valueObjectives: z.array(z.strictObject({
+    id,
+    statement: text(2000),
+    /** How the author measures it; empty when the author named no metric. */
+    metric: text(500),
+    target: text(500),
+    provenance: scrumProvenanceSchema,
+  })).max(50),
+  definitionOfReady: text(20_000),
+  planning: scrumPlanningConstraintsSchema.nullable(),
+});
+export type ScrumProduct = z.infer<typeof scrumProductSchema>;
+
+export const scrumAgentRoleSchema = z.enum(['consult', 'implement', 'review']);
+export type ScrumAgentRole = z.infer<typeof scrumAgentRoleSchema>;
+/** Null runner: the project's default runner. Null model: that runner's own configured choice. */
+export const scrumAgentChoiceSchema = z.strictObject({ runner: runnerSchema.nullable(), model: text(200).nullable() });
+export type ScrumAgentChoice = z.infer<typeof scrumAgentChoiceSchema>;
+/** The coordinator's runner is always OpenCode; `model` null means the configured OpenCode choice. */
+export const scrumCoordinatorConfigSchema = z.strictObject({
+  model: text(200).nullable(),
+  agents: z.strictObject({ consult: scrumAgentChoiceSchema, implement: scrumAgentChoiceSchema, review: scrumAgentChoiceSchema }),
+  /** A settled implementation attempt with a branch gets one independent review run. */
+  autoReview: z.boolean(),
+});
+export type ScrumCoordinatorConfig = z.infer<typeof scrumCoordinatorConfigSchema>;
+
+export const SCRUM_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024;
+export const SCRUM_ARTIFACTS_PER_RESULT = 10;
+/**
+ * A result an agent presented, as cezar verified it. `verified`: the file existed, passed the
+ * allow-list and was copied with this hash. `rejected`: refused, see `reason`. `unchecked`,
+ * `reachable`, `unreachable`: a loopback preview link and its last probe. A declared item that
+ * failed validation is recorded as rejected, never shown as existing.
+ */
+export const scrumArtifactSchema = z.strictObject({
+  id,
+  kind: z.enum(['screenshot', 'file', 'preview']),
+  label: text(300),
+  status: z.enum(['verified', 'rejected', 'unchecked', 'reachable', 'unreachable']),
+  reason: text(500),
+  /** What the agent declared: a path inside its worktree, or a URL. */
+  declared: text(2000),
+  /** A validated loopback preview URL; absent for files and rejected links. */
+  url: text(2000).optional(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  bytes: z.number().int().nonnegative().max(SCRUM_ARTIFACT_MAX_BYTES).optional(),
+  mediaType: text(100).optional(),
+  /** File name under `scrum/artifacts/<work id>/`. */
+  storedAs: text(200).optional(),
+  runId: id,
+  capturedAt: z.iso.datetime({ offset: true }),
+  checkedAt: z.iso.datetime({ offset: true }).optional(),
+});
+export type ScrumArtifact = z.infer<typeof scrumArtifactSchema>;
+
+export const SCRUM_WORK_LIMIT = 1000;
+export const scrumWorkKindSchema = z.enum(['consult', 'implement', 'review']);
+export type ScrumWorkKind = z.infer<typeof scrumWorkKindSchema>;
+/** `pending`: recorded, no run yet. `active`: queued or running. `waiting`: the run parked for an answer. */
+export const scrumWorkStatusSchema = z.enum(['pending', 'active', 'waiting', 'completed', 'failed', 'cancelled']);
+export type ScrumWorkStatus = z.infer<typeof scrumWorkStatusSchema>;
+
+/** What the run really returned, read from its persisted transcript. */
+export const scrumWorkResultSchema = z.strictObject({
+  /** `structured`: the agent's result block parsed; `transcript`: only its final text; `none`: no text at all. */
+  source: z.enum(['structured', 'transcript', 'none']),
+  verdict: z.enum(['approve', 'changes', 'reject']).nullable(),
+  summary: text(4000),
+  gaps: lines,
+  blockers: lines,
+  feasibility: text(2000),
+  documentId: id.nullable(),
+  documentVersion: z.number().int().min(1).nullable(),
+  seq: z.number().int().nonnegative(),
+  capturedAt: z.iso.datetime({ offset: true }),
+});
+export type ScrumWorkResult = z.infer<typeof scrumWorkResultSchema>;
+
+/** One real agent assignment: an existing cezar run behind it, its status and its returned result. */
+export const scrumWorkSchema = z.strictObject({
+  id,
+  kind: scrumWorkKindSchema,
+  itemId: id.nullable(),
+  documentId: id.nullable(),
+  request: text(4000),
+  runId: id.nullable(),
+  /** `review`: the implementation run under review. */
+  targetRunId: id.nullable(),
+  runner: runnerSchema.nullable(),
+  model: text(200).nullable(),
+  branch: text(300).nullable(),
+  status: scrumWorkStatusSchema,
+  detail: text(2000),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+  result: scrumWorkResultSchema.nullable(),
+  artifacts: z.array(scrumArtifactSchema).max(SCRUM_ARTIFACTS_PER_RESULT),
+  /** Last state already reported to the coordinator, so one result is delivered once. */
+  reportedKey: text(200),
+  /** The author's words behind a requested consultation or review, when any. */
+  provenance: scrumProvenanceSchema.nullable(),
+});
+export type ScrumWork = z.infer<typeof scrumWorkSchema>;
 
 export const scrumStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -172,6 +428,16 @@ export const scrumStateSchema = z.strictObject({
   guidelines: text(20_000).optional(),
   /** Server-owned (SCRUM-CHAT-01); `PUT /scrum` keeps the stored value whatever it sends. */
   chat: scrumChatStateSchema.optional(),
+  /** Server-owned (SCRUM-COORD-01): coordinator and agent choices, changed through `PUT /scrum/coordinator`. */
+  coordinator: scrumCoordinatorConfigSchema.optional(),
+  /** Server-owned (SCRUM-COORD-01): the initial readiness gate. */
+  kickoff: scrumKickoffSchema.optional(),
+  /** Server-owned (SCRUM-COORD-01): vision, value objectives, DoR and planning limits the author stated. */
+  product: scrumProductSchema.optional(),
+  /** Server-owned (SCRUM-COORD-01): metadata of the versioned Markdown files under `scrum/documents/`. */
+  documents: z.array(scrumDocumentSchema).max(SCRUM_DOCUMENT_LIMIT).optional(),
+  /** Server-owned (SCRUM-COORD-01): agent assignments and their returned results. */
+  work: z.array(scrumWorkSchema).max(SCRUM_WORK_LIMIT).optional(),
 });
 export type ScrumState = z.infer<typeof scrumStateSchema>;
 
@@ -213,8 +479,65 @@ export type ScrumChatMessage = z.infer<typeof scrumChatMessageSchema>;
 export const scrumChatViewSchema = z.strictObject({
   threadRunId: id.nullable(),
   threadStatus: runStatusSchema.nullable(),
+  threadRunner: runnerSchema.nullable(),
   messages: z.array(scrumChatMessageSchema).max(400),
   truncated: z.boolean(),
   state: scrumStateSchema,
 });
 export type ScrumChatView = z.infer<typeof scrumChatViewSchema>;
+
+/** Where the coordinator's model comes from. `locked`: `modelsLocked` makes OpenCode's native settings authoritative. */
+export const scrumCoordinatorModelSourceSchema = z.enum(['override', 'project-default', 'opencode-settings', 'opencode-own-default', 'locked']);
+export type ScrumCoordinatorModelSource = z.infer<typeof scrumCoordinatorModelSourceSchema>;
+
+/** `GET /scrum/coordinator`: the configuration, the model it resolves to and the readiness gate. */
+export const scrumCoordinatorViewSchema = z.strictObject({
+  revision,
+  config: scrumCoordinatorConfigSchema,
+  runner: z.literal('opencode'),
+  /** Null: OpenCode decides by its own configuration; cezar names no model. */
+  resolvedModel: z.string().max(200).nullable(),
+  modelSource: scrumCoordinatorModelSourceSchema,
+  modelsLocked: z.boolean(),
+  /** Why the coordinator cannot run on this machine right now, e.g. an unsupported OpenCode version. */
+  blocker: z.string().max(1000).nullable(),
+  kickoff: z.strictObject({
+    required: z.boolean(),
+    complete: z.boolean(),
+    blockers: z.array(text(500)).max(100),
+    questions: z.array(z.strictObject({
+      id: scrumKickoffQuestionIdSchema,
+      topic: text(200),
+      question: text(500),
+      essential: z.boolean(),
+      status: z.enum(['open', 'answered', 'deferred']),
+      answer: text(5000),
+    })).max(50),
+  }),
+});
+export type ScrumCoordinatorView = z.infer<typeof scrumCoordinatorViewSchema>;
+
+export const scrumCoordinatorSaveSchema = z.strictObject({ expectedRevision: revision, config: scrumCoordinatorConfigSchema });
+export type ScrumCoordinatorSave = z.infer<typeof scrumCoordinatorSaveSchema>;
+
+export const scrumDocumentParamsSchema = z.object({ id });
+export const scrumDocumentQuerySchema = z.object({ version: z.string().regex(/^[1-9][0-9]{0,4}$/).optional() });
+/** One Markdown version. `integrity` says whether the file still matches the recorded hash. */
+export const scrumDocumentContentSchema = z.strictObject({
+  documentId: id,
+  version: z.number().int().min(1),
+  content: z.string().max(SCRUM_DOCUMENT_TEXT_LIMIT),
+  integrity: z.enum(['ok', 'altered', 'missing']),
+  path: text(1000),
+});
+export type ScrumDocumentContent = z.infer<typeof scrumDocumentContentSchema>;
+
+/** The accountable human's decision on one exact version. */
+export const scrumDocumentDecisionSchema = z.strictObject({
+  expectedRevision: revision,
+  version: z.number().int().min(1),
+  decision: z.enum(['approve', 'revoke']),
+});
+export type ScrumDocumentDecision = z.infer<typeof scrumDocumentDecisionSchema>;
+
+export const scrumArtifactParamsSchema = z.object({ id });

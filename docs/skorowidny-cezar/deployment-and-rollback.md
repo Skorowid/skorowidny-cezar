@@ -47,3 +47,12 @@ curl -s http://127.0.0.1:4321/api/v1/health
 This disables only the fork's drop-in; the original `ExecStart` and the earlier drop-ins apply again. The release directory and the Scrum data (`.ai/cezar/scrum/`, ignored by the original program) are kept so they can be inspected or exported later. Do not restore the data backup as part of a program rollback: it would also undo every change made after it was taken. Restore it only deliberately, with the service stopped, after saving a copy of the current state.
 
 `active` alone is not proof of a working rollback: open the cockpit and check that the projects are there.
+
+## Before deploying the product coordinator (SCRUM-COORD-01)
+
+Nothing in this section was done by the increment; the running service was not touched.
+
+- **OpenCode version.** On 2026-11-03 this host has `@opencode/cli` 2.2.5 on `PATH`. cezar's OpenCode runner drives only the 1.x server API, so the coordinator refuses to start here (409, shown in the Scrum page). A release that needs the coordinator working therefore also needs a decision by the owner: install OpenCode 1.x and point the service at it with `CEZ_OPENCODE_BIN` in a drop-in, or first port the runner to OpenCode's 2.x API. A 1.x install needs its own provider login; credentials are not shared automatically by this procedure.
+- **Models.** The service's `CEZ_AGENT_MODELS_LOCKED=1` drop-in makes OpenCode's own settings authoritative: the coordinator sends no model name, and the model fields in the Scrum page are disabled. Runners can still be chosen per role.
+- **Data.** New files live under each project's `.ai/cezar/scrum/` (`documents/`, `artifacts/`, `items/`, `INDEX.md`) and are covered by the existing backup of `.ai/cezar`. `INDEX.md` and `items/` are derived and may be deleted. `artifacts/` can hold files of up to 50 MB each.
+- **Rollback.** A `state.json` written by this release is not readable by an older one (strict schemas). The rollback above restores the program; to go back to an older fork release keep a copy of the state taken before this one, or expect 503 on the Scrum page. The state is never overwritten.

@@ -1,5 +1,5 @@
 import { attachScrumChat, createScrumRoutes, type ScrumServices } from './scrum.ts';
-import { chatSystemPrompt as scrumChatSystemPrompt, SCRUM_CHAT_WORKFLOW } from '../scrum/chat.ts';
+import { chatSystemPrompt as scrumChatSystemPrompt, SCRUM_CHAT_WORKFLOW, SCRUM_COORDINATOR_RUNNER } from '../scrum/chat.ts';
 import { createWebhookRoutes } from './webhooks.ts';
 import { WebhookCoordinator } from '../webhooks/coordinator.ts';
 import { webhooksEnabled } from '../webhooks/service.ts';
@@ -7714,35 +7714,68 @@ export function createApp(deps: ServerDeps) {
       return c.json({ stopped: true });
     });
 
-  // SCRUM-LOCAL-01 / SCRUM-CHAT-01: keep provider policy, execution and the chat thread in the
-  // existing engine — the Scrum module only decides WHAT to start.
+  // SCRUM-LOCAL-01 / SCRUM-CHAT-01 / SCRUM-COORD-01: keep provider policy, execution and the
+  // coordinator thread in the existing engine — the Scrum module only decides WHAT to start.
+  // The runner speaks OpenCode's 1.x server API and fails every session on 2.x (`unsupportedServerMessage`):
+  // say so before a thread is opened. Cached briefly, since the cockpit polls and the binary is slow to answer.
+  let opencodeCheck: { at: number; problem: string | null } | undefined;
+  const opencodeProblem = async (): Promise<string | null> => {
+    if (process.env.CEZ_DRY_RUN === '1') return null;
+    if (opencodeCheck && Date.now() - opencodeCheck.at < 60_000) return opencodeCheck.problem;
+    const found = (await detectEnvironment()).find(check => check.name === 'opencode');
+    const major = /(\d+)\.\d+/.exec(found?.version ?? '')?.[1];
+    const problem = !found?.available
+      ? 'OpenCode is not installed, and the product coordinator runs on OpenCode. Install OpenCode 1.x and configure a provider.'
+      : major !== undefined && Number(major) >= 2
+        ? `OpenCode ${found.version?.replace(/^opencode\s+/i, '')} is installed, but cezar's OpenCode runner speaks only the 1.x server API, so the product coordinator cannot start. Install OpenCode 1.x (npm install -g opencode-ai@1), or point CEZ_OPENCODE_BIN at a 1.x binary.`
+        : null;
+    opencodeCheck = { at: Date.now(), problem };
+    return problem;
+  };
   const scrumServices: ScrumServices = {
-    async launch(project, prompt, readOnly) {
+    coordinatorBlocker: () => opencodeProblem(),
+    async launch(project, prompt, { readOnly, agent }) {
       const { workflows } = await loadWorkflows(project.root);
       const workflow = workflows.find(candidate => candidate.name === 'quick-task');
       if (!workflow) throw new Error('The quick-task workflow is unavailable');
-      const runner = (await loadConfig(project.root)).defaultRunner ?? 'claude';
-      const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
+      const runner = agent.runner ?? (await loadConfig(project.root)).defaultRunner ?? 'claude';
+      const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root })
+        ?? (runner === 'opencode' ? await opencodeProblem() : null);
       if (blocked) throw new Error(blocked);
+      // `startRun` drops the model under `modelsLocked`; no model means the runner's own choice.
       const run = project.manager.startRun(workflow, {
         task: prompt, runner, readOnly, worktree: !readOnly,
+        ...(agent.model ? { model: agent.model } : {}),
         autonomous: false, generateFollowups: false,
       });
       return { id: run.id };
     },
-    async startChat(project, text) {
-      const blocked = await providerActionError(providersRequiredByWorkflow(SCRUM_CHAT_WORKFLOW, 'codex'), { repoRoot: project.root });
+    async startChat(project, text, model) {
+      const blocked = await providerActionError(providersRequiredByWorkflow(SCRUM_CHAT_WORKFLOW, SCRUM_COORDINATOR_RUNNER), { repoRoot: project.root });
       if (blocked) throw new Error(blocked);
       const run = project.manager.startRun(SCRUM_CHAT_WORKFLOW, {
-        task: text, runner: 'codex', readOnly: true, worktree: false,
+        task: text, runner: SCRUM_COORDINATOR_RUNNER, readOnly: true, worktree: false,
+        ...(model ? { model } : {}),
         autonomous: false, generateFollowups: false, systemPrompt: scrumChatSystemPrompt(),
       });
       return { id: run.id };
     },
-    runBlocked: (project, run) => providerActionError([providerForActiveRun(run)], {
+    // Same precedence as `configAnswer`: locked → native settings only; else the coordinator
+    // override, the project's OpenCode preset, then OpenCode's own settings; none → OpenCode decides.
+    async coordinatorModel(project, override) {
+      const native = (await readAgentModelDefaults(project.root)).opencode ?? null;
+      if (agentModelsLocked(project.root)) return { model: native, source: 'locked' as const, locked: true };
+      if (override) return { model: override, source: 'override' as const, locked: false };
+      const config = await loadConfig(project.root);
+      const preset = config.defaultModels?.opencode;
+      if (preset) return { model: preset, source: 'project-default' as const, locked: false };
+      if (config.defaultModelsAuto?.opencode !== true && native) return { model: native, source: 'opencode-settings' as const, locked: false };
+      return { model: null, source: 'opencode-own-default' as const, locked: false };
+    },
+    runBlocked: async (project, run) => (await providerActionError([providerForActiveRun(run)], {
       repoRoot: project.root,
       profileFor: (provider) => recordedProfileFor(run, provider),
-    }),
+    })) ?? (run.runner === 'opencode' ? await opencodeProblem() : null),
   };
   const scrumRoutes = createScrumRoutes(scrumServices);
   // Chat turns reach the backlog even when no Scrum page is open.
