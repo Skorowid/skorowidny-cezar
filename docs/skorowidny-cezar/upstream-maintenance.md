@@ -4,7 +4,7 @@
 
 `origin` wskazuje `Skorowid/skorowidny-cezar`, `upstream` wskazuje `open-mercato/cezar`. Domyślna gałąź robocza forka to `skorowidny/main` — zawiera własne przyrosty. Odziedziczony `main` pozostaje snapshotem oryginału z chwili utworzenia forka i nie jest celem własnych PR. Dzięki temu nie trzeba nadpisywać historii nowszego upstreamu podczas pierwszej publikacji. Gałąź `upstream-main` w publicznym forku jest lustrzaną kopią ostatnio rozpatrzonego commita oryginału; nie dodajemy tam własnych commitów.
 
-`fork/upstream.json` identyfikuje ostatnią w pełni zintegrowaną bazę upstream. Początkowa baza to snapshot `main` z wersją pakietu `0.17.0`, a nie deklaracja zgodności z konkretnym tagiem wydania. Nie zmieniamy historii oryginału ani nazw pakietów w pierwszym przyroście.
+`fork/upstream.json` identyfikuje ostatnią w pełni zintegrowaną bazę upstream. Od 2026-11-03 jest nią zweryfikowany tag wydania `v0.18.0` (`0d801132ecc4a628e650c4cc1b5072e5d256ff15`). Porównania: `--upstream-ref upstream/main` pokazuje dalszy postęp upstreamu, a nowe wydanie weryfikuje się przez `gh release view <tag> -R open-mercato/cezar` i `git ls-remote --tags upstream`, bez zgadywania tagu. Nie zmieniamy historii oryginału ani nazw pakietów w pierwszym przyroście.
 
 ## Klonowanie i raport
 
@@ -65,7 +65,7 @@ Gdy pełna aktualizacja jest przedwczesna, można rozpatrzyć `git cherry-pick -
 
 Odziedziczony updater, linki do wydań i nazwy npm nadal wskazują oryginalnego Cezara. Nie jest to kanał dystrybucji forka. Przed wdrożeniem własnej aplikacji trzeba jawnie zaprojektować oddzielne wydania, nazwy pakietów i źródło aktualizacji; inaczej aktualizator mógłby zastąpić własną wersję upstreamem.
 
-Na razie fork uruchamiamy z checkoutu do rozwoju, bez instalowania go globalnie i bez podmieniania istniejącej usługi. Odziedziczone workflow publikujące upstreamowe pakiety pozostają w historii, ale GitHub Actions w świeżym forku utrzymujemy wyłączone do osobnej konfiguracji. Nie dodajemy tokenów npm ani sekretów wydań upstreamu.
+Fork nie instaluje się globalnie. Odziedziczone workflow publikujące upstreamowe pakiety pozostają w historii, ale GitHub Actions w świeżym forku utrzymujemy wyłączone do osobnej konfiguracji. Nie dodajemy tokenów npm ani sekretów wydań upstreamu.
 
 Plik `.github/workflows/skorowidny-foundation.yml` opisuje tylko testy własnych przykładów i narzędzi. Jego obecność nie oznacza, że Actions zostały włączone. Przed przyszłym włączeniem Actions należy najpierw przejrzeć i ograniczyć odziedziczone workflow release/publish. Lokalna walidacja pozostaje dostępna bez usług CI.
 

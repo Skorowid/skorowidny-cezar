@@ -1,5 +1,7 @@
 # Cezar: Scrum wspierany przez agentów AI
 
+> English note: this is the early working concept and is kept as history. What is built and approved is in [scrum-coordinator.md](scrum-coordinator.md), [scrum-chat.md](scrum-chat.md) and [scrum-integration.md](scrum-integration.md).
+
 Data: 2026-10-30. Wersja: 0.2. Status: robocza koncepcja do dalszego refinementu.
 
 Źródło potrzeby: rozmowa z użytkownikiem — rozbudowa Cezara o backlog, pracę nad wymaganiami, notatnik w UI i niezależne wykonania agentów. Dodatkowe wymaganie: uwzględnić wszystkie elementy Scruma. Dokument zapisuje pomysł; nie zatwierdza szczegółów zachowania przyszłego systemu. Nie zatwierdza wdrożenia modułu Scrum. Fork i przykłady opisuje [notatka projektowa](project-note.md).
