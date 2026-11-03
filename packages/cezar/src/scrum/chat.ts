@@ -1,3 +1,4 @@
+import { ENGINE_CONTINUATION_PROMPTS } from '../workflows/continuation-prompts.ts';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -43,7 +44,7 @@ export const SCRUM_CHAT_WORKFLOW: WorkflowDef = {
  * agent's output, so it never counts as the author's words: not for a quote, not in the conversation.
  */
 export const SCRUM_INTERNAL_PREFIX = '[cezar internal';
-const isInternal = (text: string) => text.startsWith(SCRUM_INTERNAL_PREFIX);
+const isInternal = (text: string) => text.startsWith(SCRUM_INTERNAL_PREFIX) || ENGINE_CONTINUATION_PROMPTS.some(prompt => text.startsWith(prompt));
 
 export function emptyChatState(): ScrumChatState {
   return { threadRunId: null, threads: [], cursor: null, messageIds: [], log: [] };
@@ -63,7 +64,7 @@ export function chatSystemPrompt(): string {
 ## Rules you must follow
 - Never invent business requirements, rules, acceptance criteria, data, permissions, priorities, profitability metrics, revenue figures or targets. Record only what the author stated or explicitly confirmed. A suggestion of yours is a proposal: label it as one and ask. When a business constraint is missing, ask; never fill in a default.
 - If the author's statements conflict (with each other or with recorded decisions), do not merge or pick; describe the conflict and ask.
-- Messages that start with "${SCRUM_INTERNAL_PREFIX}" come from cezar and carry other agents' results. They are not the author's words: never quote them as a decision and never treat an agent's recommendation as approved. Tell the author what matters in them: progress, blockers, review verdicts, gaps, and the decisions you need.
+- Messages that start with "${SCRUM_INTERNAL_PREFIX}" come from cezar and carry other agents' results. cezar's messages about a restart or a usage limit also come from cezar. None of these are the author's words: never quote them as a decision and never treat an agent's recommendation as approved. Tell the author what matters in them: progress, blockers, review verdicts, gaps, and the decisions you need.
 
 ## First decomposition: the initial readiness gate
 Before the first split of a new project into backlog items, ask these questions (group them; several per message is fine) and record each answer with \`answerKickoff\`. Essential ones must be answered; the others may be deferred only when the author says so.

@@ -1,6 +1,6 @@
 # SCRUM-COORD-01 — product coordinator on OpenCode
 
-Status: implemented on the task branch, 2026-11-03. Not deployed. **Blocked for live use on this host** by the installed OpenCode version (see [Open items](#open-items)). This living specification extends [SCRUM-CHAT-01](scrum-chat.md) and [SCRUM-LOCAL-01](scrum-integration.md). The behaviour below was approved in the task order of 2026-11-02, which explicitly supersedes the earlier manual-only Sprint planning rule.
+Status: implemented, merged and exercised with a real OpenCode 2.2.5 coordinator on 2026-11-03 (evidence in [changes.md](changes.md)). This living specification extends [SCRUM-CHAT-01](scrum-chat.md) and [SCRUM-LOCAL-01](scrum-integration.md). The behaviour below was approved in the task order of 2026-11-02, which explicitly supersedes the earlier manual-only Sprint planning rule.
 
 ## Accountability
 
@@ -27,7 +27,7 @@ A Scrum Team is made of people. This module supports one human using agents, ins
 
 | ID | Slice | Status | Evidence of approval and open points |
 |---|---|---|---|
-| COORD-1 | One persistent coordinator on OpenCode; model from the configured choice | READY, implemented; live use BLOCKED | Approved. See [Open items](#open-items) |
+| COORD-1 | One persistent coordinator on OpenCode; model from the configured choice | READY, implemented, exercised live | Approved. OC-1 resolved in the runner |
 | COORD-2 | Vision, objectives, initial questions, minimum BRD/FRD gate | READY, implemented | Approved. The question catalogue and required headings are a technical proposal within that approval (from the project's BRD/FRD skeletons); NON-BLOCKING |
 | COORD-3 | Versioned Markdown, human approval, traceability, compact index | READY, implemented | Approved |
 | COORD-4 | Splitting rules | READY, implemented as instructions | Approved. Size and cohesion cannot be checked by software; the server checks readiness, dependencies and criteria |
@@ -43,8 +43,9 @@ Earlier questions stay as recorded in [scrum-chat.md](scrum-chat.md): Q3 (is a c
 
 - A cezar run on the `opencode` runner, one-step workflow `scrum-chat`, read-only, in place, resumed through the engine's message ladder. There is one per project, in `chat.threadRunId`. A thread on another runner stays readable, and the next message starts the OpenCode successor (recorded in `chat.threads`).
 - **Model resolution, first match wins:** `modelsLocked` → no model sent, OpenCode's own settings decide; the override saved in the cockpit; the project's `defaultModels.opencode`; OpenCode's settings file; otherwise no model is sent and OpenCode decides. No model name is written in the code. A changed choice applies when the session reopens.
-- **Availability:** missing OpenCode or a version the runner cannot drive is reported by `GET /scrum/coordinator`, shown in the chat panel, and refuses `POST /scrum/chat/messages` with 409, rather than opening a thread that fails.
-- Read-only is by instruction, as for every read-only OpenCode task: the runner does not enforce `allowedTools`.
+- **Availability:** a missing OpenCode is reported by `GET /scrum/coordinator`, shown in the chat panel, and refuses `POST /scrum/chat/messages` with 409, rather than opening a thread that fails.
+- **Read-only:** on OpenCode 2.x, session rules remove edit, write and shell. Reads outside the project are not blocked by those rules, so that part stays an instruction. On 1.x all of it is by instruction.
+- **Refusals:** an operation cezar refuses appears in the conversation as a cezar notice and in `INDEX.md` for the next turn. Documents resolve by id or code.
 
 ## Initial readiness gate
 
@@ -137,12 +138,14 @@ New chat operations: `setVision`, `setValueObjectives`, `setDefinitionOfReady`, 
 
 | ID | Priority | Issue | Who decides | Options |
 |---|---|---|---|---|
-| OC-1 | **BLOCKING for live use** | This host has OpenCode 2.2.5. cezar's runner (also in the local `upstream/main` ref, inspected 2026-11-03; not fetched) drives only the 1.x server API, so the coordinator cannot start here. Observed in a sandbox: `opencode serve` refused `POST /session` with HTTP 405 | Owner | (a) Install OpenCode 1.x beside 2.x, set `CEZ_OPENCODE_BIN` on the service and log in to a provider. (b) A new slice ports the runner to the 2.x API (`packages/cezar/src/core`, outside this order's scope). Changing the coordinator's runner would contradict the order and needs a change request |
+| OC-1 | Resolved 2026-11-03 | The host's OpenCode 2.2.5 had no 1.x API | Owner order to complete the coordinator | The runner drives 2.x; OpenCode, its configuration and credentials were left unchanged |
 | Q3 | Open, from SCRUM-CHAT-01 | Is a cited quote sufficient approval of an item? | Owner | Now: quote accepted for items and documents; button also available for documents |
 
 ## Known limitations
 
-- See [changes.md](changes.md) for what was and was not exercised. No real OpenCode conversation has run yet, so how well a real model follows these instructions is unknown.
+- See [changes.md](changes.md) for what was and was not exercised. Only one small sandbox product has run through a real model, so how well models follow these instructions on larger work is unknown. In that run the model reported an operation as done before cezar applied it, which is why refusals are shown independently.
+- An implementer that ends its turn without `CEZ:DONE` parks as `waiting`; its result still reaches the coordinator, and the run is closed by the idle timeout.
+- `opencode serve` is not stopped by a cezar killed outside systemd. Under the service, the unit's control group ends it. Child sessions and their subtasks are not rendered, only their prompts are answered.
 - Splitting quality, whether a quote really means consent and whether an agent told the truth in its summary cannot be verified by software. File and link claims can, and are.
 - A run parked with a question (`waiting`) is reported to the coordinator, which tells the author, but the answer must be typed in that task's own page; the coordinator does not relay answers into other runs.
 - Automatic review needs a branch. If the worktree was reclaimed before capture, declared files are recorded as rejected.
