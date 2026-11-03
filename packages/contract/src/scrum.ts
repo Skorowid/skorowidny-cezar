@@ -131,7 +131,7 @@ export type ScrumNote = z.infer<typeof scrumNoteSchema>;
  */
 export const scrumChatOutcomeSchema = z.enum(['applied', 'refused', 'queued', 'queue-failed', 'forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question', 'agent-started', 'agent-result']);
 /** Outcomes the conversation shows inline as cezar's own notices. */
-export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question', 'agent-started', 'agent-result'];
+export const SCRUM_CHAT_NOTICE_OUTCOMES: readonly ScrumChatOutcome[] = ['forward-pending', 'forwarded', 'forward-failed', 'run-failed', 'question', 'agent-started', 'agent-result', 'refused'];
 export type ScrumChatOutcome = z.infer<typeof scrumChatOutcomeSchema>;
 
 /** One backlog operation the chat agent asked for, or one automatic queue action, and its result. */

@@ -230,7 +230,7 @@ function chatView(project: ProjectContext, state: ScrumState): ScrumChatView {
   }
   // cezar's own notices (delivery to running agents, failed attempts, questions) join the conversation in time order.
   for (const logged of chat.log) {
-    if (SCRUM_CHAT_NOTICE_OUTCOMES.includes(logged.outcome)) messages.push({ seq: 0, role: 'system', text: logged.detail, at: logged.at });
+    if (SCRUM_CHAT_NOTICE_OUTCOMES.includes(logged.outcome)) messages.push({ seq: 0, role: 'system', text: logged.outcome === 'refused' ? `Refused ${logged.op}: ${logged.detail}` : logged.detail, at: logged.at });
   }
   messages.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   const thread = chat.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
