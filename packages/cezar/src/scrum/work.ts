@@ -9,7 +9,7 @@ import type { RunManager } from '../workflows/run.ts';
 import { queuedStackRefusal } from '../workflows/queued-bounds.ts';
 import { captureArtifacts } from './artifacts.ts';
 import { ACTIVE_RUN_STATUSES, type ScrumLauncher } from './autoqueue.ts';
-import { SCRUM_COORDINATOR_RUNNER, SCRUM_INTERNAL_PREFIX, appendLog, emptyChatState, entry, turnsAfter, type ChatTurn } from './chat.ts';
+import { SCRUM_INTERNAL_PREFIX, appendLog, emptyChatState, entry, holdsCoordinatorRole, turnsAfter, type ChatTurn } from './chat.ts';
 import { buildContextPacket } from './context.ts';
 import { AUTOMATIC_REVIEW, addWork, coordinatorConfig, latestVersion, newWork } from './coordinator-state.ts';
 import { buildIndex, createDocument, documentVersionPath, readDocumentVersion, reviseDocument } from './documents.ts';
@@ -323,7 +323,7 @@ export async function deliverInbox(state: ScrumState, engine: InboxEngine): Prom
   };
   if (!open.length) return save([]);
   if (!thread) return hold('held: the coordinator has no conversation yet; it receives this after the author\'s next message');
-  if (thread.runner !== SCRUM_COORDINATOR_RUNNER) return hold('held: the conversation is on an older runner; the next author message starts the coordinator on OpenCode');
+  if (!holdsCoordinatorRole(chat, thread)) return hold('held: the conversation is on an older runner; the next author message starts the coordinator');
   // Not into a running turn or a question the thread itself is parked on: it would be taken as the answer.
   if (thread.status === 'running') return hold('held: the coordinator is in the middle of a turn');
   if (thread.askParked) return hold('held: the coordinator is waiting for the author\'s answer');
