@@ -70,15 +70,55 @@ class MeshySetupTests(unittest.TestCase):
         self.fake_install()
         MODULE.write_key(self.home, KEY)
         hostile = {"PATH": "/usr/bin", "MESHY_API_HOST": "https://evil.example", "TRANSPORT": "http",
-                   "PORT": "8080", "MESHY_API_KEY": "msy_SomeoneElsesKey99"}
+                   "PORT": "8080", "MESHY_API_KEY": "msy_SomeoneElsesKey99", "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+                   "DOTENV_CONFIG_PATH": "/tmp/x.env", "DOTENV_KEY": "dotenv://k"}
         argv, env, cwd = MODULE.launch_plan(self.home, hostile)
         self.assertEqual(argv, ["/usr/bin/node", "/opt/meshy/index.js"])
         self.assertEqual(env["MESHY_API_HOST"], "https://api.meshy.ai")
         self.assertEqual(env["TRANSPORT"], "stdio")
         self.assertEqual(env["MESHY_API_KEY"], KEY)
-        self.assertNotIn("PORT", env)
+        for name in ("PORT", "NODE_TLS_REJECT_UNAUTHORIZED", "DOTENV_CONFIG_PATH", "DOTENV_KEY"):
+            self.assertNotIn(name, env)
         self.assertEqual(env["PATH"], "/usr/bin")
-        self.assertIsNone(cwd)
+
+    def test_server_never_works_in_the_run_worktree_by_default(self):
+        # dotenv.config() reads <cwd>/.env; a repository .env could set a proxy and disable TLS checks.
+        self.fake_install()
+        MODULE.write_key(self.home, KEY)
+        _, _, cwd = MODULE.launch_plan(self.home, {})
+        self.assertEqual(cwd, MODULE.work_dir(self.home))
+        self.assertFalse(str(cwd).startswith(str(self.project)))
+
+    def test_output_dir_with_a_dotenv_is_refused(self):
+        self.fake_install()
+        MODULE.write_key(self.home, KEY)
+        out = Path(self.temp.name) / "assets"
+        out.mkdir()
+        (out / ".env").write_text("https_proxy=http://attacker:8080\n")
+        with self.assertRaisesRegex(MODULE.SetupError, r"\.env exists"):
+            MODULE.launch_plan(self.home, {}, str(out))
+
+    def test_damaged_manifest_is_a_clear_refusal(self):
+        self.fake_install()
+        MODULE.write_key(self.home, KEY)
+        for text in ["", "{", "[]", json.dumps({"package": MODULE.PACKAGE, "version": "0.6.9"})]:
+            MODULE.manifest_path(self.home).write_text(text)
+            with self.assertRaisesRegex(MODULE.SetupError, "damaged|not installed", msg=text):
+                MODULE.launch_plan(self.home, {})
+
+    def test_shipped_lockfile_pins_the_server_with_integrity(self):
+        version, integrity = MODULE.locked_version()
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertTrue(integrity.startswith("sha512-"))
+        lock = json.loads((MODULE.LOCK_DIR / "package-lock.json").read_text())
+        unpinned = [k for k, v in lock["packages"].items() if k and not v.get("integrity")]
+        self.assertEqual(unpinned, [])
+        self.assertEqual(json.loads((MODULE.LOCK_DIR / "package.json").read_text())["dependencies"],
+                         {MODULE.PACKAGE: version})
+
+    def test_missing_lockfile_names_the_fix(self):
+        with self.assertRaisesRegex(MODULE.SetupError, "fork checkout"):
+            MODULE.locked_version(self.home)
 
     def test_launch_plan_refuses_relative_output_dir(self):
         self.fake_install()
@@ -137,6 +177,40 @@ class MeshySetupTests(unittest.TestCase):
         self.assertTrue(MODULE.unregister(self.project))
         self.assertEqual(json.loads(self.mcp_file().read_text())["mcpServers"], {"tracker": {"command": "t"}})
         self.assertFalse(MODULE.unregister(self.project))
+
+    def test_temp_files_match_cezar_gitignore_pattern(self):
+        # data-gitignore.ts ignores `mcp.local.json.cez-tmp-*`; a leftover temp file must match it.
+        self.mcp_file().parent.mkdir(parents=True)
+        seen = []
+        real_replace = MODULE.os.replace
+
+        def spy(src, dst):
+            seen.append(Path(src).name)
+            real_replace(src, dst)
+
+        MODULE.os.replace = spy
+        try:
+            MODULE.register(self.home, self.project, "/usr/bin/python3")
+        finally:
+            MODULE.os.replace = real_replace
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("mcp.local.json.cez-tmp-"), seen[0])
+
+    def test_concurrent_edit_is_not_overwritten(self):
+        self.mcp_file().parent.mkdir(parents=True)
+        self.mcp_file().write_text(json.dumps({"mcpServers": {}}))
+        with self.assertRaisesRegex(MODULE.SetupError, "changed while"):
+            MODULE.atomic_write(self.mcp_file(), "{}", expect="something else")
+        self.assertEqual(json.loads(self.mcp_file().read_text()), {"mcpServers": {}})
+        self.assertEqual([p.name for p in self.mcp_file().parent.iterdir()], ["mcp.local.json"])
+
+    def test_entry_problem_rejects_what_cezar_or_the_launcher_would_not_run(self):
+        good = MODULE.server_entry(self.home, "/usr/bin/python3")
+        self.assertIsNone(MODULE.entry_problem(self.home, good))
+        self.assertIsNone(MODULE.entry_problem(self.home, MODULE.server_entry(self.home, "/usr/bin/python3", "/srv/a")))
+        for bad in [None, "broken", {}, {"command": ""}, {"command": "x", "args": "run"},
+                    {"command": "x", "type": "http", "args": good["args"]}, {"command": "x", "args": ["run"]}]:
+            self.assertIsNotNone(MODULE.entry_problem(self.home, bad), msg=repr(bad))
 
     def test_registered_entry_is_accepted_by_cezar_name_rule(self):
         # cezar's private-mcp.ts: names [A-Za-z0-9_-]{1,64}; stdio needs "command".

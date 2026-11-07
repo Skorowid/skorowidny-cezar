@@ -8,14 +8,17 @@ Meshy is a 3D generation API, not a coding agent, so it cannot be a runner. It i
 
 | Check | Result |
 |---|---|
-| `python3 -m unittest test_meshy_mcp test_upstream_report` (in `fork/tools`) | 22 tests PASS |
-| `install` of 0.6.9 into a sandbox `HOME` and into the real one | installed, version and npm integrity recorded |
+| `python3 -m unittest test_meshy_mcp test_upstream_report` (in `fork/tools`) | 30 tests PASS; the 9 regression cases for the audit fixes fail against the first commit |
+| `install` of 0.6.9 into a sandbox `HOME` and into the real one | installed; after the audit, `npm ci` from the reviewed lockfile |
+| Repository `.env` with `https_proxy`, `MESHY_API_HOST` at a dead port and `NODE_TLS_REJECT_UNAUTHORIZED=0`, Claude run | request still reached Meshy (401): the `.env` is not loaded |
 | `check` (MCP handshake over stdio, no credits) | 28 tools |
 | `check --balance` with an invalid key | Meshy 401, reported without the key |
 | Claude Code `--mcp-config` + `--allowedTools mcp__meshy` in `dontAsk` | the agent called `meshy_check_balance`; Meshy answered 401 |
 | OpenCode 2.2.5 `opencode serve` with `OPENCODE_CONFIG_CONTENT` | `GET /api/mcp`: `meshy` `connected` |
 | Codex `mcp_servers.meshy` override | `enabled` |
 | `npm run typecheck`, `npm run build` with `check:pack` | PASS |
+
+Codex audit (`codex exec`, read-only), verdict `changes`, all fixed: a repository `.env` could intercept the key through a proxy with TLS checks off (HIGH; the server now never runs in the worktree); transitive dependencies were unpinned (lockfile + `npm ci`); temp file name escaped cezar's ignore pattern; `install` from the installed launcher failed half-way; lost updates on concurrent edits (stale-write check); `check` reported a broken entry as registered; unhandled errors and an undrained stderr in the handshake.
 
 Not exercised: a real key and a real paid task (no key bought yet), `junie` and `copilot` (not installed), the cockpit editor for the file.
 
