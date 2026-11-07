@@ -1,5 +1,6 @@
 import {
   BellIcon,
+  BoxIcon,
   WebhookIcon,
   BookmarkIcon,
   BotIcon,
@@ -40,6 +41,7 @@ import { TrackerSection } from './tracker-section'
 import { ProjectSecretsSection, WorkspaceSecretsSection } from './secrets-section'
 import { WebhooksSection } from './webhooks-section'
 import { IntegrationsSection } from './integrations-section'
+import { MeshySection } from './meshy-section'
 
 /**
  * The Settings section registry (R6 Step 1.3, spec §"Settings"): the ONE place a section is
@@ -78,6 +80,7 @@ export type SettingsSectionId =
   | 'webhooks'
   | 'workspace-secrets'
   | 'privacy'
+  | 'meshy'
 
 /** Which settings area a section belongs to — and therefore which store it writes. */
 export type SettingsScope = 'project' | 'global'
@@ -240,6 +243,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Second logins, and the agent and models a project uses when it has chosen none.',
     icon: IdCardIcon,
     component: AccountsSection,
+    scope: 'global',
+  },
+  {
+    id: 'meshy',
+    title: 'Meshy AI',
+    description: '3D generation tools for the agents of the projects you connect.',
+    icon: BoxIcon,
+    component: MeshySection,
     scope: 'global',
   },
   {

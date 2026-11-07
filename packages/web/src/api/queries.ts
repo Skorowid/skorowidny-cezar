@@ -73,6 +73,7 @@ import {
   getWorkspaceConfig,
   getWorkspaceUiState,
   getSkillsUpdate,
+  getMeshyStatus,
   getSelfUpdate,
   getSelfUpdateDevelopment,
   getStarCount,
@@ -463,6 +464,8 @@ export const workspaceQueryKeys = {
   agentAccountStatus: (routeId: string) =>
     ['workspace', 'agent-profiles', 'status', routeId] as const,
   skillsUpdateAll: ['workspace', 'skills-update'] as const,
+  /** `GET /api/v1/workspace/meshy` — the fork's Meshy AI settings. */
+  meshy: ['workspace', 'meshy'] as const,
   skillsUpdate: (projectId: string) => ['workspace', 'skills-update', projectId] as const,
   /** cezar's own updater via `GET /api/v1/workspace/self-update` (self-update PoC). */
   selfUpdate: ['workspace', 'self-update'] as const,
@@ -1724,6 +1727,13 @@ export function useTelemetryConsent() {
     queryFn: ({ signal }) => getTelemetryConsent({ signal }),
     staleTime: Infinity,
     retry: false,
+  })
+}
+
+export function useMeshyStatus() {
+  return useQuery({
+    queryKey: workspaceQueryKeys.meshy,
+    queryFn: ({ signal }) => getMeshyStatus({ signal }),
   })
 }
 

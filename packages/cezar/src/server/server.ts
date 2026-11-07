@@ -343,6 +343,8 @@ import {
 } from '@open-mercato/cezar-contract';
 import { ProviderRuntimeAuthObserver } from './provider-auth-runtime.ts';
 import { MessageReceipts } from './message-receipts.ts';
+import { MeshyRefusal, findPython, meshyPaths, readMeshyStatus, setProjectMeshy } from '../meshy/meshy.ts';
+import { setMeshyProjectInputSchema, type MeshyStatus } from '@open-mercato/cezar-contract';
 import type { MessageResponse } from '@open-mercato/cezar-contract';
 import {
   providerForActiveRun,
@@ -448,6 +450,8 @@ export interface ServerDeps {
   /** Process-wide Open Mercato skills update detector. Injected in tests and
    * shared by every workspace route/project; createApp owns the default. */
   skillsUpdate?: SkillsUpdateService;
+  /** Home whose Meshy install the settings read (fork; tests point it at a sandbox). */
+  meshyHome?: string;
   /** The project/workspace secret store (spec 2026-10-10-project-secrets-vault-options). Tests
    *  inject one with a fake keychain; the default reads the OS keychain or a key file. */
   secrets?: SecretStore;
@@ -3523,6 +3527,47 @@ export function createApp(deps: ServerDeps) {
         throw error;
       }
     });
+
+  // ---- chained family: Meshy AI (workspace-level; fork, docs/skorowidny-cezar/meshy-integration.md) ----
+  // Reads the Python tool's install state and toggles one project's private `meshy` MCP entry.
+  // The key never crosses the API. Writes are a local-machine capability, like agent config:
+  // an MCP `command` is code execution, so a hosted cockpit gets 409.
+  const meshyPathsFor = deps.meshyHome ? meshyPaths(deps.meshyHome) : meshyPaths();
+  const meshyStatusResponse = async (): Promise<MeshyStatus> => {
+    const registry = (await loadWorkspaceConfig()).projects;
+    const refs = await Promise.all(
+      registry.map(async (entry) => ({
+        id: entry.id,
+        name: entry.name || basename(entry.root),
+        root: entry.root,
+        missing: (await probeProjectStatus(entry.root)).status === 'missing',
+      })),
+    );
+    return readMeshyStatus(meshyPathsFor, refs, capabilities().localHandoff);
+  };
+  const meshyRoutes = new Hono()
+    .get('/workspace/meshy', async (c) => c.json(await meshyStatusResponse()))
+    .put(
+      '/workspace/meshy/projects/:projectId',
+      paramZodValidator(z.object({ projectId: projectIdSchema })),
+      jsonZodValidator(setMeshyProjectInputSchema, { message: 'body must be { connected: boolean }' }),
+      async (c) => {
+        if (!capabilities().localHandoff) return c.json({ error: 'Connect Meshy on the machine hosting cezar.' }, 409);
+        const { projectId } = c.req.valid('param');
+        const project = (await loadWorkspaceConfig()).projects.find((entry) => entry.id === projectId);
+        if (!project) return c.json({ error: `unknown project: ${projectId}` }, 404);
+        if ((await probeProjectStatus(project.root)).status === 'missing') {
+          return c.json({ error: `project folder not found: ${projectId}` }, 409);
+        }
+        try {
+          await setProjectMeshy(meshyPathsFor, project.root, c.req.valid('json').connected, findPython());
+        } catch (err) {
+          if (err instanceof MeshyRefusal) return c.json({ error: err.message }, err.status);
+          throw err;
+        }
+        return c.json(await meshyStatusResponse());
+      },
+    );
 
   // ---- chained family: cezar self-update (workspace-level, PoC) ----
   // The browser supplies a version STRING (validated shape, never a URL, a path or a tarball)
@@ -8274,6 +8319,7 @@ export function createApp(deps: ServerDeps) {
     .route('/', projectsRoutes)
     .route('/', agentProfilesRoutes)
     .route('/', skillsUpdateRoutes)
+    .route('/', meshyRoutes)
     .route('/', selfUpdateRoutes)
     .route('/', starCountRoutes)
     .route('/', previewRoutes)
