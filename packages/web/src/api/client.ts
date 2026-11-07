@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import type { MeshyStatus, SetMeshyProjectInput } from '@open-mercato/cezar-api-client'
 import type {
   lifecycleListResponseSchema, lifecycleDetailResponseSchema, lifecycleOperationResponseSchema,
   lifecyclePreviewInputSchema, lifecycleListQuerySchema, LifecycleOutputResponse,
@@ -2713,6 +2714,19 @@ export async function applySkillsUpdate(projectId: string): Promise<SkillsUpdate
   return unwrap(
     await cez.api.v1.workspace['skills-update'].apply.$post({ json: { projectId } }),
     '/workspace/skills-update/apply',
+  )
+}
+
+/** Meshy AI install state and which projects have it attached (fork; never carries the key). */
+export async function getMeshyStatus(opts?: ReadOptions): Promise<MeshyStatus> {
+  return unwrap(await cez.api.v1.workspace.meshy.$get({}, init(opts)), '/workspace/meshy')
+}
+
+/** Attach or detach Meshy for one project; answers the refreshed state. */
+export async function setMeshyProject(projectId: string, input: SetMeshyProjectInput): Promise<MeshyStatus> {
+  return unwrap(
+    await cez.api.v1.workspace.meshy.projects[':projectId'].$put({ param: { projectId }, json: input }),
+    `/workspace/meshy/projects/${encodeURIComponent(projectId)}`,
   )
 }
 

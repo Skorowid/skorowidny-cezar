@@ -1,5 +1,23 @@
 # skorowidny-cezar changes
 
+## 2026-11-07 — Meshy AI in the cockpit's global settings
+
+Owner's request: connect Meshy from the cockpit, in the global settings, like the other tools. New section Settings → General → **Meshy AI**: machine state (server, key file present and private, download directory, problems with their fix) and one switch per registered project that adds or removes the private `meshy` MCP entry (the same entry as `meshy_mcp.py register`). The key stays terminal-only. New workspace-level routes `GET /api/v1/workspace/meshy` and `PUT /api/v1/workspace/meshy/projects/:projectId` (`{ connected }` only), contract `packages/contract/src/meshy.ts`, inventoried in BACKWARD_COMPATIBILITY.md §2; writes refused on a hosted cockpit. Details: [meshy-integration.md](meshy-integration.md#in-the-cockpit-settings--general--meshy-ai).
+
+**Not deployed yet:** the running service still uses the previous release; deployment is scheduled with the owner (after 18:00 on 2026-11-07).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` (all workspaces), `npm run build` with `check:pack` | PASS |
+| `npm test -- packages/cezar/src/meshy packages/cezar/src/server/meshy-api.test.ts packages/web/src/routes/settings/meshy-section.test.tsx packages/web/src/routes/settings/settings.test.tsx` | 58 PASS |
+| Route inventory, versioned surface, typed bodies, route parity, data gitignore, `contract-parity.workspace` (type-level, both directions) | PASS |
+| `npm test -- packages/web/src/routes/settings` | all PASS except 2 in `agents-section.test.tsx`, which fail identically on the commit before this change |
+| Built server on a sandbox `CEZ_HOME` (port 47999, `CEZ_DRY_RUN=1`), headless Chromium | section rendered with the real machine state, no console errors; switching a project on in the browser wrote the entry (`0600`, git-ignored) and `meshy_mcp.py check --project` accepted it (28-tool handshake) |
+
+Not run: the full `npm test`, `test:unit`, `test:package`, `test:e2e`.
+
 ## 2026-11-07 — Meshy downloads go to ~/ai-projects/mesh_outputs
 
 Owner's decision (M-3): Meshy downloads are saved in `~/ai-projects/mesh_outputs/`. New `set-output --dir` makes the server's `work/meshy_output` a symlink to it; the server's cwd stays the private `work/`, so no `.env` from the output directory is loaded. Codex audit (verdict `changes`, fixed): a damaged `output.json` no longer blocks runs, and a refused `set-output` no longer saves the setting; the link is swapped atomically. Verified: 37 tests PASS (5 new); a Node write to `<work>/meshy_output/…` from the real `work/` landed in `~/ai-projects/mesh_outputs/`; `check` reports the target and still completes the 28-tool handshake.

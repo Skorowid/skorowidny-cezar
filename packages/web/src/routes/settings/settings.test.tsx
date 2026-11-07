@@ -181,6 +181,8 @@ const GLOBAL_SECTIONS = [
   // machine and the person at it, not any one repo.
   'workspace-secrets',
   'accounts',
+  // Meshy AI (skorowidny-cezar fork) — a tool installed on this machine, toggled per project.
+  'meshy',
   'projects',
   // Telemetry consent (docs/telemetry.md) — one answer per machine.
   'privacy',
@@ -206,7 +208,7 @@ describe('the section registry', () => {
     // Accounts survives: a single-project cockpit still runs on ONE of possibly several logins,
     // so "which account" is orthogonal to "how many projects".
     expect(visibleSettingsSections('global', { singleProject: true }).map((s) => s.id)).toEqual([
-      'appearance', 'notifications', 'keyboard', 'resources', 'skills', 'global-instructions', 'workspace-secrets', 'accounts', 'privacy',
+      'appearance', 'notifications', 'keyboard', 'resources', 'skills', 'global-instructions', 'workspace-secrets', 'accounts', 'meshy', 'privacy',
     ])
     expect(visibleSettingsSections('global', { singleProject: false }).map((s) => s.id)).toEqual(GLOBAL_SECTIONS)
     expect(visibleSettingsSections('global').map((s) => s.id)).toEqual(GLOBAL_SECTIONS)
