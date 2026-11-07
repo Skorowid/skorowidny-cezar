@@ -191,7 +191,7 @@ describe('audit regressions', () => {
     expect(readdirSync(join(repo, '.ai', 'cezar')).filter((n) => n.includes('cez-tmp'))).toEqual([]);
   });
 
-  it('keeps the temp file in the project\'s ignored dir for a symlink elsewhere, and handles EXDEV', async () => {
+  it('keeps the temp file in the project\'s ignored dir for a symlink elsewhere, and refuses EXDEV untouched', async () => {
     install();
     const elsewhere = join(base, 'other-checkout');
     mkdirSync(elsewhere);
@@ -204,13 +204,14 @@ describe('audit regressions', () => {
       link: async () => {},
       rename: async (from: string) => { sources.push(from); throw Object.assign(new Error('cross-device'), { code: 'EXDEV' }); },
     };
-    await setProjectMeshy(meshyPaths(home), repo, true, PY, exdev);
+    const original = readFileSync(shared, 'utf8');
+    await expect(setProjectMeshy(meshyPaths(home), repo, true, PY, exdev)).rejects.toThrow(/another filesystem/);
     expect(sources).toHaveLength(1);
     expect(sources[0]?.startsWith(join(repo, '.ai', 'cezar', 'mcp.local.json.cez-tmp-'))).toBe(true);
     expect(readdirSync(elsewhere)).toEqual(['mcp.json']);
     expect(readdirSync(join(repo, '.ai', 'cezar')).filter((n) => n.includes('cez-tmp'))).toEqual([]);
     expect(lstatSync(mcpFile()).isSymbolicLink()).toBe(true);
-    expect(Object.keys(JSON.parse(readFileSync(shared, 'utf8')).mcpServers)).toEqual(['meshy']);
+    expect(readFileSync(shared, 'utf8')).toBe(original);
   });
 
   it('treats a malformed env as foreign and never deletes it', async () => {

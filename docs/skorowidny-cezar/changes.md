@@ -20,7 +20,7 @@ Not run: the full `npm test`, `test:unit`, `test:package`, `test:e2e`.
 
 Codex audit (read-only), verdict `changes` (no CRITICAL/HIGH), all fixed: a hosted cockpit no longer sees local paths (download directory, paths in diagnostics); writes go through a symlinked `mcp.local.json` to its target; an entry with a malformed `env` counts as custom and is never deleted; `"mcpServers": null` counts as broken; first creation is an exclusive link; `python3` lookup matches `shutil.which` (executable file, absolute PATH entries); one switch acts at a time; the copy names the runners that get the tools.
 
-Second Codex audit of these fixes, verdict `changes`, fixed: hosted diagnostics now use fixed wordings instead of regex redaction (a path with spaces leaked a fragment; a JSON parse error could quote the file); first creation falls back to check-then-rename on filesystems without hard links; the temp file stays in the project's ignored `.ai/cezar/` even for a symlink elsewhere, with an in-place write on `EXDEV`. 67 tests PASS; the 4 new regression cases fail on the previous code.
+Second Codex audit of these fixes, verdict `changes`, fixed: hosted diagnostics now use fixed wordings instead of regex redaction (a path with spaces leaked a fragment; a JSON parse error could quote the file); first creation falls back to check-then-rename on filesystems without hard links; the temp file stays in the project's ignored `.ai/cezar/` even for a symlink elsewhere, and a symlink target on another filesystem is refused untouched (third audit: an in-place write could leave it half-written). 67 tests PASS; the 4 new regression cases fail on the previous code.
 
 ## 2026-11-07 — Meshy downloads go to ~/ai-projects/mesh_outputs
 

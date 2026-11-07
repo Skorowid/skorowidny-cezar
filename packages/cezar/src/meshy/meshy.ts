@@ -255,7 +255,8 @@ export class MeshyRefusal extends Error {
  * Add or remove the `meshy` entry. Refuses a broken file and a foreign entry (never clobbers what
  * the user wrote), and a file that changed between read and write. Same write discipline as the
  * Agent config editor: git-ignore entry first, `0600`, unique `.cez-tmp-` name, atomic rename
- * THROUGH a symlink to its target. Creating the file is an exclusive link (fails if it appeared);
+ * THROUGH a symlink to its target (refused when the target is on another filesystem). Creating
+ * the file is an exclusive link (fails if it appeared);
  * an existing file's check-then-rename still has a small window, as in the CLI and the editor.
  */
 /** The two filesystem steps whose failure modes the tests must reach (no hard links, EXDEV). */
@@ -327,10 +328,12 @@ export async function setProjectMeshy(
     try {
       await ops.rename(tmp, target);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-      // A symlink target on another filesystem cannot take a rename: write it in place.
-      await writeFile(target, text, { encoding: 'utf8', mode: 0o600 });
-      await unlink(tmp).catch(() => {});
+      // A symlink target on another filesystem cannot take an atomic rename, and an in-place
+      // write could leave the other servers' config half-written: refuse, the file is untouched.
+      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+        throw new MeshyRefusal('mcp.local.json links to another filesystem; add or remove the "meshy" entry in Agent config', 409);
+      }
+      throw err;
     }
   } catch (err) {
     await unlink(tmp).catch(() => {});
