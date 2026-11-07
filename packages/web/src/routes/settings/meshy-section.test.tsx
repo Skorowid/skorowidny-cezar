@@ -102,6 +102,21 @@ describe('Settings → global → Meshy AI', () => {
     expect((screen.getByRole('switch', { name: 'Meshy for SnakeBiteChess' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it('locks every switch while one toggle is in flight', async () => {
+    serve(READY)
+    let release: (() => void) | undefined
+    const inner = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'PUT') await new Promise<void>((resolve) => { release = resolve })
+      return inner(input, init)
+    }))
+    mount()
+    fireEvent.click(await screen.findByRole('switch', { name: 'Meshy for RobocraftWars' }))
+    await waitFor(() => expect((screen.getByRole('switch', { name: 'Meshy for SnakeBiteChess' }) as HTMLButtonElement).disabled).toBe(true))
+    release?.()
+    await waitFor(() => expect((screen.getByRole('switch', { name: 'Meshy for SnakeBiteChess' }) as HTMLButtonElement).disabled).toBe(false))
+  })
+
   it('is read-only on a hosted cockpit', async () => {
     serve({ ...READY, writable: false })
     mount()

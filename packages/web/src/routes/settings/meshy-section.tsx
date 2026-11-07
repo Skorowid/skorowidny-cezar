@@ -52,7 +52,10 @@ function MeshyPanel({ status }: { status: MeshyStatus }) {
   const toggle = useMutation({
     mutationFn: ({ id, connected }: { id: string; connected: boolean }) => setMeshyProject(id, { connected }),
     onSuccess: (result) => queryClient.setQueryData(workspaceQueryKeys.meshy, result),
-    onError: (error: Error) => toast(error.message, { tone: 'danger' }),
+    onError: (error: Error) => {
+      toast(error.message, { tone: 'danger' })
+      void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.meshy })
+    },
   })
   const ready = status.installed && status.keyPresent && status.keyPrivate
   return (
@@ -92,8 +95,9 @@ function MeshyPanel({ status }: { status: MeshyStatus }) {
         <div>
           <h2 className="text-sm font-semibold text-foreground">Projects</h2>
           <p className="text-ui text-muted-foreground">
-            A connected project gives every task’s agent the Meshy tools; the change applies to the
-            next task, no restart needed.
+            A connected project gives its tasks’ agents the Meshy tools (Claude, Codex, OpenCode,
+            Junie, Copilot; not Cursor or pi). The change applies to the next task, no restart
+            needed.
             {!status.writable && ' Connecting is only possible on the machine hosting cezar.'}
           </p>
         </div>
@@ -104,7 +108,9 @@ function MeshyPanel({ status }: { status: MeshyStatus }) {
             {status.projects.map((project) => {
               const connected = project.status === 'connected'
               const togglable = connected || project.status === 'disconnected'
-              const busy = toggle.isPending && toggle.variables?.id === project.id
+              // One toggle at a time: each answer is a whole snapshot, so a late one must not
+              // overwrite another project's newer state.
+              const busy = toggle.isPending
               return (
                 <li
                   key={project.id}

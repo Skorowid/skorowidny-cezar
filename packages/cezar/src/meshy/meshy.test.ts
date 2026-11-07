@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MeshyRefusal, isOurEntry, meshyEntry, meshyPaths, projectMeshyStatus, readMeshyStatus, setProjectMeshy } from './meshy.ts';
+import { MeshyRefusal, findPython, isOurEntry, meshyEntry, meshyPaths, projectMeshyStatus, readMeshyStatus, setProjectMeshy } from './meshy.ts';
 
 let base: string;
 let home: string;
@@ -133,6 +133,67 @@ describe('setProjectMeshy', () => {
     expect((await projectMeshyStatus(meshyPaths(home), repo)).status).toBe('foreign');
     await expect(setProjectMeshy(meshyPaths(home), repo, false, PY)).rejects.toThrow(/own "meshy" entry/);
     expect(readFileSync(mcpFile(), 'utf8')).toBe(foreign);
+  });
+});
+
+describe('audit regressions', () => {
+  it('hides local paths from a hosted cockpit', async () => {
+    install();
+    writeFileSync(meshyPaths(home).output, JSON.stringify({ dir: '/home/u/ai-projects/mesh_outputs' }));
+    setKey(0o644);
+    const s = await readMeshyStatus(meshyPaths(home), [{ id: 'a', name: 'A', root: repo, missing: false }], false);
+    expect(s.outputDir).toBeUndefined();
+    expect(JSON.stringify(s)).not.toContain(home);
+    expect(JSON.stringify(s)).not.toContain('/home/u');
+    expect(s.problems.join(' ')).toMatch(/<path>/);
+  });
+
+  it('writes through a symlinked mcp.local.json and keeps the link', async () => {
+    install();
+    const shared = join(base, 'shared-mcp.json');
+    writeFileSync(shared, JSON.stringify({ mcpServers: { tracker: { command: 't' } } }));
+    mkdirSync(join(repo, '.ai', 'cezar'), { recursive: true });
+    symlinkSync(shared, mcpFile());
+    await setProjectMeshy(meshyPaths(home), repo, true, PY);
+    expect(lstatSync(mcpFile()).isSymbolicLink()).toBe(true);
+    expect(Object.keys(JSON.parse(readFileSync(shared, 'utf8')).mcpServers)).toEqual(['tracker', 'meshy']);
+  });
+
+  it('treats a malformed env as foreign and never deletes it', async () => {
+    install();
+    const p = meshyPaths(home);
+    mkdirSync(join(repo, '.ai', 'cezar'), { recursive: true });
+    for (const env of [null, [], { A: 1 }]) {
+      const text = JSON.stringify({ mcpServers: { meshy: { ...meshyEntry(p, PY), env } } });
+      writeFileSync(mcpFile(), text);
+      expect((await projectMeshyStatus(p, repo)).status, JSON.stringify(env)).toBe('foreign');
+      await expect(setProjectMeshy(p, repo, false, PY)).rejects.toBeInstanceOf(MeshyRefusal);
+      expect(readFileSync(mcpFile(), 'utf8')).toBe(text);
+    }
+    expect(isOurEntry(p, { ...meshyEntry(p, PY), env: { A: 'b' } })).toBe(true);
+  });
+
+  it('treats "mcpServers": null as broken and keeps the bytes', async () => {
+    install();
+    mkdirSync(join(repo, '.ai', 'cezar'), { recursive: true });
+    writeFileSync(mcpFile(), '{"mcpServers": null}');
+    expect((await projectMeshyStatus(meshyPaths(home), repo)).status).toBe('broken');
+    await expect(setProjectMeshy(meshyPaths(home), repo, true, PY)).rejects.toThrow(/not an object/);
+    expect(readFileSync(mcpFile(), 'utf8')).toBe('{"mcpServers": null}');
+  });
+
+  it('finds an executable python3 on absolute PATH entries only', () => {
+    const bad = join(base, 'bad');
+    const good = join(base, 'good');
+    mkdirSync(join(bad, 'python3'), { recursive: true }); // a directory, not a file
+    mkdirSync(good);
+    const noexec = join(base, 'noexec');
+    mkdirSync(noexec);
+    writeFileSync(join(noexec, 'python3'), '');
+    writeFileSync(join(good, 'python3'), '#!/bin/sh\n');
+    chmodSync(join(good, 'python3'), 0o755);
+    expect(findPython({ PATH: ['relative', bad, noexec, good].join(':') })).toBe(join(good, 'python3'));
+    expect(findPython({ PATH: '' })).toBe('/usr/bin/python3');
   });
 });
 

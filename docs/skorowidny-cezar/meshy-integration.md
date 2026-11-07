@@ -6,7 +6,7 @@ Status (2026-11-07): tooling, tests and documentation in this fork, audited by C
 
 Meshy (<https://www.meshy.ai>) generates 3D models (text to 3D, image to 3D, retexture, remesh, rigging, animation, conversion, 3D printing helpers). It is **not** a language model and **cannot be a cezar runner**: runners (`claude`, `codex`, `opencode`, `cursor`, `pi`, `junie`, `copilot`) are coding agents that read the repo, call tools and edit files. Meshy's API takes a request, runs an asynchronous task and returns files.
 
-So Meshy is attached the way cezar already supports for external services: as a **private MCP server** of a project (spec `.ai/specs/2026-10-07-private-project-mcp.md`, file `<repo>/.ai/cezar/mcp.local.json`). The agent of any run on that project then gets Meshy's tools, and decides when to call them.
+So Meshy is attached the way cezar already supports for external services: as a **private MCP server** of a project (spec `.ai/specs/2026-10-07-private-project-mcp.md`, file `<repo>/.ai/cezar/mcp.local.json`). The agent of a run on that project then gets Meshy's tools, and decides when to call them — on the runners with a launch-time MCP channel (Claude, Codex, OpenCode, Junie, Copilot); Cursor and pi runs get a note instead (see "Runner support").
 
 We use Meshy's **official** MCP server, `@meshy-ai/meshy-mcp-server` (MIT, <https://github.com/meshy-dev/meshy-mcp-server>), at a pinned version. We do not maintain our own Meshy client.
 
@@ -70,7 +70,7 @@ To remove it from a project: `python3 -I $L unregister --project <repo>`. To rev
 
 ### In the cockpit: Settings → General → Meshy AI
 
-The global settings section **Meshy AI** (`/settings/global/meshy`) shows this machine's state (server version, whether the key file exists and is private, the download directory, and any problem with the fix to run) and lists every registered project with a switch. Switching a project on writes exactly the entry `register` writes; switching it off removes only that entry. The key is still set in a terminal with `set-key`: it never goes through the cockpit, and the API reports only whether the key file exists and is private.
+The global settings section **Meshy AI** (`/settings/global/meshy`) shows this machine's state (server version, whether the key file exists and is private, the download directory, and any problem with the fix to run) and lists every registered project with a switch. Switching a project on writes exactly the entry `register` writes (through a symlinked `mcp.local.json` to its target; creating the file is exclusive); switching it off removes only that entry. One switch acts at a time. A hosted cockpit shows no local paths (no download directory, paths in diagnostics replaced by `<path>`). The key is still set in a terminal with `set-key`: it never goes through the cockpit, and the API reports only whether the key file exists and is private.
 
 | Project state | Meaning | Switch |
 |---|---|---|

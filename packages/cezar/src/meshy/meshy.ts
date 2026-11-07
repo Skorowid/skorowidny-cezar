@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { link, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { MeshyProject, MeshyProjectStatus, MeshyStatus } from '@open-mercato/cezar-contract';
 import { privateMcpPath } from '../core/private-mcp.ts';
@@ -52,9 +52,18 @@ export function meshyEntry(paths: MeshyPaths, python: string): { type: 'stdio'; 
 /** `python3` from PATH, unresolved (a minor Python upgrade keeps the entry working), like the CLI. */
 export function findPython(env: NodeJS.ProcessEnv = process.env): string {
   for (const dir of (env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
+    // `shutil.which` semantics: an executable regular file; relative PATH entries are skipped,
+    // since the entry is started from another cwd.
+    if (!dir || !isAbsolute(dir)) continue;
     const candidate = join(dir, 'python3');
-    if (existsSync(candidate)) return candidate;
+    try {
+      if (statSync(candidate).isFile()) {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      }
+    } catch {
+      // not here
+    }
   }
   return '/usr/bin/python3';
 }
@@ -80,7 +89,8 @@ function parseMcpFile(text: string | null): McpFile {
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, problem: 'mcp.local.json is not an object' };
   const data = raw as Record<string, unknown>;
-  const servers = data.mcpServers ?? {};
+  // Only an ABSENT map defaults to empty; an explicit null is broken, as the CLI and cezar read it.
+  const servers = 'mcpServers' in data ? data.mcpServers : {};
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
     return { ok: false, problem: 'mcp.local.json "mcpServers" is not an object' };
   }
@@ -92,7 +102,12 @@ export function isOurEntry(paths: MeshyPaths, entry: unknown): boolean {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
   const e = entry as Record<string, unknown>;
   const args = e.args;
+  const env = e.env;
+  const envOk =
+    env === undefined ||
+    (!!env && typeof env === 'object' && !Array.isArray(env) && Object.values(env).every((v) => typeof v === 'string'));
   return (
+    envOk &&
     typeof e.command === 'string' &&
     e.command.length > 0 &&
     (e.type === undefined || e.type === 'stdio') &&
@@ -109,7 +124,7 @@ export async function projectMeshyStatus(paths: MeshyPaths, root: string): Promi
   try {
     text = await readTextOrNull(privateMcpPath(root));
   } catch (err) {
-    return { status: 'broken', problem: `mcp.local.json could not be read: ${(err as Error).message}` };
+    return { status: 'broken', problem: `mcp.local.json could not be read (${(err as NodeJS.ErrnoException).code ?? 'error'})` };
   }
   const file = parseMcpFile(text);
   if (!file.ok) return { status: 'broken', problem: file.problem };
@@ -128,6 +143,22 @@ export interface MeshyProjectRef {
 }
 
 export async function readMeshyStatus(
+  paths: MeshyPaths,
+  projects: readonly MeshyProjectRef[],
+  writable: boolean,
+): Promise<MeshyStatus> {
+  const status = await collectMeshyStatus(paths, projects, writable);
+  // A hosted cockpit's viewer is not the machine's user: no local paths, no diagnostics naming them.
+  if (writable) return status;
+  const { outputDir: _hidden, ...rest } = status;
+  return { ...rest, problems: rest.problems.map(redactPaths), projects: rest.projects.map((p) => (p.problem ? { ...p, problem: redactPaths(p.problem) } : p)) };
+}
+
+function redactPaths(text: string): string {
+  return text.replace(/(?:~|\/)[^\s;,'"]*\/[^\s;,'"]*/g, '<path>');
+}
+
+async function collectMeshyStatus(
   paths: MeshyPaths,
   projects: readonly MeshyProjectRef[],
   writable: boolean,
@@ -198,7 +229,9 @@ export class MeshyRefusal extends Error {
 /**
  * Add or remove the `meshy` entry. Refuses a broken file and a foreign entry (never clobbers what
  * the user wrote), and a file that changed between read and write. Same write discipline as the
- * Agent config editor: git-ignore entry first, `0600`, unique `.cez-tmp-` name, atomic rename.
+ * Agent config editor: git-ignore entry first, `0600`, unique `.cez-tmp-` name, atomic rename
+ * THROUGH a symlink to its target. Creating the file is an exclusive link (fails if it appeared);
+ * an existing file's check-then-rename still has a small window, as in the CLI and the editor.
  */
 export async function setProjectMeshy(paths: MeshyPaths, root: string, connected: boolean, python: string): Promise<void> {
   const path = privateMcpPath(root);
@@ -220,15 +253,30 @@ export async function setProjectMeshy(paths: MeshyPaths, root: string, connected
     if (current === undefined) return;
     delete servers[MESHY_SERVER_NAME];
   }
-  await mkdir(dirname(path), { recursive: true });
-  ensureDataGitignore(root);
-  const tmp = `${path}.cez-tmp-${process.pid}-${randomUUID()}`;
-  await writeFile(tmp, `${JSON.stringify(file.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  let target = path;
   try {
-    if ((await readTextOrNull(path)) !== before) {
-      throw new MeshyRefusal('mcp.local.json changed while it was being updated; nothing was written, try again', 409);
+    target = await realpath(path);
+  } catch {
+    // absent: the create case writes the path itself
+  }
+  await mkdir(dirname(target), { recursive: true });
+  ensureDataGitignore(root);
+  const tmp = `${target}.cez-tmp-${process.pid}-${randomUUID()}`;
+  await writeFile(tmp, `${JSON.stringify(file.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const stale = () => new MeshyRefusal('mcp.local.json changed while it was being updated; nothing was written, try again', 409);
+  try {
+    if (before === null) {
+      try {
+        await link(tmp, target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw stale();
+        throw err;
+      }
+      await unlink(tmp);
+      return;
     }
-    await rename(tmp, path);
+    if ((await readTextOrNull(target)) !== before) throw stale();
+    await rename(tmp, target);
   } catch (err) {
     await unlink(tmp).catch(() => {});
     throw err;
