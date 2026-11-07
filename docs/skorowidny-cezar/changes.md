@@ -8,7 +8,7 @@ Meshy is a 3D generation API, not a coding agent, so it cannot be a runner. It i
 
 | Check | Result |
 |---|---|
-| `python3 -m unittest test_meshy_mcp test_upstream_report` (in `fork/tools`) | 30 tests PASS; the 9 regression cases for the audit fixes fail against the first commit |
+| `python3 -m unittest test_meshy_mcp test_upstream_report` (in `fork/tools`) | 32 tests PASS; the regression cases for the first audit's fixes fail against the first commit |
 | `install` of 0.6.9 into a sandbox `HOME` and into the real one | installed; after the audit, `npm ci` from the reviewed lockfile |
 | Repository `.env` with `https_proxy`, `MESHY_API_HOST` at a dead port and `NODE_TLS_REJECT_UNAUTHORIZED=0`, Claude run | request still reached Meshy (401): the `.env` is not loaded |
 | `check` (MCP handshake over stdio, no credits) | 28 tools |
@@ -19,6 +19,8 @@ Meshy is a 3D generation API, not a coding agent, so it cannot be a runner. It i
 | `npm run typecheck`, `npm run build` with `check:pack` | PASS |
 
 Codex audit (`codex exec`, read-only), verdict `changes`, all fixed: a repository `.env` could intercept the key through a proxy with TLS checks off (HIGH; the server now never runs in the worktree); transitive dependencies were unpinned (lockfile + `npm ci`); temp file name escaped cezar's ignore pattern; `install` from the installed launcher failed half-way; lost updates on concurrent edits (stale-write check); `check` reported a broken entry as registered; unhandled errors and an undrained stderr in the handshake.
+
+Second Codex audit (of the fixes), verdict `changes`, all fixed: `--output-dir` removed, because a `.env` written into that directory after the check would still be loaded (the server now always starts in its private `work/`, re-checked as a real `0700` directory of the user); each install goes to a fresh directory, so a failed reinstall cannot break the one in use; first registration is an atomic create-if-absent; `check` validates `env` like cezar and passes it to the handshake; malformed JSON-RPC replies are reported instead of raising.
 
 Not exercised: a real key and a real paid task (no key bought yet), `junie` and `copilot` (not installed), the cockpit editor for the file.
 

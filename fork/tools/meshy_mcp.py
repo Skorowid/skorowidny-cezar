@@ -35,6 +35,7 @@ LOCK_DIR = Path(__file__).resolve().with_name("meshy-mcp")
 DROPPED_ENV = ("PORT", "NODE_TLS_REJECT_UNAUTHORIZED", "DOTENV_KEY", "DOTENV_CONFIG_PATH",
                "DOTENV_CONFIG_OVERRIDE", "DOTENV_CONFIG_DEBUG", "DOTENV_CONFIG_ENCODING")
 MANIFEST_KEYS = ("package", "version", "node", "entry")
+ABSENT = object()  # `atomic_write(expect=ABSENT)`: the file must still not exist
 
 
 class SetupError(Exception):
@@ -64,7 +65,8 @@ def work_dir(home):
 
 def atomic_write(path, text, mode=0o600, expect=None):
     """Write through a same-directory temp file named `<name>.cez-tmp-*` (cezar git-ignores that
-    pattern next to mcp.local.json). With `expect`, refuse when the file changed since it was read."""
+    pattern next to mcp.local.json). With `expect` (text, or ABSENT), refuse when the file changed since it
+    was read. Without a lock shared with cezar this narrows the race, it does not close it."""
     path = Path(path)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.cez-tmp-")
     try:
@@ -73,8 +75,16 @@ def atomic_write(path, text, mode=0o600, expect=None):
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        stale = SetupError(f"{path} changed while it was being updated; nothing was written, run the command again")
+        if expect is ABSENT:
+            try:
+                os.link(tmp, path)  # atomic create-if-absent
+            except FileExistsError:
+                raise stale from None
+            os.unlink(tmp)
+            return
         if expect is not None and read_text_or_none(path) != expect:
-            raise SetupError(f"{path} changed while it was being updated; nothing was written, run the command again")
+            raise stale
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -144,8 +154,10 @@ def locked_version(lock_dir=LOCK_DIR):
 def install(home, node, npm, lock_dir=LOCK_DIR):
     version, integrity = locked_version(lock_dir)
     root = install_root(home)
-    target = root / version
-    target.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
+    # A fresh directory per install: the one the current manifest names is never touched.
+    target = Path(tempfile.mkdtemp(prefix=f"{version}-", dir=root))
+    os.chmod(target, 0o755)
     for name in ("package.json", "package-lock.json"):
         shutil.copyfile(Path(lock_dir) / name, target / name)
     # `npm ci` installs exactly the lockfile and checks every package's integrity hash.
@@ -158,7 +170,7 @@ def install(home, node, npm, lock_dir=LOCK_DIR):
     entry = package_dir / "dist" / "index.js"
     if not entry.is_file():
         raise SetupError(f"{entry} is missing")
-    work_dir(home).mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_work_dir(home)
     source, launcher = Path(__file__).resolve(), launcher_path(home)
     if not (launcher.exists() and os.path.samefile(source, launcher)):
         atomic_write(launcher, source.read_text(encoding="utf-8"), 0o755)
@@ -166,6 +178,17 @@ def install(home, node, npm, lock_dir=LOCK_DIR):
     manifest = {"package": PACKAGE, "version": version, "node": str(node), "entry": str(entry), "integrity": integrity}
     atomic_write(manifest_path(home), json.dumps(manifest, indent=2) + "\n", 0o644)
     return manifest
+
+
+def ensure_work_dir(home):
+    """Create or re-check the server's private cwd: a real directory, ours, mode 0700."""
+    path = work_dir(home)
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise SetupError(f"{path} must be a directory owned by the current user, not a symlink")
+    os.chmod(path, 0o700)
+    return path
 
 
 def read_manifest(home):
@@ -184,26 +207,22 @@ def read_manifest(home):
 
 # ---- run ---------------------------------------------------------------------------------------
 
-def launch_plan(home, environ, output_dir=None):
-    """The argv, env and cwd `run` execs. Pure apart from reading the manifest, the key and the cwd."""
+def launch_plan(home, environ):
+    """The argv, env and cwd `run` execs. Pure apart from reading the manifest, the key and the cwd.
+    The cwd is always the private work dir: the server's dotenv reads `<cwd>/.env` at startup."""
     manifest = read_manifest(home)
     env = {k: v for k, v in environ.items() if k not in DROPPED_ENV}
     env.update({KEY_NAME: read_key(home), "MESHY_API_HOST": API_HOST, "TRANSPORT": "stdio",
                 "MESHY_CLIENT": "skorowidny-cezar"})
-    if output_dir:
-        cwd = Path(output_dir).expanduser()
-        if not cwd.is_absolute():
-            raise SetupError("--output-dir must be an absolute path")
-    else:
-        cwd = work_dir(home)
+    cwd = work_dir(home)
     if (cwd / ".env").exists():
-        raise SetupError(f"{cwd / '.env'} exists; the server would load it, remove it or pick another --output-dir")
+        raise SetupError(f"{cwd / '.env'} exists; the server would load it, remove it")
     return [manifest["node"], manifest["entry"]], env, cwd
 
 
-def run(home, output_dir):
-    argv, env, cwd = launch_plan(home, os.environ, output_dir)
-    cwd.mkdir(mode=0o700, parents=True, exist_ok=True)
+def run(home):
+    argv, env, cwd = launch_plan(home, os.environ)
+    ensure_work_dir(home)
     os.chdir(cwd)
     os.execve(argv[0], argv, env)
 
@@ -227,11 +246,8 @@ def load_mcp_file(path):
     return parse_mcp_text(path, read_text_or_none(path))
 
 
-def server_entry(home, python, output_dir=None):
-    args = ["-I", str(launcher_path(home)), "run"]
-    if output_dir:
-        args += ["--output-dir", str(output_dir)]
-    return {"type": "stdio", "command": str(python), "args": args}
+def server_entry(home, python):
+    return {"type": "stdio", "command": str(python), "args": ["-I", str(launcher_path(home)), "run"]}
 
 
 def entry_problem(home, entry):
@@ -243,25 +259,26 @@ def entry_problem(home, entry):
     args = entry.get("args", [])
     if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
         return "entry \"args\" is not a list of strings"
+    env = entry.get("env", {})
+    if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
+        return "entry \"env\" is not an object of strings"
     if entry.get("type", "stdio") != "stdio":
         return "entry is not a stdio server"
-    if args[:3] != ["-I", str(launcher_path(home)), "run"]:
+    if args != ["-I", str(launcher_path(home)), "run"]:
         return f"entry does not start {launcher_path(home)} run"
     return None
 
 
-def register(home, project, python, output_dir=None, name=SERVER_NAME):
+def register(home, project, python, name=SERVER_NAME):
     project = Path(project).resolve()
     if not (project / ".git").exists():
         raise SetupError(f"{project} is not the root of a git repository")
-    if output_dir and not Path(output_dir).is_absolute():
-        raise SetupError("--output-dir must be an absolute path")
     path = project / MCP_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     before = read_text_or_none(path)
     data = parse_mcp_text(path, before)
-    data["mcpServers"][name] = server_entry(home, python, output_dir)
-    atomic_write(path, json.dumps(data, indent=2) + "\n", expect=before)
+    data["mcpServers"][name] = server_entry(home, python)
+    atomic_write(path, json.dumps(data, indent=2) + "\n", expect=ABSENT if before is None else before)
     return path
 
 
@@ -317,10 +334,15 @@ def mcp_handshake(argv, cwd, env, timeout=60):
                     stderr.seek(0)
                     raise SetupError(f"the server exited during the handshake: {stderr.read()[-400:]}")
                 reply = json.loads(line)
-                if reply.get("id") in (1, 2) and "error" in reply:
-                    raise SetupError(f"the server refused the handshake: {reply['error'].get('message')}")
-                if reply.get("id") == 2:
-                    return [tool["name"] for tool in reply["result"]["tools"]]
+                if not isinstance(reply, dict) or reply.get("id") not in (1, 2):
+                    continue  # notifications and logs
+                if reply.get("error") is not None:
+                    raise SetupError(f"the server refused the handshake: {reply['error']}")
+                if reply["id"] == 2:
+                    try:
+                        return [tool["name"] for tool in reply["result"]["tools"]]
+                    except (KeyError, TypeError):
+                        raise SetupError("the server answered tools/list in an unexpected shape") from None
         finally:
             watchdog.cancel()
             proc.kill()
@@ -358,7 +380,7 @@ def check(home, project=None, with_balance=False):
         mode = stat.S_IMODE(path.stat().st_mode)
         lines.append(f"project: {path} registered, mode {mode:o}, git-ignored: {git_ignored(project, path)}")
         # The project's own entry, started from the project the way a run starts it.
-        tools = mcp_handshake([entry["command"], *entry.get("args", [])], project, env)
+        tools = mcp_handshake([entry["command"], *entry.get("args", [])], project, {**env, **entry.get("env", {})})
     else:
         tools = mcp_handshake([sys.executable, "-I", str(launcher_path(home)), "run"], tempfile.gettempdir(), env)
     lines.append(f"handshake: {len(tools)} tools ({', '.join(sorted(tools)[:4])}, …)")
@@ -379,7 +401,6 @@ def main(argv=None):
     p.add_argument("--stdin", action="store_true", help="read the key from stdin instead of a hidden prompt")
     p = sub.add_parser("register", help="add the server to a project's .ai/cezar/mcp.local.json")
     p.add_argument("--project", required=True)
-    p.add_argument("--output-dir", help="absolute directory the server works and saves in (default: a private dir)")
     p.add_argument("--python", default=shutil.which("python3") or sys.executable,
                    help="interpreter cezar starts; kept unresolved so a minor Python upgrade does not break it")
     p = sub.add_parser("unregister", help="remove the server from a project's mcp.local.json")
@@ -388,7 +409,6 @@ def main(argv=None):
     p.add_argument("--project")
     p.add_argument("--balance", action="store_true")
     p = sub.add_parser("run", help="stdio entry point started by cezar for each run")
-    p.add_argument("--output-dir")
     args = parser.parse_args(argv)
     home = Path.home()
     try:
@@ -402,7 +422,7 @@ def main(argv=None):
             print(f"key stored in {write_key(home, key)}")
         elif args.command == "register":
             read_manifest(home)
-            path = register(home, args.project, Path(args.python).absolute(), args.output_dir)
+            path = register(home, args.project, Path(args.python).absolute())
             print(f"registered '{SERVER_NAME}' in {path}")
             if not git_ignored(Path(args.project).resolve(), path):
                 print(f"WARNING: git does not ignore {path}; start cezar once on this project "
@@ -413,8 +433,8 @@ def main(argv=None):
             for line in check(home, args.project, args.balance):
                 print(line)
         elif args.command == "run":
-            run(home, args.output_dir)
-    except (SetupError, OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError) as err:
+            run(home)
+    except (SetupError, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as err:
         print(f"meshy_mcp: {err}", file=sys.stderr)
         return 1
     return 0
