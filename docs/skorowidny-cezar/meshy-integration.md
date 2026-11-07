@@ -16,7 +16,7 @@ We use Meshy's **official** MCP server, `@meshy-ai/meshy-mcp-server` (MIT, <http
 |---|---|---|
 | Setup tool | `fork/tools/meshy_mcp.py` (+ `test_meshy_mcp.py`) | `install`, `set-key`, `register`, `unregister`, `check`, `run` |
 | Reviewed lockfile | `fork/tools/meshy-mcp/package.json`, `package-lock.json` | Pins the server and all 144 transitive packages, each with an integrity hash |
-| Pinned server | `~/.local/share/skorowidny-cezar/meshy-mcp/<version>/` | `npm ci --omit=dev --ignore-scripts` from that lockfile; npm verifies every hash at install time |
+| Pinned server | `~/.local/share/skorowidny-cezar/meshy-mcp/<version>-<random>/` | A fresh directory per `install`; `npm ci --omit=dev --ignore-scripts` from that lockfile; npm verifies every hash at install time |
 | Launcher | `~/.local/share/skorowidny-cezar/meshy-mcp/meshy_mcp.py` | A copy of the setup tool made by `install`; cezar starts it with `python3 -I … run` |
 | Server working dir | `~/.local/share/skorowidny-cezar/meshy-mcp/work/` | `0700`, outside every repository; default save location (`meshy_output/`) |
 | API key | `~/.config/meshy/meshy.env` | `MESHY_API_KEY=msy_…`, file `0600`, directory `0700`. One key for every project |
@@ -29,7 +29,7 @@ Meshy's own instructions use `npx -y @meshy-ai/meshy-mcp-server` with the key in
 1. **Pinned code.** `npx -y` fetches whatever version is newest on each run start. The launcher runs the version installed from the reviewed lockfile; an upgrade is a reviewed lockfile change (see "Upgrading the server"). The hashes are checked when `npm ci` installs, not on every launch: the installed tree is trusted as much as the rest of the user's home.
 2. **No key in project files.** `mcp.local.json` is readable by the agent of every run in that project; the key would also be copied into each project that uses Meshy. The launcher reads one `0600` file instead.
 3. **A repository cannot redirect the key.** The server calls `dotenv.config()`, which loads `.env` from its working directory, and honours `MESHY_API_HOST`. Started in the run's worktree, a repository `.env` could set `https_proxy` and `NODE_TLS_REJECT_UNAUTHORIZED=0` and read the key through a forged certificate (found by the Codex audit). So the launcher:
-   - starts the server in its own `work/` directory (or the absolute `--output-dir`), never the worktree, and refuses a directory that contains a `.env`;
+   - always starts the server in its own `work/` directory (`0700`, owned by the user, not a symlink; re-checked at every launch), never the worktree or another directory a repository could write to, and refuses to start if a `.env` is there. An earlier `--output-dir` option was removed for this reason (second Codex audit): a `.env` created in such a directory after the check would still be loaded;
    - sets `MESHY_API_KEY`, `MESHY_API_HOST=https://api.meshy.ai` and `TRANSPORT=stdio` itself;
    - drops `PORT`, `NODE_TLS_REJECT_UNAUTHORIZED`, `DOTENV_KEY` and `DOTENV_CONFIG_*` from what it inherits.
 
@@ -51,7 +51,7 @@ python3 -I $L register --project ~/ai-projects/<project>
 python3 -I $L check --project ~/ai-projects/<project>
 ```
 
-`register` merges one entry and keeps every other server in the file. It refuses a broken JSON file and leaves it as it is. The write goes through a `mcp.local.json.cez-tmp-*` temp file (the name cezar already git-ignores), and is refused when the file changed between read and write (for example a simultaneous cockpit edit); run the command again in that case. This narrows the window, it is not a lock. `check --project` validates the project's own entry and starts it the way a run does:
+`register` merges one entry and keeps every other server in the file. It refuses a broken JSON file and leaves it as it is. The write goes through a `mcp.local.json.cez-tmp-*` temp file (the name cezar already git-ignores), and is refused when the file changed between read and write (for example a simultaneous cockpit edit) or, on first registration, when the file appeared meanwhile (atomic create-if-absent); run the command again in that case. For an existing file this narrows the window, it is not a lock shared with cezar: avoid editing the file in the cockpit while `register` runs. `check --project` validates the project's own entry and starts it the way a run does:
 
 ```json
 {
@@ -71,7 +71,7 @@ To remove it from a project: `python3 -I $L unregister --project <repo>`. To rev
 By default the server saves downloads under `meshy_output/` in its **private working directory** (`~/.local/share/skorowidny-cezar/meshy-mcp/work/meshy_output/`), not in the run's worktree. To put a model into a project:
 
 - ask the agent to pass `save_to` (an absolute path) to `meshy_download_model`, e.g. into the worktree's assets folder; the model then appears in the task's diff and reaches the branch only through cezar's review gate;
-- or register with `--output-dir /absolute/dir` so the server works and saves in a fixed directory (it must not contain a `.env`).
+- or copy it from `work/meshy_output/` afterwards.
 
 Which one a project uses is the project's decision; none is set by default. Meshy deletes generated files from its servers after **3 days** (all plans except Enterprise), so download what you need.
 
@@ -112,9 +112,9 @@ python3 -I ../meshy_mcp.py install    # npm ci from the new lockfile
 python3 -I ~/.local/share/skorowidny-cezar/meshy-mcp/meshy_mcp.py check
 ```
 
-`install` runs only from the fork checkout (the installed launcher has no lockfile and says so). The manifest `launcher.json` is written last, so a failed install leaves the previous version in use.
+`install` runs only from the fork checkout (the installed launcher has no lockfile and says so). Each install goes into a new directory and the manifest `launcher.json` is switched last, so a failed or interrupted install leaves the previous installation untouched and in use.
 
-Read the server's CHANGELOG first: 0.6.3 changed `list_tasks` and `list_models` defaults, and `lowpoly` was retired on 2026-10-30. Older version directories stay in place; deleting them is safe once `check` passes. Going back is `git checkout <old commit> -- fork/tools/meshy-mcp` and `install`.
+Read the server's CHANGELOG first: 0.6.3 changed `list_tasks` and `list_models` defaults, and `lowpoly` was retired on 2026-10-30. Older installation directories stay in place; deleting one that `launcher.json` does not name is safe once `check` passes. Going back is `git checkout <old commit> -- fork/tools/meshy-mcp` and `install`.
 
 ## Open decisions (owner)
 
@@ -122,5 +122,5 @@ Read the server's CHANGELOG first: 0.6.3 changed `list_tasks` and `list_models` 
 |---|---|---|
 | M-1 | Which projects get the server registered | Nothing is registered by this change |
 | M-2 | Monthly credit limit on the key | The only hard spending brake |
-| M-3 | Where models are saved: private `work/` (default), `save_to` per request, or `--output-dir` | Whether models reach branches through review |
+| M-3 | Where models are saved: private `work/meshy_output/` (default) or `save_to` per request, e.g. a fixed assets path in the agent's instructions | Whether models reach branches through review |
 | M-4 | Default formats (`glb`, `fbx`, `obj`, `usdz`, `stl`) and `ai_model` per project | Cost and fitness for the engine; today chosen per request by the agent |

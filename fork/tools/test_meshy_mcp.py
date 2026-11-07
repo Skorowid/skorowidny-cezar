@@ -89,14 +89,47 @@ class MeshySetupTests(unittest.TestCase):
         self.assertEqual(cwd, MODULE.work_dir(self.home))
         self.assertFalse(str(cwd).startswith(str(self.project)))
 
-    def test_output_dir_with_a_dotenv_is_refused(self):
+    def test_work_dir_with_a_dotenv_is_refused(self):
         self.fake_install()
         MODULE.write_key(self.home, KEY)
-        out = Path(self.temp.name) / "assets"
-        out.mkdir()
-        (out / ".env").write_text("https_proxy=http://attacker:8080\n")
+        MODULE.ensure_work_dir(self.home)
+        (MODULE.work_dir(self.home) / ".env").write_text("https_proxy=http://attacker:8080\n")
         with self.assertRaisesRegex(MODULE.SetupError, r"\.env exists"):
-            MODULE.launch_plan(self.home, {}, str(out))
+            MODULE.launch_plan(self.home, {})
+
+    def test_work_dir_is_made_private_and_symlinks_are_refused(self):
+        MODULE.install_root(self.home).mkdir(parents=True)
+        MODULE.work_dir(self.home).mkdir(mode=0o777)
+        os.chmod(MODULE.work_dir(self.home), 0o777)
+        MODULE.ensure_work_dir(self.home)
+        self.assertEqual(stat.S_IMODE(MODULE.work_dir(self.home).stat().st_mode), 0o700)
+        MODULE.work_dir(self.home).rmdir()
+        MODULE.work_dir(self.home).symlink_to(self.project)
+        with self.assertRaisesRegex(MODULE.SetupError, "symlink"):
+            MODULE.ensure_work_dir(self.home)
+
+    def test_reinstall_never_touches_the_tree_in_use_and_publishes_manifest_last(self):
+        fake_npm = Path(self.temp.name) / "npm"
+        fake_npm.write_text("#!/bin/sh\n"
+                            "[ -n \"$FAIL\" ] && exit 1\n"
+                            "d=\"$3/node_modules/@meshy-ai/meshy-mcp-server\"; mkdir -p \"$d/dist\"\n"
+                            "v=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))[\"packages\"][\"node_modules/@meshy-ai/meshy-mcp-server\"][\"version\"])' \"$3/package-lock.json\")\n"
+                            "echo \"{\\\"version\\\": \\\"$v\\\"}\" > \"$d/package.json\"; touch \"$d/dist/index.js\"\n")
+        os.chmod(fake_npm, 0o755)
+        first = MODULE.install(self.home, "/usr/bin/node", str(fake_npm))
+        self.assertTrue(Path(first["entry"]).is_file())
+        os.environ["FAIL"] = "1"
+        try:
+            with self.assertRaises(subprocess.CalledProcessError):
+                MODULE.install(self.home, "/usr/bin/node", str(fake_npm))
+        finally:
+            del os.environ["FAIL"]
+        self.assertEqual(MODULE.read_manifest(self.home)["entry"], first["entry"])
+        self.assertTrue(Path(first["entry"]).is_file())
+        second = MODULE.install(self.home, "/usr/bin/node", str(fake_npm))
+        self.assertNotEqual(second["entry"], first["entry"])
+        self.assertTrue(Path(first["entry"]).is_file())
+        self.assertTrue(MODULE.launcher_path(self.home).is_file())
 
     def test_damaged_manifest_is_a_clear_refusal(self):
         self.fake_install()
@@ -120,12 +153,6 @@ class MeshySetupTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.SetupError, "fork checkout"):
             MODULE.locked_version(self.home)
 
-    def test_launch_plan_refuses_relative_output_dir(self):
-        self.fake_install()
-        MODULE.write_key(self.home, KEY)
-        with self.assertRaisesRegex(MODULE.SetupError, "absolute"):
-            MODULE.launch_plan(self.home, {}, "assets/3d")
-
     def test_launch_plan_without_install_names_the_fix(self):
         MODULE.write_key(self.home, KEY)
         with self.assertRaisesRegex(MODULE.SetupError, "install"):
@@ -147,11 +174,11 @@ class MeshySetupTests(unittest.TestCase):
     def test_register_keeps_other_servers_and_unknown_keys(self):
         self.mcp_file().parent.mkdir(parents=True)
         self.mcp_file().write_text(json.dumps({"note": "x", "mcpServers": {"tracker": {"command": "t"}}}))
-        MODULE.register(self.home, self.project, "/usr/bin/python3", "/srv/assets")
+        MODULE.register(self.home, self.project, "/usr/bin/python3")
         data = json.loads(self.mcp_file().read_text())
         self.assertEqual(data["note"], "x")
         self.assertEqual(data["mcpServers"]["tracker"], {"command": "t"})
-        self.assertEqual(data["mcpServers"]["meshy"]["args"][-2:], ["--output-dir", "/srv/assets"])
+        self.assertEqual(data["mcpServers"]["meshy"]["args"][-1], "run")
 
     def test_register_refuses_broken_json_and_leaves_it_untouched(self):
         self.mcp_file().parent.mkdir(parents=True)
@@ -160,11 +187,9 @@ class MeshySetupTests(unittest.TestCase):
             MODULE.register(self.home, self.project, "/usr/bin/python3")
         self.assertEqual(self.mcp_file().read_text(), "{ broken")
 
-    def test_register_refuses_non_repository_and_relative_output(self):
+    def test_register_refuses_non_repository(self):
         with self.assertRaisesRegex(MODULE.SetupError, "git repository"):
             MODULE.register(self.home, self.home, "/usr/bin/python3")
-        with self.assertRaisesRegex(MODULE.SetupError, "absolute"):
-            MODULE.register(self.home, self.project, "/usr/bin/python3", "rel/dir")
 
     def test_register_is_idempotent_and_unregister_removes_only_meshy(self):
         MODULE.register(self.home, self.project, "/usr/bin/python3")
@@ -182,19 +207,17 @@ class MeshySetupTests(unittest.TestCase):
         # data-gitignore.ts ignores `mcp.local.json.cez-tmp-*`; a leftover temp file must match it.
         self.mcp_file().parent.mkdir(parents=True)
         seen = []
-        real_replace = MODULE.os.replace
-
-        def spy(src, dst):
-            seen.append(Path(src).name)
-            real_replace(src, dst)
-
-        MODULE.os.replace = spy
+        real_replace, real_link = MODULE.os.replace, MODULE.os.link
+        MODULE.os.replace = lambda src, dst: (seen.append(Path(src).name), real_replace(src, dst))
+        MODULE.os.link = lambda src, dst: (seen.append(Path(src).name), real_link(src, dst))
         try:
-            MODULE.register(self.home, self.project, "/usr/bin/python3")
+            MODULE.register(self.home, self.project, "/usr/bin/python3")  # creates: link
+            MODULE.register(self.home, self.project, "/usr/bin/python3")  # updates: replace
         finally:
-            MODULE.os.replace = real_replace
-        self.assertEqual(len(seen), 1)
-        self.assertTrue(seen[0].startswith("mcp.local.json.cez-tmp-"), seen[0])
+            MODULE.os.replace, MODULE.os.link = real_replace, real_link
+        self.assertEqual(len(seen), 2)
+        for name in seen:
+            self.assertTrue(name.startswith("mcp.local.json.cez-tmp-"), name)
 
     def test_concurrent_edit_is_not_overwritten(self):
         self.mcp_file().parent.mkdir(parents=True)
@@ -204,11 +227,20 @@ class MeshySetupTests(unittest.TestCase):
         self.assertEqual(json.loads(self.mcp_file().read_text()), {"mcpServers": {}})
         self.assertEqual([p.name for p in self.mcp_file().parent.iterdir()], ["mcp.local.json"])
 
+    def test_file_created_meanwhile_is_not_overwritten(self):
+        self.mcp_file().parent.mkdir(parents=True)
+        self.mcp_file().write_text('{"mcpServers": {"other": {"command": "o"}}}')
+        with self.assertRaisesRegex(MODULE.SetupError, "changed while"):
+            MODULE.atomic_write(self.mcp_file(), "{}", expect=MODULE.ABSENT)
+        self.assertIn("other", self.mcp_file().read_text())
+        self.assertEqual([p.name for p in self.mcp_file().parent.iterdir()], ["mcp.local.json"])
+
     def test_entry_problem_rejects_what_cezar_or_the_launcher_would_not_run(self):
         good = MODULE.server_entry(self.home, "/usr/bin/python3")
         self.assertIsNone(MODULE.entry_problem(self.home, good))
-        self.assertIsNone(MODULE.entry_problem(self.home, MODULE.server_entry(self.home, "/usr/bin/python3", "/srv/a")))
+        self.assertIsNone(MODULE.entry_problem(self.home, {**good, "env": {"A": "b"}}))
         for bad in [None, "broken", {}, {"command": ""}, {"command": "x", "args": "run"},
+                    {**good, "env": []}, {**good, "env": {"A": 1}}, {**good, "args": good["args"] + ["--output-dir", "/x"]},
                     {"command": "x", "type": "http", "args": good["args"]}, {"command": "x", "args": ["run"]}]:
             self.assertIsNotNone(MODULE.entry_problem(self.home, bad), msg=repr(bad))
 
