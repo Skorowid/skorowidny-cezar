@@ -145,7 +145,7 @@ describe('audit regressions', () => {
     expect(s.outputDir).toBeUndefined();
     expect(JSON.stringify(s)).not.toContain(home);
     expect(JSON.stringify(s)).not.toContain('/home/u');
-    expect(s.problems.join(' ')).toMatch(/<path>/);
+    expect(s.problems.join(' ')).toMatch(/fix its permissions on the host/);
   });
 
   it('writes through a symlinked mcp.local.json and keeps the link', async () => {
@@ -157,6 +157,60 @@ describe('audit regressions', () => {
     await setProjectMeshy(meshyPaths(home), repo, true, PY);
     expect(lstatSync(mcpFile()).isSymbolicLink()).toBe(true);
     expect(Object.keys(JSON.parse(readFileSync(shared, 'utf8')).mcpServers)).toEqual(['tracker', 'meshy']);
+  });
+
+  it('keeps paths with spaces and file contents out of hosted diagnostics', async () => {
+    const spaced = join(base, 'Alice Smith');
+    mkdirSync(spaced);
+    const prev = home;
+    home = spaced;
+    install();
+    setKey(0o644);
+    mkdirSync(join(repo, '.ai', 'cezar'), { recursive: true });
+    writeFileSync(mcpFile(), '{ "token": "sk-SECRET-IN-FILE"');
+    const s = await readMeshyStatus(meshyPaths(home), [{ id: 'a', name: 'A', root: repo, missing: false }], false);
+    const wire = JSON.stringify(s);
+    expect(wire).not.toContain('Alice');
+    expect(wire).not.toContain('Smith');
+    expect(wire).not.toContain('sk-SECRET');
+    expect(s.projects[0]).toEqual({ id: 'a', name: 'A', status: 'broken', problem: 'mcp.local.json is not valid' });
+    const local = await readMeshyStatus(meshyPaths(home), [], true);
+    expect(local.problems.join(' ')).toContain('Alice Smith');
+    home = prev;
+  });
+
+  it('creates the file without hard links, and refuses if it appeared meanwhile', async () => {
+    install();
+    const noLink = { link: async () => { throw Object.assign(new Error('nope'), { code: 'EPERM' }); }, rename: (a: string, b: string) => import('node:fs/promises').then((m) => m.rename(a, b)) };
+    await setProjectMeshy(meshyPaths(home), repo, true, PY, noLink);
+    expect((await projectMeshyStatus(meshyPaths(home), repo)).status).toBe('connected');
+    rmSync(mcpFile());
+    const appears = { ...noLink, link: async () => { writeFileSync(mcpFile(), '{"mcpServers":{"other":{"command":"o"}}}'); throw Object.assign(new Error('nope'), { code: 'EPERM' }); } };
+    await expect(setProjectMeshy(meshyPaths(home), repo, true, PY, appears)).rejects.toThrow(/changed while/);
+    expect(readFileSync(mcpFile(), 'utf8')).toContain('other');
+    expect(readdirSync(join(repo, '.ai', 'cezar')).filter((n) => n.includes('cez-tmp'))).toEqual([]);
+  });
+
+  it('keeps the temp file in the project\'s ignored dir for a symlink elsewhere, and handles EXDEV', async () => {
+    install();
+    const elsewhere = join(base, 'other-checkout');
+    mkdirSync(elsewhere);
+    const shared = join(elsewhere, 'mcp.json');
+    writeFileSync(shared, JSON.stringify({ mcpServers: {} }));
+    mkdirSync(join(repo, '.ai', 'cezar'), { recursive: true });
+    symlinkSync(shared, mcpFile());
+    const sources: string[] = [];
+    const exdev = {
+      link: async () => {},
+      rename: async (from: string) => { sources.push(from); throw Object.assign(new Error('cross-device'), { code: 'EXDEV' }); },
+    };
+    await setProjectMeshy(meshyPaths(home), repo, true, PY, exdev);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.startsWith(join(repo, '.ai', 'cezar', 'mcp.local.json.cez-tmp-'))).toBe(true);
+    expect(readdirSync(elsewhere)).toEqual(['mcp.json']);
+    expect(readdirSync(join(repo, '.ai', 'cezar')).filter((n) => n.includes('cez-tmp'))).toEqual([]);
+    expect(lstatSync(mcpFile()).isSymbolicLink()).toBe(true);
+    expect(Object.keys(JSON.parse(readFileSync(shared, 'utf8')).mcpServers)).toEqual(['meshy']);
   });
 
   it('treats a malformed env as foreign and never deletes it', async () => {

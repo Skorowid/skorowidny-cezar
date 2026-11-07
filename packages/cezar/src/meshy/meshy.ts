@@ -120,6 +120,14 @@ export function isOurEntry(paths: MeshyPaths, entry: unknown): boolean {
 }
 
 export async function projectMeshyStatus(paths: MeshyPaths, root: string): Promise<{ status: MeshyProjectStatus; problem?: string }> {
+  const { status, problem } = await projectState(paths, root);
+  return problem ? { status, problem } : { status };
+}
+
+async function projectState(
+  paths: MeshyPaths,
+  root: string,
+): Promise<{ status: MeshyProjectStatus; problem?: string; hostedProblem?: string }> {
   let text: string | null;
   try {
     text = await readTextOrNull(privateMcpPath(root));
@@ -127,7 +135,8 @@ export async function projectMeshyStatus(paths: MeshyPaths, root: string): Promi
     return { status: 'broken', problem: `mcp.local.json could not be read (${(err as NodeJS.ErrnoException).code ?? 'error'})` };
   }
   const file = parseMcpFile(text);
-  if (!file.ok) return { status: 'broken', problem: file.problem };
+  // A JSON.parse message can quote the file, and the file holds other servers' tokens.
+  if (!file.ok) return { status: 'broken', problem: file.problem, hostedProblem: 'mcp.local.json is not valid' };
   const entry = file.data.mcpServers[MESHY_SERVER_NAME];
   if (entry === undefined) return { status: 'disconnected' };
   return isOurEntry(paths, entry)
@@ -147,23 +156,34 @@ export async function readMeshyStatus(
   projects: readonly MeshyProjectRef[],
   writable: boolean,
 ): Promise<MeshyStatus> {
-  const status = await collectMeshyStatus(paths, projects, writable);
-  // A hosted cockpit's viewer is not the machine's user: no local paths, no diagnostics naming them.
-  if (writable) return status;
+  const status = await collectMeshyStatus(paths, projects);
+  // A hosted cockpit's viewer is not the machine's user: no local paths and no file contents —
+  // each diagnostic carries a fixed hosted wording instead of being redacted after the fact.
+  if (writable) {
+    return { ...status, writable, problems: status.problems.map((p) => p.local), projects: status.projects.map((p) => withProblem(p, p.problem?.local)) };
+  }
   const { outputDir: _hidden, ...rest } = status;
-  return { ...rest, problems: rest.problems.map(redactPaths), projects: rest.projects.map((p) => (p.problem ? { ...p, problem: redactPaths(p.problem) } : p)) };
+  return { ...rest, writable, problems: rest.problems.map((p) => p.hosted), projects: rest.projects.map((p) => withProblem(p, p.problem?.hosted)) };
 }
 
-function redactPaths(text: string): string {
-  return text.replace(/(?:~|\/)[^\s;,'"]*\/[^\s;,'"]*/g, '<path>');
+interface Problem {
+  local: string;
+  hosted: string;
+}
+
+type Row = Omit<MeshyProject, 'problem'> & { problem?: Problem };
+
+function withProblem(row: Row, problem: string | undefined): MeshyProject {
+  const { problem: _p, ...rest } = row;
+  return problem ? { ...rest, problem } : rest;
 }
 
 async function collectMeshyStatus(
   paths: MeshyPaths,
   projects: readonly MeshyProjectRef[],
-  writable: boolean,
-): Promise<MeshyStatus> {
-  const problems: string[] = [];
+): Promise<Omit<MeshyStatus, 'writable' | 'problems' | 'projects'> & { problems: Problem[]; projects: Row[] }> {
+  const problems: Problem[] = [];
+  const same = (text: string): Problem => ({ local: text, hosted: text });
   let installed = false;
   let version: string | undefined;
   const manifestText = await readTextOrNull(paths.manifest).catch(() => null);
@@ -172,12 +192,12 @@ async function collectMeshyStatus(
       const manifest = manifestSchema.parse(JSON.parse(manifestText));
       version = manifest.version;
       installed = existsSync(paths.launcher) && existsSync(manifest.entry);
-      if (!installed) problems.push('The installed server or launcher is missing; run fork/tools/meshy_mcp.py install.');
+      if (!installed) problems.push(same('The installed server or launcher is missing; run fork/tools/meshy_mcp.py install.'));
     } catch {
-      problems.push('launcher.json is damaged; run fork/tools/meshy_mcp.py install.');
+      problems.push(same('launcher.json is damaged; run fork/tools/meshy_mcp.py install.'));
     }
   } else {
-    problems.push('Not installed: run python3 -I fork/tools/meshy_mcp.py install in the skorowidny-cezar checkout.');
+    problems.push(same('Not installed: run python3 -I fork/tools/meshy_mcp.py install in the skorowidny-cezar checkout.'));
   }
 
   let keyPresent = false;
@@ -186,9 +206,14 @@ async function collectMeshyStatus(
     const info = await stat(paths.key);
     keyPresent = info.isFile();
     keyPrivate = keyPresent && (info.mode & 0o077) === 0 && (typeof process.getuid !== 'function' || info.uid === process.getuid());
-    if (keyPresent && !keyPrivate) problems.push(`The key file is readable by others or not yours; run chmod 600 ${paths.key}.`);
+    if (keyPresent && !keyPrivate) {
+      problems.push({
+        local: `The key file is readable by others or not yours; run chmod 600 ${paths.key}.`,
+        hosted: 'The key file is readable by others or not yours; fix its permissions on the host.',
+      });
+    }
   } catch {
-    problems.push('No API key: run meshy_mcp.py set-key in a terminal (the key never goes through the cockpit).');
+    problems.push(same('No API key: run meshy_mcp.py set-key in a terminal (the key never goes through the cockpit).'));
   }
 
   let outputDir: string | undefined;
@@ -196,17 +221,17 @@ async function collectMeshyStatus(
   if (outputText !== null) {
     const parsed = outputSchema.safeParse(safeJson(outputText));
     if (parsed.success) outputDir = parsed.data.dir;
-    else problems.push('output.json is damaged; run meshy_mcp.py set-output --dir <absolute dir>.');
+    else problems.push(same('output.json is damaged; run meshy_mcp.py set-output --dir <absolute dir>.'));
   }
 
-  const rows: MeshyProject[] = await Promise.all(
-    projects.map(async (p) => {
-      if (p.missing) return { id: p.id, name: p.name, status: 'missing' as const };
-      const state = await projectMeshyStatus(paths, p.root);
-      return { id: p.id, name: p.name, ...state };
+  const rows: Row[] = await Promise.all(
+    projects.map(async (p): Promise<Row> => {
+      if (p.missing) return { id: p.id, name: p.name, status: 'missing' };
+      const { status, problem, hostedProblem } = await projectState(paths, p.root);
+      return { id: p.id, name: p.name, status, ...(problem ? { problem: { local: problem, hosted: hostedProblem ?? problem } } : {}) };
     }),
   );
-  return { installed, ...(version ? { version } : {}), keyPresent, keyPrivate, ...(outputDir ? { outputDir } : {}), writable, problems, projects: rows };
+  return { installed, ...(version ? { version } : {}), keyPresent, keyPrivate, ...(outputDir ? { outputDir } : {}), problems, projects: rows };
 }
 
 function safeJson(text: string): unknown {
@@ -233,7 +258,21 @@ export class MeshyRefusal extends Error {
  * THROUGH a symlink to its target. Creating the file is an exclusive link (fails if it appeared);
  * an existing file's check-then-rename still has a small window, as in the CLI and the editor.
  */
-export async function setProjectMeshy(paths: MeshyPaths, root: string, connected: boolean, python: string): Promise<void> {
+/** The two filesystem steps whose failure modes the tests must reach (no hard links, EXDEV). */
+export interface MeshyWriteOps {
+  link: (from: string, to: string) => Promise<void>;
+  rename: (from: string, to: string) => Promise<void>;
+}
+
+const defaultOps: MeshyWriteOps = { link, rename };
+
+export async function setProjectMeshy(
+  paths: MeshyPaths,
+  root: string,
+  connected: boolean,
+  python: string,
+  ops: MeshyWriteOps = defaultOps,
+): Promise<void> {
   const path = privateMcpPath(root);
   const before = await readTextOrNull(path);
   const file = parseMcpFile(before);
@@ -259,24 +298,40 @@ export async function setProjectMeshy(paths: MeshyPaths, root: string, connected
   } catch {
     // absent: the create case writes the path itself
   }
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(path), { recursive: true });
   ensureDataGitignore(root);
-  const tmp = `${target}.cez-tmp-${process.pid}-${randomUUID()}`;
-  await writeFile(tmp, `${JSON.stringify(file.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  // The temp file always sits in THIS project's git-ignored `.ai/cezar/` (pattern
+  // `mcp.local.json.cez-tmp-*`), even when the file is a symlink to somewhere else.
+  const tmp = `${path}.cez-tmp-${process.pid}-${randomUUID()}`;
+  const text = `${JSON.stringify(file.data, null, 2)}\n`;
+  await writeFile(tmp, text, { encoding: 'utf8', mode: 0o600 });
   const stale = () => new MeshyRefusal('mcp.local.json changed while it was being updated; nothing was written, try again', 409);
   try {
     if (before === null) {
+      let linked = false;
       try {
-        await link(tmp, target);
+        await ops.link(tmp, target); // exclusive create
+        linked = true;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw stale();
-        throw err;
+        // No hard links on this filesystem (exFAT, some mounts): fall back to check-then-rename.
+        if ((await readTextOrNull(target)) !== null) throw stale();
       }
-      await unlink(tmp);
-      return;
+      if (linked) {
+        await unlink(tmp).catch(() => {});
+        return;
+      }
+    } else if ((await readTextOrNull(target)) !== before) {
+      throw stale();
     }
-    if ((await readTextOrNull(target)) !== before) throw stale();
-    await rename(tmp, target);
+    try {
+      await ops.rename(tmp, target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+      // A symlink target on another filesystem cannot take a rename: write it in place.
+      await writeFile(target, text, { encoding: 'utf8', mode: 0o600 });
+      await unlink(tmp).catch(() => {});
+    }
   } catch (err) {
     await unlink(tmp).catch(() => {});
     throw err;

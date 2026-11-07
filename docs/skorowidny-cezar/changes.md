@@ -11,7 +11,7 @@ Owner's request: connect Meshy from the cockpit, in the global settings, like th
 | Check | Result |
 |---|---|
 | `npm run typecheck` (all workspaces), `npm run build` with `check:pack` | PASS |
-| `npm test -- packages/cezar/src/meshy packages/cezar/src/server/meshy-api.test.ts packages/web/src/routes/settings/meshy-section.test.tsx packages/web/src/routes/settings/settings.test.tsx` | 64 PASS; the 6 audit regression cases fail on the pre-fix code |
+| `npm test -- packages/cezar/src/meshy packages/cezar/src/server/meshy-api.test.ts packages/web/src/routes/settings/meshy-section.test.tsx packages/web/src/routes/settings/settings.test.tsx` | 67 PASS; every audit regression case fails on the code before its fix |
 | Route inventory, versioned surface, typed bodies, route parity, data gitignore, `contract-parity.workspace` (type-level, both directions) | PASS |
 | `npm test -- packages/web/src/routes/settings` | all PASS except 2 in `agents-section.test.tsx`, which fail identically on the commit before this change |
 | Built server on a sandbox `CEZ_HOME` (port 47999, `CEZ_DRY_RUN=1`), headless Chromium | section rendered with the real machine state, no console errors; switching a project on in the browser wrote the entry (`0600`, git-ignored) and `meshy_mcp.py check --project` accepted it (28-tool handshake) |
@@ -19,6 +19,8 @@ Owner's request: connect Meshy from the cockpit, in the global settings, like th
 Not run: the full `npm test`, `test:unit`, `test:package`, `test:e2e`.
 
 Codex audit (read-only), verdict `changes` (no CRITICAL/HIGH), all fixed: a hosted cockpit no longer sees local paths (download directory, paths in diagnostics); writes go through a symlinked `mcp.local.json` to its target; an entry with a malformed `env` counts as custom and is never deleted; `"mcpServers": null` counts as broken; first creation is an exclusive link; `python3` lookup matches `shutil.which` (executable file, absolute PATH entries); one switch acts at a time; the copy names the runners that get the tools.
+
+Second Codex audit of these fixes, verdict `changes`, fixed: hosted diagnostics now use fixed wordings instead of regex redaction (a path with spaces leaked a fragment; a JSON parse error could quote the file); first creation falls back to check-then-rename on filesystems without hard links; the temp file stays in the project's ignored `.ai/cezar/` even for a symlink elsewhere, with an in-place write on `EXDEV`. 67 tests PASS; the 4 new regression cases fail on the previous code.
 
 ## 2026-11-07 — Meshy downloads go to ~/ai-projects/mesh_outputs
 
