@@ -1,5 +1,24 @@
 # skorowidny-cezar changes
 
+## 2026-11-07 — Meshy AI 3D generation as a private MCP server
+
+Meshy is a 3D generation API, not a coding agent, so it cannot be a runner. It is attached as a private MCP server of a project (`.ai/cezar/mcp.local.json`), which every runner with an MCP channel already receives. Meshy's official server `@meshy-ai/meshy-mcp-server` is installed at a pinned version, with the key in one `0600` file outside every project, and a launcher that pins the API host so a repository `.env` cannot redirect the key. Setup, costs, safety and open decisions: [meshy-integration.md](meshy-integration.md). No cezar runtime code changed; no project is registered by this change.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `python3 -m unittest test_meshy_mcp test_upstream_report` (in `fork/tools`) | 22 tests PASS |
+| `install` of 0.6.9 into a sandbox `HOME` and into the real one | installed, version and npm integrity recorded |
+| `check` (MCP handshake over stdio, no credits) | 28 tools |
+| `check --balance` with an invalid key | Meshy 401, reported without the key |
+| Claude Code `--mcp-config` + `--allowedTools mcp__meshy` in `dontAsk` | the agent called `meshy_check_balance`; Meshy answered 401 |
+| OpenCode 2.2.5 `opencode serve` with `OPENCODE_CONFIG_CONTENT` | `GET /api/mcp`: `meshy` `connected` |
+| Codex `mcp_servers.meshy` override | `enabled` |
+| `npm run typecheck`, `npm run build` with `check:pack` | PASS |
+
+Not exercised: a real key and a real paid task (no key bought yet), `junie` and `copilot` (not installed), the cockpit editor for the file.
+
 ## 2026-11-03 — Codex takes over when OpenCode cannot do the work
 
 By the owner's decision, Codex now takes the role of OpenCode in Scrum: the coordinator's thread and the agents, before starting and after a real failure. Rules and open choices: [scrum-coordinator.md](scrum-coordinator.md#codex-takes-over-when-opencode-cannot-do-the-work). Unchanged: no automatic retry of a failed attempt, human approval, no automatic Done.
