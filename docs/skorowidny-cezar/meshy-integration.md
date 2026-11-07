@@ -18,7 +18,8 @@ We use Meshy's **official** MCP server, `@meshy-ai/meshy-mcp-server` (MIT, <http
 | Reviewed lockfile | `fork/tools/meshy-mcp/package.json`, `package-lock.json` | Pins the server and all 144 transitive packages, each with an integrity hash |
 | Pinned server | `~/.local/share/skorowidny-cezar/meshy-mcp/<version>-<random>/` | A fresh directory per `install`; `npm ci --omit=dev --ignore-scripts` from that lockfile; npm verifies every hash at install time |
 | Launcher | `~/.local/share/skorowidny-cezar/meshy-mcp/meshy_mcp.py` | A copy of the setup tool made by `install`; cezar starts it with `python3 -I … run` |
-| Server working dir | `~/.local/share/skorowidny-cezar/meshy-mcp/work/` | `0700`, outside every repository; default save location (`meshy_output/`) |
+| Server working dir | `~/.local/share/skorowidny-cezar/meshy-mcp/work/` | `0700`, outside every repository |
+| Downloads | `~/ai-projects/mesh_outputs/` (owner's decision, 2026-11-07) | Reached through the symlink `work/meshy_output`; set with `set-output`, stored in `output.json` |
 | API key | `~/.config/meshy/meshy.env` | `MESHY_API_KEY=msy_…`, file `0600`, directory `0700`. One key for every project |
 | Per-project entry | `<repo>/.ai/cezar/mcp.local.json` | `0600`, git-ignored by cezar, **contains no key** |
 
@@ -45,6 +46,7 @@ T=~/ai-projects/skorowidny-cezar/fork/tools/meshy_mcp.py
 L=~/.local/share/skorowidny-cezar/meshy-mcp/meshy_mcp.py
 
 python3 -I $T install                 # done on 2026-11-07: @meshy-ai/meshy-mcp-server@0.6.9
+python3 -I $L set-output --dir ~/ai-projects/mesh_outputs   # done on 2026-11-07
 python3 -I $L set-key                 # paste the key at the hidden prompt
 python3 -I $L check --balance         # install, key file, MCP handshake, credits (free call)
 python3 -I $L register --project ~/ai-projects/<project>
@@ -68,12 +70,15 @@ To remove it from a project: `python3 -I $L unregister --project <repo>`. To rev
 
 ### Where the files go
 
-By default the server saves downloads under `meshy_output/` in its **private working directory** (`~/.local/share/skorowidny-cezar/meshy-mcp/work/meshy_output/`), not in the run's worktree. To put a model into a project:
+The server saves every download under `meshy_output/` in its working directory, one folder per model with metadata and history. On this machine that is **`~/ai-projects/mesh_outputs/`** (owner's decision, 2026-11-07):
 
-- ask the agent to pass `save_to` (an absolute path) to `meshy_download_model`, e.g. into the worktree's assets folder; the model then appears in the task's diff and reaches the branch only through cezar's review gate;
-- or copy it from `work/meshy_output/` afterwards.
+```bash
+python3 -I $L set-output --dir /home/<user>/ai-projects/mesh_outputs
+```
 
-Which one a project uses is the project's decision; none is set by default. Meshy deletes generated files from its servers after **3 days** (all plans except Enterprise), so download what you need.
+`set-output` makes `work/meshy_output` a symlink to that directory and creates it if needed; `run` and `check` re-create the link if it is missing. The server's working directory stays the private `work/`, so a `.env` placed in `mesh_outputs/` is **not** loaded (that is why the directory is reached through a link and is not the server's cwd). `set-output` validates first and publishes the setting last: it refuses a target that is not a directory and an existing `work/meshy_output` that is not a link (move its contents first), and a refusal keeps the previous setting. The link is swapped atomically. A damaged `output.json` never blocks a run: `run` warns on stderr and the server keeps saving where `work/meshy_output` points (or into a new `work/meshy_output/`), while `check` reports the damage. Without `set-output`, downloads stay in `work/meshy_output/`.
+
+An agent can still pass `save_to` (an absolute path) to `meshy_download_model` to put one model elsewhere, e.g. into a task's worktree, where it reaches the branch only through cezar's review gate. Meshy deletes generated files from its servers after **3 days** (all plans except Enterprise), so download what you need.
 
 ## Runner support
 
@@ -122,5 +127,5 @@ Read the server's CHANGELOG first: 0.6.3 changed `list_tasks` and `list_models` 
 |---|---|---|
 | M-1 | Which projects get the server registered | Nothing is registered by this change |
 | M-2 | Monthly credit limit on the key | The only hard spending brake |
-| M-3 | Where models are saved: private `work/meshy_output/` (default) or `save_to` per request, e.g. a fixed assets path in the agent's instructions | Whether models reach branches through review |
+| M-3 | ~~Where models are saved~~ **decided 2026-11-07:** `~/ai-projects/mesh_outputs/` (`set-output`); `save_to` per request stays possible | — |
 | M-4 | Default formats (`glb`, `fbx`, `obj`, `usdz`, `stl`) and `ai_model` per project | Cost and fitness for the engine; today chosen per request by the agent |

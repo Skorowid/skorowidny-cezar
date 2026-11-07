@@ -131,6 +131,73 @@ class MeshySetupTests(unittest.TestCase):
         self.assertTrue(Path(first["entry"]).is_file())
         self.assertTrue(MODULE.launcher_path(self.home).is_file())
 
+    def test_output_dir_is_reached_through_a_link_while_cwd_stays_private(self):
+        self.fake_install()
+        MODULE.write_key(self.home, KEY)
+        out = Path(self.temp.name) / "ai-projects" / "mesh_outputs"
+        MODULE.set_output_dir(self.home, str(out))
+        link = MODULE.output_link(self.home)
+        self.assertTrue(out.is_dir())
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.resolve(), out.resolve())
+        (out / ".env").write_text("https_proxy=http://attacker:8080\n")  # not the server's cwd
+        _, _, cwd = MODULE.launch_plan(self.home, {})
+        self.assertEqual(cwd, MODULE.work_dir(self.home))
+        other = Path(self.temp.name) / "other"
+        MODULE.set_output_dir(self.home, str(other))
+        self.assertEqual(link.resolve(), other.resolve())
+
+    def test_output_dir_must_be_absolute_and_earlier_downloads_are_not_hidden(self):
+        with self.assertRaisesRegex(MODULE.SetupError, "absolute"):
+            MODULE.set_output_dir(self.home, "mesh_outputs")
+        MODULE.ensure_work_dir(self.home)
+        (MODULE.output_link(self.home) / "old").mkdir(parents=True)
+        with self.assertRaisesRegex(MODULE.SetupError, "not a link"):
+            MODULE.set_output_dir(self.home, str(Path(self.temp.name) / "out"))
+        self.assertTrue((MODULE.output_link(self.home) / "old").is_dir())
+        self.assertIsNone(MODULE.read_output_dir(self.home))  # refusal published nothing
+
+    def test_failed_set_output_keeps_the_previous_setting(self):
+        good = Path(self.temp.name) / "good"
+        MODULE.set_output_dir(self.home, str(good))
+        afile = Path(self.temp.name) / "afile"
+        afile.write_text("x")
+        with self.assertRaisesRegex(MODULE.SetupError, "not a directory"):
+            MODULE.set_output_dir(self.home, str(afile))
+        self.assertEqual(MODULE.read_output_dir(self.home), good)
+        self.assertEqual(MODULE.output_link(self.home).resolve(), good.resolve())
+
+    def test_dangling_relative_and_file_links_are_replaced(self):
+        MODULE.ensure_work_dir(self.home)
+        link = MODULE.output_link(self.home)
+        target = Path(self.temp.name) / "target"
+        afile = Path(self.temp.name) / "afile"
+        afile.write_text("x")
+        for stale in [Path(self.temp.name) / "gone", Path("relative/dir"), afile]:
+            if link.is_symlink():
+                link.unlink()
+            link.symlink_to(stale)
+            MODULE.set_output_dir(self.home, str(target))
+            self.assertEqual(os.readlink(link), str(target))
+        self.assertEqual([p.name for p in MODULE.work_dir(self.home).iterdir()], ["meshy_output"])
+
+    def test_damaged_output_config_does_not_block_run(self):
+        self.fake_install()
+        MODULE.write_key(self.home, KEY)
+        calls = []
+        real_execve, real_chdir = MODULE.os.execve, MODULE.os.chdir
+        MODULE.os.execve = lambda *a: calls.append(a)
+        MODULE.os.chdir = lambda d: None
+        try:
+            for damaged in [b"{ broken", b"\xff\xfe\x00", b'{"dir": "relative"}', b"[]"]:
+                MODULE.output_config_path(self.home).write_bytes(damaged)
+                MODULE.run(self.home)
+        finally:
+            MODULE.os.execve, MODULE.os.chdir = real_execve, real_chdir
+        self.assertEqual(len(calls), 4)
+        with self.assertRaisesRegex(MODULE.SetupError, "damaged"):
+            MODULE.ensure_output_link(self.home)  # check stays strict
+
     def test_damaged_manifest_is_a_clear_refusal(self):
         self.fake_install()
         MODULE.write_key(self.home, KEY)

@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-07 — Meshy downloads go to ~/ai-projects/mesh_outputs
+
+Owner's decision (M-3): Meshy downloads are saved in `~/ai-projects/mesh_outputs/`. New `set-output --dir` makes the server's `work/meshy_output` a symlink to it; the server's cwd stays the private `work/`, so no `.env` from the output directory is loaded. Codex audit (verdict `changes`, fixed): a damaged `output.json` no longer blocks runs, and a refused `set-output` no longer saves the setting; the link is swapped atomically. Verified: 37 tests PASS (5 new); a Node write to `<work>/meshy_output/…` from the real `work/` landed in `~/ai-projects/mesh_outputs/`; `check` reports the target and still completes the 28-tool handshake.
+
 ## 2026-11-07 — Meshy AI 3D generation as a private MCP server
 
 Meshy is a 3D generation API, not a coding agent, so it cannot be a runner. It is attached as a private MCP server of a project (`.ai/cezar/mcp.local.json`), which every runner with an MCP channel already receives. Meshy's official server `@meshy-ai/meshy-mcp-server` is installed at a pinned version, with the key in one `0600` file outside every project, and a launcher that pins the API host so a repository `.env` cannot redirect the key. Setup, costs, safety and open decisions: [meshy-integration.md](meshy-integration.md). No cezar runtime code changed; no project is registered by this change.
