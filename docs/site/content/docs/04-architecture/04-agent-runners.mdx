@@ -49,7 +49,7 @@ RUNNER_IDS and the adapter factory contain the seven backends listed below. This
 
 ## Permissions depend on the adapter
 
-Codex starts sessions with sandbox: danger-full-access and `approvalPolicy`: never by default. Setting `CEZ_CODEX_NETWORK=0` changes the sandbox to workspace-write and disables network access. This option applies only to the Codex runner.
+In this fork Codex starts sessions in the workspace-write sandbox with `approvalPolicy`: on-request, and Codex's own `auto_review` reviewer answers its approval requests. Sandbox network access is on; setting `CEZ_CODEX_NETWORK=0` turns it off. This option applies only to the Codex runner.
 
 Claude passes `allowedTools`. If the list includes Bash and `bashAllowlist` is unset, shell commands are unrestricted. Junie and OpenCode approve permission requests automatically. Copilot starts with --allow-all-tools and automatically handles the remaining ACP permission requests too. Assess the permissions of each backend separately.
 

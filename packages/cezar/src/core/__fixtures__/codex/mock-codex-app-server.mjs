@@ -112,13 +112,13 @@ rl.on('line', (line) => {
   } else if (msg.method === 'initialize') {
     emit({ id: msg.id, result: { userAgent: 'mock-codex/0.0.0' } });
   } else if (msg.method === 'thread/start' || msg.method === 'thread/resume' || msg.method === 'thread/fork') {
-    const expectedSandbox = process.env.CEZ_CODEX_NETWORK === '0' ? 'workspace-write' : 'danger-full-access';
-    if (msg.params?.sandbox !== expectedSandbox || msg.params?.approvalPolicy !== 'never') {
-      emit({ id: msg.id, error: { code: -32602, message: `expected ${expectedSandbox} auto permissions` } });
-      return;
-    }
-    if (process.argv.includes('sandbox_workspace_write.network_access=true')) {
-      emit({ id: msg.id, error: { code: -32602, message: 'workspace-write override is obsolete in full-access mode' } });
+    // Fork policy (codexExecutionPolicy): reviewed execution in workspace-write, on every
+    // thread/start, thread/resume and thread/fork; network follows CEZ_CODEX_NETWORK.
+    const network = process.env.CEZ_CODEX_NETWORK !== '0';
+    const config = msg.params?.config ?? {};
+    if (msg.params?.sandbox !== 'workspace-write' || msg.params?.approvalPolicy !== 'on-request'
+      || config.approvals_reviewer !== 'auto_review' || config['sandbox_workspace_write.network_access'] !== network) {
+      emit({ id: msg.id, error: { code: -32602, message: `expected reviewed workspace-write execution, network ${network}` } });
       return;
     }
     if (msg.method === 'thread/start') {
