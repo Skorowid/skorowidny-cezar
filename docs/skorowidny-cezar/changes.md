@@ -4,8 +4,6 @@
 
 Owner's request: connect Meshy from the cockpit, in the global settings, like the other tools. New section Settings → General → **Meshy AI**: machine state (server, key file present and private, download directory, problems with their fix) and one switch per registered project that adds or removes the private `meshy` MCP entry (the same entry as `meshy_mcp.py register`). The key stays terminal-only. New workspace-level routes `GET /api/v1/workspace/meshy` and `PUT /api/v1/workspace/meshy/projects/:projectId` (`{ connected }` only), contract `packages/contract/src/meshy.ts`, inventoried in BACKWARD_COMPATIBILITY.md §2; writes refused on a hosted cockpit. Details: [meshy-integration.md](meshy-integration.md#in-the-cockpit-settings--general--meshy-ai).
 
-**Not deployed yet:** the running service still uses the previous release; deployment is scheduled with the owner (after 18:00 on 2026-11-07).
-
 ### Verification
 
 | Check | Result |
