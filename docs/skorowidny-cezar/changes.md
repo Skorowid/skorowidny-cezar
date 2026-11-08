@@ -11,7 +11,7 @@ Owner-approved (2026-11-08). The fork's Codex execution policy, previously appli
 | `approvals_reviewer` | — | `auto_review` |
 | sandbox network | — (off with `CEZ_CODEX_NETWORK=0`) | on; `CEZ_CODEX_NETWORK=0` turns it off |
 
-The runner keeps sandbox network on.
+With `CEZ_CODEX_NETWORK` unset (or anything but `0`) the runner keeps sandbox network on; `0` turns it off.
 
 **Before deploying a release built from this:** an environment that sets `CEZ_CODEX_NETWORK=0` now really turns the sandbox network off. `.env.example`, `docs/reference.md` and the agent-runners docs page describe the new default.
 
