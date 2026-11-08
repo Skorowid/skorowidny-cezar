@@ -49,6 +49,25 @@ export interface CodexRunnerOptions {
   resumeLockRetryMs?: readonly number[];
 }
 
+/**
+ * Fork policy, owner-approved 2026-11-08 (docs/skorowidny-cezar/changes.md): what production ran
+ * as a hand patch since 2026-11-03. Commands run in the `workspace-write` sandbox; anything that
+ * needs more asks, and Codex's own `auto_review` reviewer answers. Sandbox network is on;
+ * `CEZ_CODEX_NETWORK=0` turns it off. Applied on thread/start AND thread/resume.
+ * Author: Skorowid
+ */
+export function codexExecutionPolicy(env: NodeJS.ProcessEnv): {
+  sandbox: 'workspace-write';
+  approvalPolicy: 'on-request';
+  config: { approvals_reviewer: 'auto_review'; 'sandbox_workspace_write.network_access': boolean };
+} {
+  return {
+    sandbox: 'workspace-write',
+    approvalPolicy: 'on-request',
+    config: { approvals_reviewer: 'auto_review', 'sandbox_workspace_write.network_access': env.CEZ_CODEX_NETWORK !== '0' },
+  };
+}
+
 /** ~16s: outlasts a previous session's own EOF→TERM→KILL teardown (12s) before forking. */
 const RESUME_LOCK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000, 4_000, 4_000, 4_000];
 
@@ -60,12 +79,10 @@ const RESUME_LOCK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000, 4_000, 
  * `turn/steer` for a mid-turn follow-up, `turn/interrupt` to cancel, and
  * `thread/resume` to reopen a stored thread for "Continue".
  *
- * Auth = the host's logged-in ChatGPT/Codex session (or CODEX_API_KEY). The
- * agent runs autonomously via `sandbox: danger-full-access` +
- * `approvalPolicy: never`, matching cezar's default auto permission mode
- * (spec 2026-07-17-permission-modes). Codex has no per-tool allowlist, so
- * `spec.allowedTools` is ignored. `CEZ_CODEX_NETWORK=0` retains the previous
- * network-blocked `workspace-write` sandbox as an explicit restriction.
+ * Auth = the host's logged-in ChatGPT/Codex session (or CODEX_API_KEY). Fork policy
+ * (`codexExecutionPolicy`): reviewed execution in the `workspace-write` sandbox instead of
+ * upstream's `danger-full-access` + `never`. Codex has no per-tool allowlist, so
+ * `spec.allowedTools` is ignored.
  */
 export class CodexAppServerRunner implements AgentRunner {
   readonly backend = 'codex' as const;
@@ -422,17 +439,14 @@ class CodexSession implements AgentSession {
   private async bootstrap(): Promise<void> {
     await this.rpc.initialize();
 
+    const policy = codexExecutionPolicy(process.env);
     const overrides = {
       model: this.spec.model,
       cwd: this.spec.cwd,
-      // Full access is the `auto` preset shared by all backends. Besides avoiding prompts, this
-      // keeps container installs working when bubblewrap cannot create a UID map (#563).
-      // CEZ_CODEX_NETWORK=0 remains the backwards-compatible explicit sandbox opt-out.
-      sandbox: process.env.CEZ_CODEX_NETWORK === '0' ? 'workspace-write' : 'danger-full-access',
-      approvalPolicy: 'never',
+      ...policy,
       // Private MCP servers (spec 2026-10-07-private-project-mcp) ride in as per-server dotted
       // config overrides, so the user's own [mcp_servers] table is extended, never replaced.
-      config: this.privateMcpConfig(),
+      config: { ...this.privateMcpConfig(), ...policy.config },
     };
     if (this.spec.resume && this.spec.sessionId) {
       this.threadId = await this.resumeThread(this.spec.sessionId, clean(overrides));

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from './agent-runner.js';
 import { KILL_GRACE_MS } from './claude-cli-runner.js';
-import { CodexAppServerRunner, userInputAnswers } from './codex-app-server-runner.js';
+import { CodexAppServerRunner, codexExecutionPolicy, userInputAnswers } from './codex-app-server-runner.js';
 import { RunStore } from '../runs/store.ts';
 
 /** Only the escalation tests below swap the child out; every other test in this
@@ -519,5 +519,23 @@ describe('userInputAnswers — the ask card answer read back for requestUserInpu
   it('passes a request for more information through as the answer', () => {
     const more = 'I need more information to answer this — please explain the context and ask again.';
     expect(userInputAnswers(questions, `Library: ${more}\nParts: A`).library).toEqual({ answers: [more] });
+  });
+});
+
+describe('codexExecutionPolicy (fork)', () => {
+  it('runs reviewed execution in workspace-write with the network on by default', () => {
+    expect(codexExecutionPolicy({})).toEqual({
+      sandbox: 'workspace-write',
+      approvalPolicy: 'on-request',
+      config: { approvals_reviewer: 'auto_review', 'sandbox_workspace_write.network_access': true },
+    });
+  });
+
+  it('turns only the network off with CEZ_CODEX_NETWORK=0', () => {
+    const policy = codexExecutionPolicy({ CEZ_CODEX_NETWORK: '0' });
+    expect(policy.sandbox).toBe('workspace-write');
+    expect(policy.approvalPolicy).toBe('on-request');
+    expect(policy.config['sandbox_workspace_write.network_access']).toBe(false);
+    expect(codexExecutionPolicy({ CEZ_CODEX_NETWORK: '1' }).config['sandbox_workspace_write.network_access']).toBe(true);
   });
 });

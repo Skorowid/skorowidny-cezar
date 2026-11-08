@@ -1,5 +1,22 @@
 # skorowidny-cezar changes
 
+## 2026-11-08 — Codex reviewed execution moved from a hand patch into source
+
+Owner-approved (2026-11-08). The fork's Codex execution policy, previously applied as a manual patch to the built runner, now lives in source as `codexExecutionPolicy` (`packages/cezar/src/core/codex-app-server-runner.ts`), applied on `thread/start`, `thread/resume` and `thread/fork`:
+
+| Setting | Upstream | This fork |
+|---|---|---|
+| `sandbox` | `danger-full-access` (`workspace-write` with `CEZ_CODEX_NETWORK=0`) | `workspace-write` |
+| `approvalPolicy` | `never` | `on-request` |
+| `approvals_reviewer` | — | `auto_review` |
+| sandbox network | — (off with `CEZ_CODEX_NETWORK=0`) | on; `CEZ_CODEX_NETWORK=0` turns it off |
+
+The runner keeps sandbox network on.
+
+**Before deploying a release built from this:** an environment that sets `CEZ_CODEX_NETWORK=0` now really turns the sandbox network off. `.env.example`, `docs/reference.md` and the agent-runners docs page describe the new default.
+
+Verification: `npm run typecheck`, `npm run build` PASS; Codex runner suites 121 PASS, 25 of them fail against the previous runner (the mock now rejects any other policy); in the wider suites the same 11 tests fail with and without this change (provider gating, dispatch, run overrides).
+
 ## 2026-11-07 — Meshy AI in the cockpit's global settings
 
 Owner's request: connect Meshy from the cockpit, in the global settings, like the other tools. New section Settings → General → **Meshy AI**: machine state (server, key file present and private, download directory, problems with their fix) and one switch per registered project that adds or removes the private `meshy` MCP entry (the same entry as `meshy_mcp.py register`). The key stays terminal-only. New workspace-level routes `GET /api/v1/workspace/meshy` and `PUT /api/v1/workspace/meshy/projects/:projectId` (`{ connected }` only), contract `packages/contract/src/meshy.ts`, inventoried in BACKWARD_COMPATIBILITY.md §2; writes refused on a hosted cockpit. Details: [meshy-integration.md](meshy-integration.md#in-the-cockpit-settings--general--meshy-ai).
