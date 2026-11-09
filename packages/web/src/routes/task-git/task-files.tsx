@@ -1,9 +1,9 @@
 import { FolderTreeIcon, TriangleAlertIcon } from 'lucide-react'
-import { useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router'
 
 import { ApiError } from '@/api/client'
-import { useRun, useRunFile } from '@/api/queries'
+import { useRun, useRunFile, useRunTree } from '@/api/queries'
 import type { ApiRun } from '@open-mercato/cezar-api-client'
 import { CenteredState } from '@/components/centered-state'
 import { useIsDesktop } from '@/lib/use-desktop'
@@ -58,6 +58,7 @@ export function FilesView({
   const treeWidthProps = treePaneWidthProps(treeWidth)
 
   const refused = root.isError && root.error instanceof ApiError && root.error.status === 409
+  const candidates = useReferencedPath(run.id, selected, setSelected)
 
   return (
     <div data-route="task-files" className={cn('flex min-h-full flex-col md:h-full', embedded && '@container')}>
@@ -112,6 +113,24 @@ export function FilesView({
             {/* Padding on this wrapper, not on the scroller: sticky offsets count from the
                 scroller's padding edge, so padding there would park the stuck header 16px down. */}
             <div className="md:py-4">
+              {candidates.length > 1 ? (
+                <ul data-slot="files-candidates" className="mb-3 flex flex-col gap-1 text-xs">
+                  <li className="text-soft-foreground">Several files match {selected}:</li>
+                  {candidates.map((path) => (
+                    <li key={path}>
+                      <button
+                        type="button"
+                        data-slot="files-candidate"
+                        data-path={path}
+                        className="font-mono underline-offset-2 hover:underline"
+                        onClick={() => setSelected(path)}
+                      >
+                        {path}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <FilePreview source={{ kind: 'run', runId: run.id }} path={selected} className="min-w-0" />
             </div>
           </div>
@@ -119,4 +138,31 @@ export function FilesView({
       )}
     </div>
   )
+}
+
+/** Paths in the worktree whose tail is `wanted` — a chat reference often names only the file
+ *  (`shot.png`) or a partial path (`evidence/shot.png`) relative to somewhere below the root. */
+export function pathsEndingWith(paths: readonly string[], wanted: string): string[] {
+  if (paths.includes(wanted)) return []
+  return paths.filter((path) => path.endsWith(`/${wanted}`))
+}
+
+/**
+ * A selection the worktree refuses (409, e.g. "no such file") is looked up in the run's path
+ * index: one match replaces the selection, several are returned for the pane to offer. The index
+ * is read only after such a refusal, so browsing the tree costs nothing extra.
+ */
+function useReferencedPath(runId: string, selected: string | null, select: (path: string) => void): string[] {
+  const file = useRunFile(runId, selected ?? undefined)
+  const missing = selected !== null && file.isError && file.error instanceof ApiError && file.error.status === 409
+  const tree = useRunTree(runId, missing)
+  const matches = useMemo(
+    () => (missing && selected !== null ? pathsEndingWith(tree.data?.paths ?? [], selected) : []),
+    [missing, selected, tree.data],
+  )
+  const only = matches.length === 1 ? matches[0] : undefined
+  useEffect(() => {
+    if (only) select(only)
+  }, [only, select])
+  return matches
 }

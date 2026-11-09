@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createQueryClient } from '@/api/query-client'
 import type { ApiRun, HealthResponse, WorktreeEntry } from '@open-mercato/cezar-api-client'
 
-import { TaskFilesRoute } from './task-files'
+import { rememberViewState, resetViewMemory } from '@/lib/view-memory'
+
+import { FilesView, TaskFilesRoute, pathsEndingWith } from './task-files'
 
 afterEach(() => {
   cleanup()
@@ -296,5 +298,33 @@ describe('the Files tab route', () => {
       expect(screen.getByRole('heading', { level: 2, name: 'Could not load the files' })).toBeTruthy(),
     )
     expect(document.querySelector('[data-slot="centered-state"]')?.getAttribute('data-tone')).toBe('danger')
+  })
+
+  it('a bare file name from the chat opens the one worktree file it names', async () => {
+    resetViewMemory()
+    rememberViewState('files-ref', 'nested.md')
+    stubFetch({
+      'GET /api/v1/runs/r1/files?path=nested.md': () =>
+        jsonResponse({ error: 'no such file or directory in the worktree: nested.md' }, 409),
+      'GET /api/v1/runs/r1/tree': () => jsonResponse({ paths: ['hello.ts', 'src/nested.md'], truncated: false }),
+    })
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <FilesView run={RUN} embedded stateKey="files-ref" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(document.querySelector('[data-slot="file-preview"]')?.textContent).toContain('hello'))
+    expect(document.querySelector('[data-slot="file-preview"]')?.textContent).not.toContain('no such file')
+  })
+})
+
+describe('pathsEndingWith', () => {
+  it('matches a name or a partial path below the root, and nothing when the path exists', () => {
+    const paths = ['a/shot.png', 'b/c/shot.png', 'docs/x.md', 'x.md']
+    expect(pathsEndingWith(paths, 'shot.png')).toEqual(['a/shot.png', 'b/c/shot.png'])
+    expect(pathsEndingWith(paths, 'c/shot.png')).toEqual(['b/c/shot.png'])
+    expect(pathsEndingWith(paths, 'x.md')).toEqual([])
+    expect(pathsEndingWith(paths, 'hot.png')).toEqual([])
   })
 })
