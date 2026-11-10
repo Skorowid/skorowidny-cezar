@@ -3082,7 +3082,7 @@ describe('RunManager.hydrateQueuedInput (#472)', () => {
     const hydrated = hydrate(r.id, r.task);
     expect(hydrated.task).toBe('look at this\n\nsee the mock');
     expect(hydrated.stackedImages).toBeUndefined();
-    expect(store.readEvents(r.id).some((e) => e.type === 'note' && String(e.message).includes('gone-1.png'))).toBe(true);
+    expect(store.readEventsSync(r.id).some((e) => e.type === 'note' && String(e.message).includes('gone-1.png'))).toBe(true);
   });
 
   /** A file has no bytes to fail on — it is only ever `stat`ed — so it needs its own case: a
@@ -3093,7 +3093,7 @@ describe('RunManager.hydrateQueuedInput (#472)', () => {
 
     const hydrated = hydrate(r.id, r.task);
     expect(hydrated.stackedImages).toBeUndefined();
-    expect(store.readEvents(r.id).some((e) => e.type === 'note' && String(e.message).includes('pasted-7.md'))).toBe(true);
+    expect(store.readEventsSync(r.id).some((e) => e.type === 'note' && String(e.message).includes('pasted-7.md'))).toBe(true);
   });
 });
 

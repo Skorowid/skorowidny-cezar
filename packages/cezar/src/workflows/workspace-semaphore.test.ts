@@ -441,7 +441,7 @@ describe('workspace semaphore across RunManagers (step 2.5)', () => {
       );
       expect(
         store
-          .readEvents(runId)
+          .readEventsSync(runId)
           .some(
             (event) =>
               event.type === 'lifecycle' &&

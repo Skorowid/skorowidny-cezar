@@ -123,7 +123,7 @@ async function holdsTheLease(fixture: Fixture, runId: string): Promise<void> {
   await waitFor(
     () =>
       fixture.store
-        .readEvents(runId)
+        .readEventsSync(runId)
         .some((event) => event.type === 'step-start' && event.stepId === 'hold'),
     'the holder to take the repository-root lease',
   );
@@ -234,7 +234,7 @@ describe('RunManager repository-root lease scheduling', () => {
       await waitFor(
         () =>
           store
-            .readEvents(blocked.id)
+            .readEventsSync(blocked.id)
             .some((event) => event.type === 'note' && String(event.message).includes('exclusive access')),
         'the blocked run to reach the lease',
       );

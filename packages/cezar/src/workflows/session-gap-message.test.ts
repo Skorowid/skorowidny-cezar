@@ -126,7 +126,7 @@ describe('a message sent while a running task settles (telemetry 1408d7cb)', () 
     gate.hold = false;
     gate.release!();
     await expect
-      .poll(() => store.readEvents(runId).some((e) => String(e.message).includes('could not be delivered — the run was cancelled')), { timeout: 15_000 })
+      .poll(() => store.readEventsSync(runId).some((e) => String(e.message).includes('could not be delivered — the run was cancelled')), { timeout: 15_000 })
       .toBe(true);
     expect(gate.specs).toHaveLength(1);
   });

@@ -129,7 +129,7 @@ describe('Continue on a Claude session whose transcript is gone', { timeout: 20_
 
     const step = store.getRun(runId)?.steps.find((s) => s.id === 'continue-1');
     expect(step?.sessionId).toBe(fresh.sessionId);
-    const events = store.readEvents(runId);
+    const events = store.readEventsSync(runId);
     expect(events.filter((e) => e.type === 'error')).toEqual([]);
     expect(events.some((e) => e.type === 'note' && String(e.message).includes('fresh session'))).toBe(true);
     expect(vi.mocked(track)).toHaveBeenCalledWith('session_resume_fallback', { label: 'recovered' });
@@ -154,7 +154,7 @@ describe('Continue on a Claude session whose transcript is gone', { timeout: 20_
 
     expect(await settled(runId)).toBe('failed');
     expect(captured.specs).toHaveLength(1);
-    const errors = store.readEvents(runId).filter((e) => e.type === 'error').map((e) => String(e.message));
+    const errors = store.readEventsSync(runId).filter((e) => e.type === 'error').map((e) => String(e.message));
     expect(errors).toEqual([
       'claude reported result error (error_during_execution)',
       'claude CLI exited with code 1 — Invalid API key',

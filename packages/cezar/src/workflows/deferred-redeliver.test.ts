@@ -124,7 +124,7 @@ describe('a message deferred while a run settles (telemetry 1408d7cb follow-up)'
   }
 
   const text = (t: string) => [{ type: 'text' as const, text: t }];
-  const lifecycle = (runId: string) => store.readEvents(runId).filter((e) => e.type === 'lifecycle').map((e) => String(e.message));
+  const lifecycle = (runId: string) => store.readEventsSync(runId).filter((e) => e.type === 'lifecycle').map((e) => String(e.message));
   const undelivered = (runId: string, reason: string) =>
     expect.poll(() => lifecycle(runId).some((m) => m.includes(`could not be delivered — ${reason}`)), { timeout: 15_000 }).toBe(true);
   const settled = (runId: string) =>

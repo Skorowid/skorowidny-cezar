@@ -87,7 +87,7 @@ describe('RunManager repository-root isolation', { timeout: 20_000 }, () => {
       await waitForRuns(store, [record.id]);
       expect(store.getRun(record.id)?.status).toBe('done');
       expect(store.getRun(record.id)?.worktreePath).toBeUndefined();
-      const notes = store.readEvents(record.id).filter((event) => event.type === 'note');
+      const notes = store.readEventsSync(record.id).filter((event) => event.type === 'note');
       expect(notes.some((event) => String(event.message).includes('exclusive access'))).toBe(true);
     } finally {
       manager.dispose();
@@ -112,7 +112,7 @@ describe('RunManager repository-root isolation', { timeout: 20_000 }, () => {
     expect(store.getRun(record.id)?.status).toBe('failed');
     expect(store.getRun(record.id)?.error).toContain('worktree creation failed');
     expect(existsSync(join(root, 'root-was-touched'))).toBe(false);
-    const notes = store.readEvents(record.id).filter((event) => event.type === 'note');
+    const notes = store.readEventsSync(record.id).filter((event) => event.type === 'note');
     expect(notes.some((event) => String(event.message).includes('worktree on'))).toBe(true);
     expect(notes.some((event) => String(event.message).includes('(default)'))).toBe(true);
     expect(notes.some((event) => String(event.message).includes('stopped before workflow execution'))).toBe(true);
@@ -143,7 +143,7 @@ describe('RunManager repository-root isolation', { timeout: 20_000 }, () => {
     expect(store.getRun(first.id)?.status).toBe('done');
     expect(store.getRun(second.id)?.status).toBe('done');
     for (const id of [first.id, second.id]) {
-      const notes = store.readEvents(id).filter((event) => event.type === 'note');
+      const notes = store.readEventsSync(id).filter((event) => event.type === 'note');
       expect(notes.some((event) => String(event.message).includes('worktree off'))).toBe(true);
       expect(notes.some((event) => String(event.message).includes('exclusive access'))).toBe(true);
     }
@@ -169,7 +169,7 @@ describe('RunManager repository-root isolation', { timeout: 20_000 }, () => {
       await waitFor(
         () =>
           [first.id, second.id].every((id) =>
-            store.readEvents(id).some((event) => event.type === 'step-start'),
+            store.readEventsSync(id).some((event) => event.type === 'step-start'),
           ),
         'both unsafe root runs to start their workflow step',
       );
@@ -181,7 +181,7 @@ describe('RunManager repository-root isolation', { timeout: 20_000 }, () => {
       expect(store.getRun(first.id)?.status).toBe('done');
       expect(store.getRun(second.id)?.status).toBe('done');
       for (const id of [first.id, second.id]) {
-        const notes = store.readEvents(id).filter((event) => event.type === 'note');
+        const notes = store.readEventsSync(id).filter((event) => event.type === 'note');
         expect(notes.some((event) => String(event.message).includes('repository-root lock disabled'))).toBe(true);
         expect(notes.some((event) => String(event.message).includes('exclusive access'))).toBe(false);
       }

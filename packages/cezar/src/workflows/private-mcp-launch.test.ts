@@ -91,7 +91,7 @@ describe('private MCP servers at launch', { timeout: 20_000 }, () => {
 
   function notes(runId: string): string[] {
     return store
-      .readEvents(runId)
+      .readEventsSync(runId)
       .filter((e) => e.type === 'note')
       .map((e) => String((e as { message?: unknown }).message));
   }

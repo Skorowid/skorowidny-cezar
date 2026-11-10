@@ -3,6 +3,8 @@ import { open, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { z } from 'zod';
 
+import { LineSplitter, parseBoundedLine } from './event-bounds.ts';
+
 import {
   RUN_HISTORY_PAGE_ITEMS,
   type RunEvent,
@@ -66,15 +68,12 @@ export function decodeLiveCursor(cursor: string): z.infer<typeof liveCursorSchem
   return parsed.data;
 }
 
+/** Bounded (`event-bounds.ts`): a legacy multi-megabyte line never reaches the cockpit whole. */
 function parseLine(line: string): RunHistoryEvent | null {
-  try {
-    const value = JSON.parse(line) as Partial<RunHistoryEvent>;
-    return typeof value.seq === 'number' && typeof value.type === 'string' && typeof value.ts === 'string'
-      ? (value as RunHistoryEvent)
-      : null;
-  } catch {
-    return null;
-  }
+  const value = parseBoundedLine(line) as Partial<RunHistoryEvent> | null;
+  return value && typeof value.seq === 'number' && typeof value.type === 'string' && typeof value.ts === 'string'
+    ? (value as RunHistoryEvent)
+    : null;
 }
 
 /**
@@ -82,14 +81,14 @@ function parseLine(line: string): RunHistoryEvent | null {
  * NDJSON separators are single-byte ASCII, so complete records can be decoded safely after the
  * first LF while the raw prefix waits for the preceding byte chunk.
  */
-function completeReverseLines(chunk: Buffer, suffix: Buffer): { prefix: Buffer; lines: string[] } {
-  const combined = suffix.length === 0 ? chunk : Buffer.concat([chunk, suffix]);
-  const firstNewline = combined.indexOf(0x0a);
-  if (firstNewline === -1) return { prefix: Buffer.from(combined), lines: [] };
-  return {
-    prefix: Buffer.from(combined.subarray(0, firstNewline)),
-    lines: combined.subarray(firstNewline + 1).toString('utf8').split('\n'),
-  };
+/** `suffix` holds the pieces of the line crossing the chunk boundary, in file order, joined only
+ *  once its start is found — re-concatenating per chunk was quadratic on a multi-megabyte line. */
+function completeReverseLines(chunk: Buffer, suffix: Buffer[]): { prefix: Buffer[]; lines: string[] } {
+  const firstNewline = chunk.indexOf(0x0a);
+  if (firstNewline === -1) return { prefix: [chunk, ...suffix], lines: [] };
+  const after = chunk.subarray(firstNewline + 1);
+  const rest = suffix.length === 0 ? after : Buffer.concat([after, ...suffix]);
+  return { prefix: [chunk.subarray(0, firstNewline)], lines: rest.toString('utf8').split('\n') };
 }
 
 interface CanonicalItem {
@@ -255,7 +254,7 @@ async function reverseEventsUntil(
 
   const handle = await open(filePath, 'r');
   let position = fileSize;
-  let suffix: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let suffix: Buffer[] = [];
   const reversed: RunHistoryEvent[] = [];
   let reachedStart = false;
   let totalBytesRead = 0;
@@ -289,7 +288,7 @@ async function reverseEventsUntil(
     }
     if (position === 0) {
       reachedStart = true;
-      const event = parseLine(suffix.toString('utf8'));
+      const event = parseLine(Buffer.concat(suffix).toString('utf8'));
       if (event) {
         fileHighWater = Math.max(fileHighWater, event.seq);
         if (event.seq < beforeSeq) {
@@ -321,7 +320,7 @@ async function readFileTail(filePath: string): Promise<{ fileSize: number; fileH
   if (fileSize === 0) return { fileSize, fileHighWater: 0, bytesRead: 0 };
   const handle = await open(filePath, 'r');
   let position = fileSize;
-  let suffix: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let suffix: Buffer[] = [];
   let totalBytesRead = 0;
   try {
     while (position > 0) {
@@ -340,7 +339,7 @@ async function readFileTail(filePath: string): Promise<{ fileSize: number; fileH
     }
     return {
       fileSize,
-      fileHighWater: parseLine(suffix.toString('utf8'))?.seq ?? 0,
+      fileHighWater: parseLine(Buffer.concat(suffix).toString('utf8'))?.seq ?? 0,
       bytesRead: totalBytesRead,
     };
   } finally {
@@ -831,19 +830,24 @@ export async function readEventsAfterLiveCursor(filePath: string, cursor: string
     throw new HistoryCursorError(409, 'history cursor is no longer valid — reload the newest page');
   }
   if (decoded.offset === fileSize) return { events: [], boundarySeq: decoded.boundarySeq };
-  const text = await new Promise<string>((resolve, reject) => {
-    let value = '';
-    const stream = createReadStream(filePath, { encoding: 'utf8', start: decoded.offset });
-    stream.on('data', (chunk: string | Buffer) => {
-      value += chunk.toString();
-    });
-    stream.on('end', () => resolve(value));
-    stream.on('error', reject);
-  });
-  return {
-    events: text.split('\n').map(parseLine).filter((event): event is RunHistoryEvent => event !== null),
-    boundarySeq: decoded.boundarySeq,
-  };
+  // Line by line, so the remainder is never held as one string.
+  const events: RunHistoryEvent[] = [];
+  const lines = new LineSplitter();
+  const stream = createReadStream(filePath, { start: decoded.offset });
+  try {
+    for await (const chunk of stream as AsyncIterable<Buffer>) {
+      for (const line of lines.push(chunk)) {
+        const event = parseLine(line.toString('utf8'));
+        if (event) events.push(event);
+      }
+    }
+  } finally {
+    stream.destroy();
+  }
+  const rest = lines.end();
+  const last = rest ? parseLine(rest.toString('utf8')) : null;
+  if (last) events.push(last);
+  return { events, boundarySeq: decoded.boundarySeq };
 }
 
 export async function validateLiveCursor(filePath: string, cursor: string): Promise<void> {

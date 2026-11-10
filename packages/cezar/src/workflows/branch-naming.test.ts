@@ -106,7 +106,7 @@ describe('branch naming instructions', () => {
       const run = store.getRun(record.id);
       expect(run?.status).toBe('done');
       expect(run?.branch).toBe(`cez/${record.id.slice(0, 8)}`);
-      const notes = store.readEvents(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
+      const notes = store.readEventsSync(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
       expect(notes.some((n) => n.includes('not usable'))).toBe(true);
     } finally {
       manager.dispose();

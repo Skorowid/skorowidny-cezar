@@ -238,7 +238,7 @@ describe('golden-fixture replay through a real RunStore', () => {
       for (const event of codexFixture()) sink.handle(event);
       sink.sessionEnded('end_turn');
 
-      const lines = store.readEvents(run.id);
+      const lines = store.readEventsSync(run.id);
       expect(lines.map((l) => l.type)).toEqual([
         'session.started',
         'turn.started',
@@ -426,8 +426,8 @@ describe('streaming credentials across real store flush boundaries', () => {
     expect(chunks(wire, 'b')).toBe('other output');
     sink.handle({ type: 'item.completed', item: { id: 'a', kind: 'message', role: 'assistant', text: 'hello ' + secret + ' world' } });
     expect(JSON.stringify(wire)).not.toContain(secret);
-    expect(store.readEvents(id).some(e => e.type === 'item.delta')).toBe(false);
-    expect((store.readEvents(id).at(-1)?.item as UiItem & {text: string}).text).toBe('hello [REDACTED] world');
+    expect(store.readEventsSync(id).some(e => e.type === 'item.delta')).toBe(false);
+    expect((store.readEventsSync(id).at(-1)?.item as UiItem & {text: string}).text).toBe('hello [REDACTED] world');
   }));
 
   it.each(['turn', 'session'])('drains an ordinary partial prefix before %s end', (end) => withStore((sink, wire) => {

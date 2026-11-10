@@ -116,7 +116,7 @@ async function deliverOne(forward: ScrumForward, engine: ForwardEngine, transcri
   if (!run) return { kind: 'done', outcome: 'forward-failed', detail: `was NOT received by ${label}: the run is no longer in the run history.` };
   let said = transcripts.get(run.id);
   if (!said) {
-    said = engine.store.readEvents(run.id).flatMap(event => event.type === 'user-message' && typeof event.text === 'string' ? [event.text] : []);
+    said = (await engine.store.readEvents(run.id)).flatMap(event => event.type === 'user-message' && typeof event.text === 'string' ? [event.text] : []);
     transcripts.set(run.id, said);
   }
   if (said.some(text => text.includes(marker))) {

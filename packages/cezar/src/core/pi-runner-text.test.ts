@@ -66,7 +66,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
         if (event.type === 'item.delta') live.push({ delta: event.delta, v1Count: events.filter(e => e.type === 'text').length });
       } });
       await session.result;
-      const persisted = store.readEvents(run.id).filter(e => e.type === 'text');
+      const persisted = store.readEventsSync(run.id).filter(e => e.type === 'text');
       expect(persisted.map(e => e.text)).toEqual(['[REDACTED]']);
       expect(live).toEqual([
         { delta: 'pi-private-', v1Count: 0 }, { delta: 'credential-abcdefgh', v1Count: 0 },

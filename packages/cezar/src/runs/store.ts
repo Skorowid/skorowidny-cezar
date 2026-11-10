@@ -1,7 +1,7 @@
 import { deferredBindingSchema, queueWaitReasonSchema } from '@open-mercato/cezar-contract';
 import { EventEmitter } from 'node:events';
 import { runLifecycleSnapshot, type RunLifecycleObserver, type RunLifecycleSnapshot } from './lifecycle.ts';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { threadId } from 'node:worker_threads';
 import { hostname, uptime } from 'node:os';
 import {
@@ -19,8 +19,18 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { open as openFile, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import {
+  capEventSize,
+  externalizeInlineImages,
+  LineSplitter,
+  parseBoundedLine,
+  TRANSCRIPT_WARN_BYTES,
+  type InlineImage,
+} from './event-bounds.ts';
 import { StreamRedaction } from './stream-redaction.ts';
 import { renameSyncWithRetry } from '../fs-rename.ts';
 import { collectSecretValues, redactDeep, redactSecrets } from '../core/secret-redaction.ts';
@@ -626,6 +636,27 @@ function clearPin(run: RunRecord): void {
   delete run.pinned;
   delete run.pinnedAt;
 }
+
+/** Read granularity for transcript scans; a 5 MB legacy line spans a handful of chunks. */
+const READ_CHUNK = 1024 * 1024;
+
+const INLINE_IMAGE_EXT: Readonly<Record<string, string>> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+
+interface SavedInlineImage {
+  name: string;
+  url: string;
+  path: string;
+  /** First time this process sees the image for the run — only then is it announced. */
+  fresh: boolean;
+}
+
+/** The store writes `seq` and `ts` last, so a line's seq is readable from its tail alone. */
+const TAIL_SEQ_RE = /"seq":(\d+),"ts":"[^"]*"\}\s*$/;
 
 function parseSeq(line: string): number | undefined {
   if (line.trim() === '') return undefined;
@@ -1669,6 +1700,7 @@ export class RunStore extends EventEmitter {
     if (!this.eventsUnwritable) {
       try {
         appendFileSync(this.eventsPath(runId), line, 'utf8');
+        this.trackTranscriptSize(runId, event, Buffer.byteLength(line, 'utf8'));
       } catch (err) {
         // Access denied mid-session (macOS privacy prompt, EPERM on the file) degrades like `open`
         // does: a throw here 500'd the message the user was sending (telemetry 73c6e796). Anything
@@ -1694,15 +1726,27 @@ export class RunStore extends EventEmitter {
     const run = this.runs.get(runId);
     if (!run) throw new Error(`unknown run: ${runId}`);
     this.drainStreamRedaction(runId, event);
+    // Inline base64 images leave the event as files next to the run (`event-bounds.ts`):
+    // a generated image must never sit in the NDJSON file or travel the live wire.
+    const announce: SavedInlineImage[] = [];
+    const lean = externalizeInlineImages(event, (image) => {
+      const saved = this.saveInlineImage(runId, image);
+      if (saved?.fresh) announce.push(saved);
+      return saved?.url;
+    });
     const seq = this.nextSeq(runId);
     // Scrub credentials before the event touches disk or the live wire (#427):
     // tool-result output is persisted verbatim and served back over the API, so
     // a secret in an agent's command output would otherwise land in `.ai/cezar/`.
-    const full: RunEvent = this.redact({ ...event, seq, ts: new Date().toISOString() }, runId);
+    const full: RunEvent = capEventSize(this.redact({ ...lean, seq, ts: new Date().toISOString() }, runId));
     // Sync append keeps event order without a write queue; local NDJSON
     // appends at agent-event rates are effectively free.
     this.persistEvent(runId, full);
     this.emit('event', { runId, event: full });
+    // The cockpit renders a v1 `image` line; one per distinct image, however many events carried it.
+    for (const { name, url, path } of announce) {
+      this.appendEvent(runId, { type: 'image', ...(event.stepId !== undefined ? { stepId: event.stepId } : {}), name, url, path });
+    }
     if (full.type === 'session.started' && typeof full.backend === 'string') this.sessionBackends.set(runId, full.backend);
     // A new step or Continue may run another backend: the last session's no longer names it.
     if (full.type === 'step-start') this.sessionBackends.delete(runId);
@@ -1919,9 +1963,63 @@ export class RunStore extends EventEmitter {
    */
   emitEphemeral(runId: string, event: { type: string; stepId?: string; [key: string]: unknown }): RunEvent {
     this.drainStreamRedaction(runId, event);
-    const full: RunEvent = this.redact({ ...event, seq: this.nextSeq(runId), ts: new Date().toISOString() }, runId);
+    // Live-only frames are superseded by a persisted snapshot, which is where images get saved.
+    const lean = externalizeInlineImages(event);
+    const full: RunEvent = capEventSize(this.redact({ ...lean, seq: this.nextSeq(runId), ts: new Date().toISOString() }, runId));
     this.emit('event', { runId, event: full });
     return full;
+  }
+
+  /** Content-addressed, so the `item.completed` and `tool-result` twins of one image share a file. */
+  private saveInlineImage(runId: string, image: InlineImage): SavedInlineImage | undefined {
+    try {
+      const ext = INLINE_IMAGE_EXT[image.mediaType] ?? 'png';
+      const hash = createHash('sha256').update(image.data).digest('hex').slice(0, 20);
+      const name = `generated-${hash}.${ext}`;
+      const dir = this.imagesDir(runId);
+      const path = join(dir, name);
+      if (!existsSync(path)) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path, Buffer.from(image.data, 'base64'));
+      }
+      const key = `${runId}/${name}`;
+      const fresh = !this.announcedImages.has(key);
+      this.announcedImages.add(key);
+      return { name, url: `/api/v1/runs/${runId}/images/${name}`, path, fresh };
+    } catch {
+      return undefined; // the placeholder then says "omitted" — never the bytes
+    }
+  }
+
+  private readonly announcedImages = new Set<string>();
+
+  /** Bytes per run's NDJSON file, seeded from disk once per process. */
+  private readonly transcriptBytes = new Map<string, number>();
+
+  /** Warn at every {@link TRANSCRIPT_WARN_BYTES} crossed, so a swelling task is visible in its thread. */
+  private trackTranscriptSize(runId: string, event: RunEvent, lineBytes: number): void {
+    let before = this.transcriptBytes.get(runId);
+    if (before === undefined) {
+      try {
+        before = statSync(this.eventsPath(runId)).size - lineBytes;
+      } catch {
+        before = 0;
+      }
+    }
+    const after = before + lineBytes;
+    this.transcriptBytes.set(runId, after);
+    const crossed = Math.floor(after / TRANSCRIPT_WARN_BYTES);
+    if (crossed <= Math.floor(before / TRANSCRIPT_WARN_BYTES) || event.transcriptWarning === true) return;
+    const mb = Math.round(after / (1024 * 1024));
+    console.error(`[cez] run ${runId.slice(0, 8)}: transcript is ${mb} MB — this task's history is unusually large`);
+    this.appendEvent(runId, {
+      type: 'note',
+      ...(typeof event.stepId === 'string' ? { stepId: event.stepId } : {}),
+      tone: 'danger',
+      transcriptWarning: true,
+      transcriptBytes: after,
+      message: `This task's transcript has grown to ${mb} MB. Large histories slow the cockpit down; check what the agent is printing.`,
+    });
   }
 
   private readonly streamRedaction = new StreamRedaction();
@@ -1982,22 +2080,111 @@ export class RunStore extends EventEmitter {
     return this.secretValues;
   }
 
-  readEvents(runId: string): RunEvent[] {
+  /**
+   * Every persisted event, streamed line by line so a long transcript never blocks the event loop,
+   * and bounded per event (`event-bounds.ts`) so a legacy multi-megabyte line never reaches memory
+   * whole beyond its own parse. The old whole-file read froze the loop for seconds and held the
+   * whole file in the heap on a transcript of a few hundred megabytes.
+   */
+  async readEvents(runId: string): Promise<RunEvent[]> {
+    const events: RunEvent[] = [];
+    await this.forEachEvent(runId, (event) => {
+      events.push(event);
+    });
+    return events;
+  }
+
+  /** Stream the run's events in file order; `visit` returning `false` stops early. */
+  async forEachEvent(runId: string, visit: (event: RunEvent) => boolean | void): Promise<void> {
+    let input: ReturnType<typeof createReadStream> | undefined;
     try {
-      const raw = readFileSync(this.eventsPath(runId), 'utf8');
-      return raw
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => {
-          try {
-            return JSON.parse(line) as RunEvent;
-          } catch {
-            return null;
-          }
-        })
-        .filter((e): e is RunEvent => e !== null);
+      input = createReadStream(this.eventsPath(runId), { highWaterMark: READ_CHUNK });
+      const lines = new LineSplitter();
+      for await (const chunk of input as AsyncIterable<Buffer>) {
+        for (const line of lines.push(chunk)) {
+          const event = parseBoundedLine(line.toString('utf8')) as RunEvent | null;
+          if (event && visit(event) === false) return;
+        }
+      }
+      const rest = lines.end();
+      const last = rest ? (parseBoundedLine(rest.toString('utf8')) as RunEvent | null) : null;
+      if (last) visit(last);
     } catch {
-      return [];
+      // missing or unreadable file: no history, as before
+    } finally {
+      input?.destroy();
+    }
+  }
+
+  /** The newest event matching `predicate`, read backwards from the end of the file. */
+  async findLastEvent(runId: string, predicate: (event: RunEvent) => boolean): Promise<RunEvent | undefined> {
+    let handle: FileHandle | undefined;
+    try {
+      handle = await openFile(this.eventsPath(runId), 'r');
+      let position = (await handle.stat()).size;
+      let pending: Buffer[] = []; // the line crossing the chunk boundary, in file order
+      const check = (pieces: Buffer[]): RunEvent | undefined => {
+        const bytes = pieces.length === 1 ? pieces[0]! : Buffer.concat(pieces);
+        if (bytes.length === 0) return undefined;
+        const event = parseBoundedLine(bytes.toString('utf8')) as RunEvent | null;
+        return event && predicate(event) ? event : undefined;
+      };
+      while (position > 0) {
+        const length = Math.min(READ_CHUNK, position);
+        position -= length;
+        const chunk = Buffer.allocUnsafe(length);
+        const { bytesRead } = await handle.read(chunk, 0, length, position);
+        let end = bytesRead;
+        let nl = end > 0 ? chunk.lastIndexOf(0x0a, end - 1) : -1;
+        while (nl !== -1) {
+          const found = check([chunk.subarray(nl + 1, end), ...pending]);
+          if (found) return found;
+          pending = [];
+          end = nl;
+          nl = end > 0 ? chunk.lastIndexOf(0x0a, end - 1) : -1;
+        }
+        if (end > 0) pending.unshift(chunk.subarray(0, end));
+      }
+      return check(pending);
+    } catch {
+      return undefined;
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  /**
+   * Synchronous whole-history read for TESTS and offline tooling only — it blocks the event loop
+   * for as long as the file takes. Production code reads through `readEvents`/`forEachEvent`.
+   * Memory stays bounded: the file is read in chunks and every event is capped.
+   */
+  readEventsSync(runId: string): RunEvent[] {
+    const events: RunEvent[] = [];
+    this.scanLinesSync(runId, (line) => {
+      const event = parseBoundedLine(line.toString('utf8')) as RunEvent | null;
+      if (event) events.push(event);
+    });
+    return events;
+  }
+
+  /** Feed every complete line to `onLine`, reading the file in fixed chunks. */
+  private scanLinesSync(runId: string, onLine: (line: Buffer) => void): void {
+    let fd: number | undefined;
+    try {
+      fd = openSync(this.eventsPath(runId), 'r');
+      const lines = new LineSplitter();
+      for (;;) {
+        const chunk = Buffer.allocUnsafe(READ_CHUNK);
+        const n = readSync(fd, chunk, 0, chunk.length, null);
+        if (n <= 0) break;
+        for (const line of lines.push(chunk.subarray(0, n))) onLine(line);
+      }
+      const rest = lines.end();
+      if (rest) onLine(rest);
+    } catch {
+      // missing or unreadable file: no history
+    } finally {
+      if (fd !== undefined) closeSync(fd);
     }
   }
 
@@ -2074,10 +2261,15 @@ export class RunStore extends EventEmitter {
   private rehydrateSeq(runId: string): number {
     const persisted = this.runs.get(runId)?.lastSeq;
     if (persisted !== undefined) return Math.max(persisted, this.tailSeq(runId));
+    // Legacy file without a persisted `lastSeq`: one synchronous pass (this sits under the sync
+    // `appendEvent`), reading each line's tail for its seq and parsing only short lines in full.
     let max = 0;
-    for (const event of this.readEvents(runId)) {
-      if (typeof event.seq === 'number' && event.seq > max) max = event.seq;
-    }
+    this.scanLinesSync(runId, (line) => {
+      const tail = line.subarray(Math.max(0, line.length - 256)).toString('utf8');
+      const fromTail = TAIL_SEQ_RE.exec(tail);
+      const seq = fromTail ? Number(fromTail[1]) : line.length <= 64 * 1024 ? parseSeq(line.toString('utf8')) : undefined;
+      if (seq !== undefined && seq > max) max = seq;
+    });
     return max;
   }
 

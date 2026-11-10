@@ -28,6 +28,7 @@ import {
   type PrivateMcpServer,
 } from '../core/private-mcp.ts';
 import { onUsage, registerRunProcess, unregisterRunProcess, type ProcessUsage } from '../core/process-usage.ts';
+import { exhaustedBudget, formatGb, guardPercent, largestRun, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
 import { describeReaped, reapTaskProcesses, taskProcessReapEnabled } from '../core/task-processes.ts';
 import { parseUsageLimit } from '../core/usage-limit.ts';
 import { diskFullAgentErrorText } from '../disk-space.ts';
@@ -192,6 +193,28 @@ import {
 
 /** Backends whose runner honors `resume` (AgentRunSpec) — graph `session.continue` and the
  *  verdict nudge need it. OpenCode always starts a new session; Cursor has no resume yet. */
+/** Host memory guard (`enforceHostMemoryGuard`): one pause per window across every project's
+ *  manager, so memory freed by the last pause is measured before the next. */
+const HOST_GUARD_COOLDOWN_MS = 15_000;
+const hostGuard = { cooldownUntil: 0, readAt: 0, budgets: [] as MemoryBudget[] };
+
+/** Budgets read at most once a second, however many managers sample. */
+function currentMemoryBudgets(): MemoryBudget[] {
+  const now = Date.now();
+  if (now - hostGuard.readAt >= 1_000) {
+    hostGuard.budgets = readMemoryBudgets();
+    hostGuard.readAt = now;
+  }
+  return hostGuard.budgets;
+}
+
+/** Test seam: the guard's state is module-global. */
+export function __resetHostMemoryGuardForTests(budgets?: MemoryBudget[]): void {
+  hostGuard.cooldownUntil = 0;
+  hostGuard.readAt = budgets ? Number.MAX_SAFE_INTEGER : 0;
+  hostGuard.budgets = budgets ?? [];
+}
+
 const RESUMABLE_BACKENDS: ReadonlySet<RunnerId> = new Set<RunnerId>(['claude', 'codex', 'pi']);
 /**
  * The reply to a one-question ask card without the card's own framing: a click on an option
@@ -1573,6 +1596,7 @@ export class RunManager {
     // refreshed at boot and on PUT /api/workspace/config — never N per-tick
     // file reads across N projects). Legacy per-repo `memoryLimitMb` keys are
     // ignored post-migration.
+    this.enforceHostMemoryGuard(snapshot, runIds);
     const limitMb = this.semaphore.memoryLimitMb();
     if (!limitMb || limitMb <= 0) return;
     const limitBytes = limitMb * 1024 * 1024;
@@ -1598,6 +1622,40 @@ export class RunManager {
       this.clearIdleTimer(state);
       state.session.end();
     }
+  }
+
+  /**
+   * Default-on host memory guard (`memory-pressure.ts`): when the host or a
+   * limited cgroup cezar runs in has less than `CEZ_HOST_MEMORY_GUARD_PCT` (10) percent left, pause
+   * this manager's largest task — one per cooldown across every project — through the same
+   * session-end path as the per-task limit. Without it a soft cgroup limit throttles instead of
+   * killing, and the machine stalls.
+   */
+  private enforceHostMemoryGuard(snapshot: Record<string, ProcessUsage>, runIds: string[]): void {
+    const pct = guardPercent();
+    if (pct <= 0 || Date.now() < hostGuard.cooldownUntil) return;
+    const budget = exhaustedBudget(currentMemoryBudgets(), pct);
+    if (!budget) return;
+    const victim = largestRun(snapshot, (runId) => {
+      const state = this.active.get(runId);
+      return runIds.includes(runId) && !this.memoryPausing.has(runId) && !!state?.session?.open && !state.cancelled;
+    });
+    if (!victim) return;
+    const state = this.active.get(victim)!;
+    hostGuard.cooldownUntil = Date.now() + HOST_GUARD_COOLDOWN_MS;
+    this.memoryPausing.add(victim);
+    const used = formatGb(snapshot[victim]!.rssBytes);
+    const left = `${formatGb(budget.availableBytes)} of ${formatGb(budget.totalBytes)} left (${budget.label})`;
+    console.error(`[cez] memory guard: ${left}; pausing run ${victim.slice(0, 8)} (${used})`);
+    this.store.appendEvent(victim, {
+      type: 'note',
+      tone: 'danger',
+      message: `⚠ the machine is running out of memory — ${left}. Pausing this task, the largest one (${used}), so the machine does not stall; resume it with Continue once memory is free.`,
+    });
+    this.store.appendEvent(victim, { type: 'lifecycle', message: `paused — machine memory low (${left})` });
+    state.autonomous = false;
+    this.clearIdleTimer(state);
+    state.session!.end();
   }
 
   /** Env the spawned claude gets so the agent can find its handoff file and
@@ -4774,7 +4832,7 @@ export class RunManager {
     // portable context from Cezar's durable record + redacted event stream before this new turn's
     // user-message is appended. This works even when the interrupted agent never wrote HANDOFF.md.
     const portableContext = record && sessionId === undefined
-      ? freshContinuationContext(record, this.store.readEvents(runId), this.attachmentsDir(runId))
+      ? freshContinuationContext(record, await this.store.readEvents(runId), this.attachmentsDir(runId))
       : undefined;
     // The record is mutated in place below; a missing-session fallback needs it as it was.
     const recordBeforeTurn = record && sessionId !== undefined
@@ -5280,7 +5338,7 @@ export class RunManager {
         this.store.appendEvent(runId, { type: 'note', stepId, message: MISSING_SESSION_NOTE });
         const context = freshContinuationContext(
           { ...recordBeforeTurn, steps: recordBeforeTurn.steps.filter((step) => step.id !== stepId) },
-          this.store.readEvents(runId).filter((event) => event.stepId !== stepId),
+          (await this.store.readEvents(runId)).filter((event) => event.stepId !== stepId),
           this.attachmentsDir(runId),
         );
         await trackFallbackOutcome(() => {
@@ -7467,7 +7525,7 @@ export class RunManager {
         const freshId = randomUUID();
         this.store.updateStep(runId, step.id, { sessionId: freshId, backend });
         emit({ type: 'note', stepId: step.id, message: MISSING_SESSION_NOTE });
-        const context = freshContinuationContext(record, this.store.readEvents(runId), this.attachmentsDir(runId));
+        const context = freshContinuationContext(record, await this.store.readEvents(runId), this.attachmentsDir(runId));
         result = await trackFallbackOutcome(() => {
           session = attach(launch(freshId, false, `${context}\n\n---\n\n## New user instruction\n${userPrompt}`), false);
           for (const content of replay) session.sendMessage(content);
@@ -7956,13 +8014,13 @@ export class RunManager {
   }
 
   /** The most recent thing the user asked this task for — context for a commit message. */
-  private latestRequest(runId: string): string | undefined {
-    const events = this.store.readEvents(runId);
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i] as { type?: string; text?: unknown };
-      if (event.type === 'user-message' && typeof event.text === 'string' && event.text.trim()) return event.text;
-    }
-    return this.store.getRun(runId)?.task;
+  private async latestRequest(runId: string): Promise<string | undefined> {
+    // Read from the end: the newest user message is near the tail, the transcript may be huge.
+    const event = await this.store.findLastEvent(
+      runId,
+      (e) => e.type === 'user-message' && typeof e.text === 'string' && e.text.trim() !== '',
+    );
+    return typeof event?.text === 'string' ? event.text : this.store.getRun(runId)?.task;
   }
 
   /**
@@ -7994,7 +8052,7 @@ export class RunManager {
     const outcome = await landInPlace(this.repoRoot, {
       // From the staged change itself: the title names the first request and goes stale.
       describe: async (staged) => {
-        const written = await generateCommitMessage(this.repoRoot, staged, this.latestRequest(runId));
+        const written = await generateCommitMessage(this.repoRoot, staged, await this.latestRequest(runId));
         if (written.subject === undefined && staged.files.length > 0) {
           this.store.appendEvent(runId, {
             type: 'note',

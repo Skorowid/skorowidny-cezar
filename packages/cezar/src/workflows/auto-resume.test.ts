@@ -141,7 +141,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     expect(Number.isFinite(epochSeconds)).toBe(true);
     expect(Date.parse(failed?.autoResumeAt ?? '')).toBe(epochSeconds * 1_000 + AUTO_RESUME_GRACE_MS);
     // The transcript says so too — the cockpit is not the only place this is auditable.
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('resuming automatically at'))).toBe(true);
   }, 30_000);
 
@@ -415,7 +415,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     // The pending review retained its first session id; rerunning it still starts a fresh one.
     expect(sessions[4]?.spec.resume).not.toBe(true);
     expect(store.getRun(record.id)?.steps.find((step) => step.id === 'check')?.retriesUsed).toBe(1);
-    const accountingNote = store.readEvents(record.id).some((event) =>
+    const accountingNote = store.readEventsSync(record.id).some((event) =>
       event.stepId === 'check' &&
       event.message === 'check retry accounting unavailable on this older record — no further retries granted',
     );
@@ -731,7 +731,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     expect(store.getRun(waiting.id)?.status).not.toBe('queued');
     expect(
       store
-        .readEvents(waiting.id)
+        .readEventsSync(waiting.id)
         .some((event) => String(event.message ?? '').includes('held in the queue')),
     ).toBe(false);
   }, 60_000);
@@ -760,7 +760,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     expect(manager.accountHolds().deadline.size).toBe(0);
     expect(
       store
-        .readEvents(record.id)
+        .readEventsSync(record.id)
         .some((event) => String(event.message ?? '').includes('automatic resume cancelled')),
     ).toBe(true);
   }, 40_000);
@@ -920,7 +920,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
 
     expect(store.getRun(record.id)?.autoResumeAt).toBeUndefined();
     expect(store.getRun(record.id)?.steps.some((step) => step.id === 'continue-1')).toBe(false);
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('automatic resume expired'))).toBe(true);
   }, 40_000);
 
@@ -964,7 +964,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     // The deadline is gone from the record too — leaving it would keep the thread promising a
     // resume that will never come.
     await expect.poll(() => store.getRun(record.id)?.autoResumeAt, { timeout: 5_000 }).toBeUndefined();
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('automatic resume cancelled'))).toBe(true);
   }, 30_000);
 
@@ -976,7 +976,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     await settle(record.id);
 
     expect(store.getRun(record.id)?.autoResumeAt).toBeUndefined();
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('automatic resume cap reached'))).toBe(true);
   }, 30_000);
 
@@ -1009,7 +1009,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
       .toBe('done');
     // The run settles a beat after its last step (settle-time checks are async): poll it too.
     await expect.poll(() => store.getRun(record.id)?.status, { timeout: 5_000 }).toMatch(/^(done|review)$/);
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('resuming automatically (1/12)'))).toBe(true);
   }, 40_000);
 
@@ -1206,7 +1206,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     await restartAndRecover();
     await expect.poll(() => store.getRun(record.id)?.status, { timeout: 20_000 }).toMatch(/^(done|review)$/);
     expect(sessions).toHaveLength(1);
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('resuming the workflow at "note" after a restart'))).toBe(true);
   }, 40_000);
 });

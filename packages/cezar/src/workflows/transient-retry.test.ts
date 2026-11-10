@@ -46,7 +46,7 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     return vi.mocked(reportAgentError).mock.calls.map((call) => call[2]).filter((opts) => opts !== undefined);
   }
   function messages(runId: string): string[] {
-    return store.readEvents(runId).map((event) => String(event.message ?? ''));
+    return store.readEventsSync(runId).map((event) => String(event.message ?? ''));
   }
 
   beforeEach(async () => {

@@ -100,7 +100,7 @@ describe('the dispatch engine (spec 2026-09-10-dispatch)', () => {
 
   const notes = (id: string): string[] =>
     store
-      .readEvents(id)
+      .readEventsSync(id)
       .filter((event) => event.type === 'note')
       .map((event) => String((event as { message?: unknown }).message ?? ''));
 

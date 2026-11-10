@@ -205,7 +205,7 @@ export async function syncWork(state: ScrumState, store: RunStore, dataDir: stri
     const inbox = current.chat?.inbox ?? [];
     // Past the limit it waits on its work entry and is reported by a later pass.
     if (inbox.length >= SCRUM_INBOX_LIMIT) continue;
-    const events = run ? store.readEvents(run.id) : [];
+    const events = run ? await store.readEvents(run.id) : [];
     const turn = lastTurnWithText(events);
     const block = turn ? parseResult(turn) : undefined;
     const status: ScrumWorkStatus = run ? statusFor(run, block !== undefined) : 'failed';
@@ -299,7 +299,7 @@ export async function deliverInbox(state: ScrumState, engine: InboxEngine): Prom
   const inbox = chat?.inbox ?? [];
   if (!chat || !inbox.length) return { state, unchanged: true };
   const thread = chat.threadRunId ? engine.store.getRun(chat.threadRunId) : undefined;
-  const events = thread ? engine.store.readEvents(thread.id) : [];
+  const events = thread ? await engine.store.readEvents(thread.id) : [];
   const stacked = thread?.queuedMessages?.map(message => message.text) ?? [];
   const answered = (item: ScrumInboxEntry): boolean => {
     const marker = resultMarker(item.id);

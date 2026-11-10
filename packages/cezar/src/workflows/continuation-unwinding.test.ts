@@ -119,7 +119,7 @@ describe('Continue posted while a settled continuation is still unwinding (telem
     expect(manager!.continueRun(runId, { text: 'corrections' })).toEqual({ ok: true });
     gate.release!();
     await expect.poll(() => stepStatus(runId, 'continue-2'), { timeout: 15_000 }).toBe('done');
-    const messages = store.readEvents(runId).filter((e) => e.type === 'lifecycle').map((e) => String(e.message));
+    const messages = store.readEventsSync(runId).filter((e) => e.type === 'lifecycle').map((e) => String(e.message));
     expect(messages).not.toContain('review accepted — finished without a PR');
   });
 

@@ -80,7 +80,7 @@ describe('CEZ:MONITORING on a non-final workflow step (#1076)', () => {
     currentId = record.id;
     await waitFor(record.id, (current) => current?.activity === 'monitoring');
 
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events.some((event) => String(event.message ?? '').includes('autonomous — continuing'))).toBe(false);
     expect(store.getRun(record.id)?.steps.map(({ id, status }) => ({ id, status }))).toEqual([
       { id: 'implement', status: 'running' },
@@ -129,6 +129,6 @@ describe('CEZ:MONITORING on a non-final workflow step (#1076)', () => {
     expect(recovered?.status).toBe('running');
     expect(recovered?.steps.find((step) => step.id === 'verify')?.status).toBe('pending');
     expect(recovered?.steps.some((step) => step.id.startsWith('continue-'))).toBe(true);
-    expect(store.readEvents(record.id).some((event) => String(event.message).includes('run finished'))).toBe(false);
+    expect(store.readEventsSync(record.id).some((event) => String(event.message).includes('run finished'))).toBe(false);
   }, 40_000);
 });

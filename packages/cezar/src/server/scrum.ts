@@ -97,7 +97,7 @@ async function takeOverThread(project: ProjectContext, services: ScrumServices, 
   if (thread.autoResumeAt && thread.autoResumeReason !== 'usage_limit') return state;
   const reason = failureOf(thread);
   services.opencodeFailed(reason, failedAt(thread));
-  const text = unansweredAuthorText(thread.task, project.store.readEvents(thread.id));
+  const text = unansweredAuthorText(thread.task, await project.store.readEvents(thread.id));
   // Nothing waits: the next author message or result moves the role, through the same check.
   if (!text && !chat.inbox?.length) return state;
   const choice = await services.coordinatorRunner(project);
@@ -111,7 +111,7 @@ async function takeOverThread(project: ProjectContext, services: ScrumServices, 
   const opening = text || `${SCRUM_INTERNAL_PREFIX} — you took over the coordinator's role from OpenCode; the results of other agents follow in your next message. Tell the author you took over.]`;
   let started: { id: string };
   try {
-    started = await services.startChat(project, opening, undefined, { runner: SCRUM_FALLBACK_RUNNER, handover: handoverSection(chatView(project, state).messages) });
+    started = await services.startChat(project, opening, undefined, { runner: SCRUM_FALLBACK_RUNNER, handover: handoverSection((await chatView(project, state)).messages) });
   } catch (error) {
     const detail = `OpenCode could not continue the coordinator's thread (${reason}), and Codex could not start: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000);
     return chat.log.some(logged => logged.op === 'takeover' && logged.detail === detail) ? state : notice(detail);
@@ -143,7 +143,7 @@ export async function reconcileScrumChat(project: ProjectContext, services: Scru
     const thread = chat?.threadRunId ? project.store.getRun(chat.threadRunId) : undefined;
     if (chat && thread) {
       const from = chat.cursor?.runId === thread.id ? chat.cursor.seq : 0;
-      const events = project.store.readEvents(thread.id);
+      const events = await project.store.readEvents(thread.id);
       const said = [
         ...userTexts(thread.task, thread.createdAt, events),
         // cezar's own hand-over of agent results is never the author's words.
@@ -271,13 +271,13 @@ export function attachScrumChat(project: ProjectContext, services: ScrumServices
   };
 }
 
-function chatView(project: ProjectContext, state: ScrumState): ScrumChatView {
+async function chatView(project: ProjectContext, state: ScrumState): Promise<ScrumChatView> {
   const chat = state.chat ?? emptyChatState();
   const messages: ScrumChatMessage[] = [];
   for (const { runId } of chat.threads) {
     const run = project.store.getRun(runId);
     if (!run) continue;
-    messages.push(...chatMessages(run.task, run.createdAt, project.store.readEvents(runId)));
+    messages.push(...chatMessages(run.task, run.createdAt, await project.store.readEvents(runId)));
     if (run.status === 'queued') {
       for (const queued of run.queuedMessages ?? []) messages.push({ seq: 0, role: 'user', text: queued.text, at: queued.createdAt });
     }
@@ -397,7 +397,7 @@ export function createScrumRoutes(services: ScrumServices) {
     })
     .get('/scrum/chat', async c => {
       const project = c.get('project');
-      return c.json(chatView(project, await reconcileScrumChat(project, services)));
+      return c.json(await chatView(project, await reconcileScrumChat(project, services)));
     })
     .post('/scrum/chat/messages', jsonZodValidator(scrumChatMessageInputSchema), async c => {
       const project = c.get('project');
@@ -441,7 +441,7 @@ export function createScrumRoutes(services: ScrumServices) {
         } else {
           let started: { id: string };
           let startedOn: ScrumChatRunner = runner;
-          const handover = handoverSection(chatView(project, current).messages);
+          const handover = handoverSection((await chatView(project, current)).messages);
           writeDerivedViews(project.dataDir, current);
           try {
             started = await services.startChat(project, text, model, { runner, handover });

@@ -91,7 +91,7 @@ async function runOnce(): Promise<{ branch: string | undefined; notes: string[];
   try {
     const record = manager.startRun(CHECK_ONLY, { task: 'implement the cr fixes' });
     await waitForDone(store, record.id);
-    const notes = store.readEvents(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
+    const notes = store.readEventsSync(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
     return { branch: store.getRun(record.id)?.branch, notes, id: record.id };
   } finally {
     manager.dispose();
@@ -125,7 +125,7 @@ describe('branch naming fallbacks', () => {
       const record = manager.startRun(CHECK_ONLY, { task: 'implement the cr fixes' });
       await waitForDone(store, record.id);
       const run = store.getRun(record.id);
-      const notes = store.readEvents(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
+      const notes = store.readEventsSync(record.id).filter((e) => e.type === 'note').map((e) => String(e.message));
       expect(run?.status).toBe('done');
       expect(run?.branch).toBe(`cez/${record.id.slice(0, 8)}`);
       expect(notes.some((n) => n.includes('generated branch "feature/raced" could not be created'))).toBe(true);
@@ -143,7 +143,7 @@ describe('branch naming fallbacks', () => {
     try {
       const record = manager.startRun(CHECK_ONLY, { task: 'implement the cr fixes' });
       const deadline = Date.now() + 10_000;
-      while (!store.readEvents(record.id).some((e) => e.type === 'note' && String(e.message).startsWith('worktree on'))) {
+      while (!store.readEventsSync(record.id).some((e) => e.type === 'note' && String(e.message).startsWith('worktree on'))) {
         if (Date.now() > deadline) throw new Error('the run never reached the fork');
         await new Promise((resolve) => setTimeout(resolve, 10));
       }

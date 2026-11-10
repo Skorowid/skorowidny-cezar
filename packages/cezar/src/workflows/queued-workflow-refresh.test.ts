@@ -104,7 +104,7 @@ describe('a queued run re-resolves its workflow at dequeue (#1078)', () => {
     // The added step reached the backend once — for the queued run, not the one already running.
     expect(wrapupSessions()).toBe(1);
     expect(store.getRun(first)?.steps.map((s) => s.id)).toEqual(['task']);
-    expect(store.readEvents(id).some((e) => e.type === 'lifecycle' && String(e.message).includes('changed while the task was queued'))).toBe(true);
+    expect(store.readEventsSync(id).some((e) => e.type === 'lifecycle' && String(e.message).includes('changed while the task was queued'))).toBe(true);
   }, 60_000);
 
   it('runs its snapshot, silently, when the file did not change', async () => {
@@ -113,7 +113,7 @@ describe('a queued run re-resolves its workflow at dequeue (#1078)', () => {
     await settle(id);
 
     expect(store.getRun(id)?.steps.map((s) => s.id)).toEqual(['task']);
-    expect(store.readEvents(id).some((e) => String(e.message ?? '').includes('changed while the task was queued'))).toBe(false);
+    expect(store.readEventsSync(id).some((e) => String(e.message ?? '').includes('changed while the task was queued'))).toBe(false);
   }, 60_000);
 
   it('runs its snapshot when the workflow file was deleted while queued', async () => {

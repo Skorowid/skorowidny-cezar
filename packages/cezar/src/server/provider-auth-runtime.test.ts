@@ -133,7 +133,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
       hint: expect.any(String),
       authFailureId: 'auth-incident-1',
     });
-    expect(store.readEvents(run.id)).toEqual(expect.arrayContaining([
+    expect(store.readEventsSync(run.id)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: 'provider-auth-required',
         provider: 'codex',
@@ -255,7 +255,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
     });
 
     expect(onInvalidated).toHaveBeenCalledTimes(1);
-    const required = store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required');
+    const required = store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required');
     expect(required).toHaveLength(1);
     const { seq: _seq, ts: _ts, ...safe } = required[0]!;
     expect(safe).toEqual({
@@ -290,7 +290,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
 
     expect(readEvents).not.toHaveBeenCalled();
     expect(onInvalidated).toHaveBeenCalledTimes(1);
-    expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+    expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
   });
 
   it('retains dedupe across reopening a transcript under one observer', () => {
@@ -318,7 +318,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
       message: 'Failed to authenticate. API Error: 401 OAuth token has been revoked.',
     });
 
-    expect(reopened.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+    expect(reopened.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
   });
 
   it('does not seed the cache from an older persisted incident', () => {
@@ -342,7 +342,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
       message: 'Failed to authenticate. API Error: 401 OAuth token has been revoked.',
     });
 
-    expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required'))
+    expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required'))
       .toEqual([
         expect.objectContaining({ authFailureId: 'old-incident' }),
         expect.objectContaining({ authFailureId: 'fresh-incident' }),
@@ -369,7 +369,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
     expect(providerAuth.clearRuntimeAuthFailure('claude', 'incident-1')).toBe(true);
     store.appendEvent(run.id, { ...authEvent, type: 'session.error' });
 
-    expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required'))
+    expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required'))
       .toEqual([
         expect.objectContaining({ authFailureId: 'incident-1' }),
         expect.objectContaining({ authFailureId: 'incident-2' }),
@@ -402,8 +402,8 @@ describe('watchProviderRuntimeAuthFailures', () => {
           message: 'Failed to authenticate. API Error: 401 OAuth token has been revoked.',
         });
       }
-      expect(copiedStore.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
-      expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+      expect(copiedStore.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+      expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
       otherStore.flush();
     } finally {
       rmSync(otherRoot, { recursive: true, force: true });
@@ -439,7 +439,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
       message: 'Failed to authenticate. API Error: 401 OAuth token has been revoked.',
     });
 
-    expect(reopened.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+    expect(reopened.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
   });
 
   it('rolls back a failed append and suppresses reentrant duplicates', () => {
@@ -467,7 +467,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
     store.emit('event', { runId: run.id, event: { seq: 2, ts: new Date().toISOString(), type: 'error', message } });
 
     expect(append).toHaveBeenCalledTimes(2);
-    expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
+    expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required')).toHaveLength(1);
     unwatch();
   });
 
@@ -497,7 +497,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
 
     expect(onInvalidated).toHaveBeenCalledTimes(1);
     for (const run of [first, second]) {
-      expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required'))
+      expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required'))
         .toEqual([expect.objectContaining({
           provider: 'claude',
           authFailureId: 'auth-incident-1',
@@ -534,7 +534,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
         authFailureId: 'auth-incident-1',
         profileId: 'work',
       });
-      expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required'))
+      expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required'))
         .toEqual([expect.objectContaining({ provider: 'claude', profileId: 'work', stepId: 'work' })]);
     });
 
@@ -719,7 +719,7 @@ describe('watchProviderRuntimeAuthFailures', () => {
       await verifying.mock.results[0]!.value;
 
       // Recovery repairs workspace status, not history: the task still shows why it stopped.
-      expect(store.readEvents(run.id).filter(({ type }) => type === 'provider-auth-required'))
+      expect(store.readEventsSync(run.id).filter(({ type }) => type === 'provider-auth-required'))
         .toEqual([expect.objectContaining({ provider: 'claude', authFailureId: 'auth-incident-1' })]);
     });
   });

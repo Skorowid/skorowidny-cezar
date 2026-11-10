@@ -443,7 +443,7 @@ describe('systemPrompt end-to-end (dry run)', () => {
     expect(after?.referencedPullRequestUrl).toBeUndefined();
     expect(after?.pullRequestUrl).toBeUndefined();
     // Marker lines are protocol noise — stripped from persisted v1 text.
-    const textEvents = store.readEvents(id).filter((e) => e.type === 'text');
+    const textEvents = store.readEventsSync(id).filter((e) => e.type === 'text');
     expect(textEvents.length).toBeGreaterThan(0);
     for (const event of textEvents) {
       expect(String(event.text)).not.toMatch(/^CEZ:(?:PR|ISSUE|TITLE)=/m);

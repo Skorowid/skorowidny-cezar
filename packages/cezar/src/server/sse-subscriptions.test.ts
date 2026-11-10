@@ -83,10 +83,10 @@ describe('shared SSE subscriptions (#1222)', () => {
   it('keeps replay-to-live ordering and drops a replay-boundary duplicate', async () => {
     const run = store.createRun({ title: 'replay', workflow: 'w', task: 't', steps: [] });
     store.appendEvent(run.id, { type: 'stdout', text: 'historical' } as never);
-    const historical = store.readEvents(run.id)[0];
+    const historical = store.readEventsSync(run.id)[0];
     expect(historical).toBeDefined();
-    const readEvents = vi.spyOn(store, 'readEvents').mockImplementation((id) => {
-      const events = RunStore.prototype.readEvents.call(store, id);
+    const readEvents = vi.spyOn(store, 'readEvents').mockImplementation(async (id) => {
+      const events = await RunStore.prototype.readEvents.call(store, id);
       // Simulate the same event arriving from the live hub while disk replay is
       // being captured. The handler's existing seq guard must emit it once.
       store.emit('event', { runId: id, event: events[0] });

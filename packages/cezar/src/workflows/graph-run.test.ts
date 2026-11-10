@@ -208,7 +208,7 @@ describe('graph workflows run through RunManager', () => {
       expect(final.status).toBe('waiting');
       const step = final.steps.find((s) => s.id === 'continue-1');
       expect(step?.sessionId).not.toBe(oldSession);
-      const events = store.readEvents(first.id).filter((e) => e.stepId === 'continue-1');
+      const events = store.readEventsSync(first.id).filter((e) => e.stepId === 'continue-1');
       expect(events.filter((e) => e.type === 'error' || e.type === 'session.error')).toEqual([]);
       // The dead attempt's turn bookkeeping never reached the thread: one message, one turn.
       expect(events.filter((e) => e.type === 'user-message')).toHaveLength(1);
@@ -239,7 +239,7 @@ describe('graph workflows run through RunManager', () => {
       ]);
       expect(byId.get('fix')?.sessionId).toBeDefined();
       expect(byId.get('fix')?.sessionId).not.toBe(byId.get('implement')?.sessionId);
-      const fixEvents = store.readEvents(final.id).filter((e) => e.stepId === 'fix');
+      const fixEvents = store.readEventsSync(final.id).filter((e) => e.stepId === 'fix');
       expect(fixEvents.filter((e) => e.type === 'error' || e.type === 'session.error')).toEqual([]);
       expect(fixEvents.some((e) => e.type === 'note' && String(e.message).includes('fresh session'))).toBe(true);
       expect(vi.mocked(track)).toHaveBeenCalledWith('session_resume_fallback', { label: 'recovered' });

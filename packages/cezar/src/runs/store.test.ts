@@ -1673,7 +1673,7 @@ describe('RunStore — seq survives a restart (#424 symptom class)', () => {
     const reopened = RunStore.open(dataDir, { keepLive: true });
     const resumed = reopened.appendEvent(run.id, { type: 'note', message: 'after restart' });
     expect(resumed.seq).toBe(3);
-    const seqs = reopened.readEvents(run.id).map((e) => e.seq);
+    const seqs = reopened.readEventsSync(run.id).map((e) => e.seq);
     expect(seqs).toEqual([1, 2, 3]);
   });
 
@@ -1706,14 +1706,14 @@ describe('RunStore — provider authorization callouts', () => {
       stepId: 'implementation',
     });
 
-    expect(store.readEvents(run.id)).toEqual([expect.objectContaining({
+    expect(store.readEventsSync(run.id)).toEqual([expect.objectContaining({
       type: 'provider-auth-required',
       provider: 'claude',
       authFailureId: 'auth-incident-1',
       stepId: 'implementation',
     })]);
-    expect(JSON.stringify(store.readEvents(run.id))).not.toContain('OAuth');
-    expect(JSON.stringify(store.readEvents(run.id))).not.toContain('token');
+    expect(JSON.stringify(store.readEventsSync(run.id))).not.toContain('OAuth');
+    expect(JSON.stringify(store.readEventsSync(run.id))).not.toContain('token');
   });
 });
 

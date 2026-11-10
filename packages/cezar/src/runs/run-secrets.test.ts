@@ -18,7 +18,7 @@ it('redacts per-run literal and Basic secrets at persistence and live boundaries
     store.updateRun(run.id, { error: token });
     store.updateStep(run.id, 'work', { error: basic });
     store.flush();
-    for (const text of [JSON.stringify(store.readEvents(run.id)), JSON.stringify(seen), readFileSync(join(dir, 'runs.json'), 'utf8')]) {
+    for (const text of [JSON.stringify(store.readEventsSync(run.id)), JSON.stringify(seen), readFileSync(join(dir, 'runs.json'), 'utf8')]) {
       expect(text).not.toContain(token);
       expect(text).not.toContain(basic);
     }
