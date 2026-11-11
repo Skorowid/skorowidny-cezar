@@ -14,7 +14,7 @@ import { join } from 'node:path';
  * runs the CLI.
  */
 export const DATA_GITIGNORE_ENTRIES = [
-  'scrum/', // Local backlog, Sprint plans and private notebook entries.
+  'scrum/', // Data of the removed Scrum module (2026-11-11), kept ignored so old files stay out of git status.
   'runs.json',
   'runs.json.tmp',
   'runs/',

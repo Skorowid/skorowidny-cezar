@@ -40,33 +40,9 @@ Breaking: renaming/removing a command, flag, alias or env var; changing a defaul
   Chat create responses return `secret` as an empty
   string, and chat signing-key rotation returns 409. Discord aliases normalize on save. Switching
   format invalidates pending deliveries through the existing delivery revision fence.
-- skorowidny-cezar fork, native Scrum (additive, SCRUM-LOCAL-01): `GET/PUT /api/v1/scrum` and
-  `POST /api/v1/scrum/items/:id/launch`, mounted under `/api/v1/p/:projectId` like every project
-  family. Schemas live in `packages/contract/src/scrum.ts`; a stale `expectedRevision`, an item
-  that is not ready or already has an active run, and a refused agent start answer 409; a corrupt
-  `.ai/cezar/scrum/state.json` answers 503 and is never overwritten.
-- skorowidny-cezar fork, Scrum chat (additive, SCRUM-CHAT-01): `GET /api/v1/scrum/chat` and
-  `POST /api/v1/scrum/chat/messages`, under `/api/v1/p/:projectId` too. The Scrum state gains
-  optional fields only (`guidelines`, `chat`, item `group`/`autoQueue`/`autoRunId`/`provenance`,
-  Sprint `provenance`); existing files parse unchanged and `PUT /scrum` keeps server-owned fields.
-  The follow-up policies (2026-10-30) add item `autoRetry`/`autoFailureReported`, the chat log
-  outcomes `forwarded`, `forward-failed`, `run-failed` and `question`, and the conversation
-  message role `system`; all additive. A file written by them is not readable by a cezar that
-  predates them (strict schemas), so a downgrade must not reuse such a `state.json`.
-- skorowidny-cezar fork, product coordinator (additive, SCRUM-COORD-01), under `/api/v1/p/:projectId` too:
-  `GET /api/v1/scrum/coordinator`,
-  `PUT /api/v1/scrum/coordinator`,
-  `GET /api/v1/scrum/documents/:id`,
-  `POST /api/v1/scrum/documents/:id/decision`,
-  `POST /api/v1/scrum/artifacts/:id/check`,
-  `GET /api/v1/scrum/artifacts/:id/content`.
-  The Scrum state gains optional fields only (`coordinator`, `kickoff`, `product`, `documents`, `work`,
-  `chat.inbox`, item `estimate`/`traces`) and the log outcomes `agent-started`/`agent-result`; the chat
-  view gains `threadRunner`. Behaviour change: the chat thread now runs on OpenCode. A thread on another
-  runner stays readable and the next message starts its OpenCode successor, and `POST /scrum/chat/messages`
-  answers 409 when OpenCode is missing or is a version the runner cannot drive. The same downgrade caveat applies.
-  The forwarding outbox (2026-10-30) adds the optional chat field `forwards` and the log outcome
-  `forward-pending`; additive, same downgrade note.
+- skorowidny-cezar fork, Scrum module REMOVED (2026-11-11): every `/api/v1/scrum*` route of
+  SCRUM-LOCAL-01, SCRUM-CHAT-01 and SCRUM-COORD-01 is gone, with its contract (`scrum.ts`) and the
+  cockpit page. Existing `.ai/cezar/scrum/` data is left on disk, never read, and stays git-ignored.
 - Outbound lifecycle webhooks (additive, `CEZ_WEBHOOKS=1` only): `GET/POST /api/v1/webhooks`,
   `GET /api/v1/webhooks/history`, `GET /api/v1/webhooks/events`,
   `POST /api/v1/webhooks/notice/acknowledge`, `PATCH/DELETE /api/v1/webhooks/:id`,

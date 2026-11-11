@@ -1,5 +1,5 @@
 /**
- * OC-1 (docs/skorowidny-cezar/scrum-coordinator.md): OpenCode 2.x replaced the 1.x bus events with
+ * OC-1: OpenCode 2.x replaced the 1.x bus events with
  * `session.*` facts under `{ type, data }`. This folds them into the 1.x shapes the runner and the
  * UI mapper already read, so there is one event pipeline. Shapes were read from a live 2.2.5 server
  * (`GET /openapi.json` and its event stream), not from documentation.

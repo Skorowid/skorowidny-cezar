@@ -40,4 +40,3 @@ export * from './workspace-layouts.ts';
 export * from './deferred-start-state.ts';
 export * from './deferred-start.ts';
 export * from './usage-windows.ts';
-export * from './scrum.ts';

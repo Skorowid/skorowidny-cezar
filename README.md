@@ -1,6 +1,13 @@
-> **Skorowidny changes:** This is the place for changes made in the skorowidny-cezar fork. The remainder of this README is the original Cezar authors' documentation.
+> **skorowidny-cezar** is a fork of Cezar. **Its goal is better management of AI coding agents and the machine they run on, and integration of the tools those agents need.** It is more opinionated than the original: when stability of the host and the cockpit competes with a feature, stability wins. The remainder of this README after the line is the original Cezar authors' documentation.
 >
-> - **Product coordinator (SCRUM-COORD-01):** each project's Scrum page has one persistent coordinator on OpenCode that the author talks to. It gathers the vision and the author's own objectives, prepares versioned Markdown BRD/FRD/stories for human approval, plans Sprints within agreed limits, keeps base and ×3 buffered estimates, and reports what other configurable agents really returned. The human stays the accountable Product Owner. When OpenCode cannot do the work, Codex takes its role. The runner drives OpenCode 1.x and 2.x. Based on upstream `v0.18.0`, see [docs/skorowidny-cezar/changes.md](docs/skorowidny-cezar/changes.md).
+> **Priorities of the fork**
+>
+> - **Memory management.** A default-on host memory guard pauses the largest task before the machine runs out of memory: it watches the host and every limited cgroup cezar runs in (`CEZ_HOST_MEMORY_GUARD_PCT`, default 10 % left). Transcripts are bounded: inline base64 images are stored as files, every event is capped at 256 KB, and history is read as a stream, so one large task cannot freeze the cockpit.
+> - **Agent and process management.** Processes a task leaves behind are stopped when it settles, pauses or is cancelled. Agents get resource rules for disk, memory and CPU in their instructions: [docs/skorowidny-cezar/agent-resource-discipline.md](docs/skorowidny-cezar/agent-resource-discipline.md).
+> - **Disk.** Build artifacts of finished tasks can be cleaned from their worktrees, and the run index is written only when it changes.
+> - **Tool integration.** **Meshy AI** 3D generation is integrated as a private MCP server with a section in Settings → General → Meshy AI: [docs/skorowidny-cezar/meshy-integration.md](docs/skorowidny-cezar/meshy-integration.md). Codex runs with reviewed execution (`workspace-write`, `on-request` approvals) set in source.
+>
+> The native Scrum module of earlier fork releases was removed on 2026-11-11. History of the fork: [docs/skorowidny-cezar/changes.md](docs/skorowidny-cezar/changes.md).
 
 ---
 

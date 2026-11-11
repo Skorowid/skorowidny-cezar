@@ -25,7 +25,6 @@ describe('activeNavPath', () => {
     ['/workflows/ship-it', '/workflows'],
 
     // Skills is its own top-level surface now (was /settings/skills).
-    ['/scrum', '/scrum'],
     ['/skills', '/skills'],
 
     // The nested Settings area: deeper routes fall to the Settings item.
@@ -74,7 +73,7 @@ describe('NAV_ITEMS', () => {
       'GitHub',
       'Tracker',
       'Automations',
-      'Scrum', 'Skills',
+      'Skills',
       'Workflows',
       'Settings',
     ])
@@ -100,7 +99,7 @@ describe('visibleNavItems', () => {
 
   it('with everything available, the full nav renders', () => {
     expect(labelsOf({ forge: true, inbox: true, automations: true, tracker: 'jira' })).toEqual([
-      'Tasks', 'Inbox', 'Git', 'GitHub', 'Jira', 'Automations', 'Scrum', 'Skills', 'Workflows', 'Settings',
+      'Tasks', 'Inbox', 'Git', 'GitHub', 'Jira', 'Automations', 'Skills', 'Workflows', 'Settings',
     ])
   })
 
@@ -116,7 +115,7 @@ describe('visibleNavItems', () => {
       'Inbox',
       'Git',
       'Automations',
-      'Scrum', 'Skills',
+      'Skills',
       'Workflows',
       'Settings',
     ])
@@ -128,7 +127,7 @@ describe('visibleNavItems', () => {
       'Git',
       'GitHub',
       'Automations',
-      'Scrum', 'Skills',
+      'Skills',
       'Workflows',
       'Settings',
     ])
@@ -140,7 +139,7 @@ describe('visibleNavItems', () => {
       'Inbox',
       'Git',
       'GitHub',
-      'Scrum', 'Skills',
+      'Skills',
       'Workflows',
       'Settings',
     ])
@@ -156,7 +155,7 @@ describe('visibleNavItems', () => {
     expect(labelsOf({ forge: false, inbox: false, automations: false })).toEqual([
       'Tasks',
       'Git',
-      'Scrum', 'Skills',
+      'Skills',
       'Workflows',
       'Settings',
     ])

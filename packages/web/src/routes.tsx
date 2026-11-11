@@ -36,8 +36,6 @@ import {
 import { TasksOverviewRoute } from './routes/tasks-overview'
 import { GlobalTasksRoute } from './routes/global-tasks'
 
-// Native Scrum is loaded only when its project page is opened.
-const ScrumRoute = lazyRoute('scrum', () => import('./routes/scrum/scrum').then(m => ({ default: m.ScrumRoute })))
 // Dashboard charts, drag controls and exports are paid for only on this route.
 const DashboardRoute = lazyRoute('dashboard', () =>
   import('./routes/dashboard').then((m) => ({ default: m.DashboardRoute })),
@@ -303,7 +301,6 @@ const PAGE_TITLE_ROUTES = [
   { pattern: '/github/*', pageLabel: 'GitHub' },
   { pattern: '/tracker/*', pageLabel: 'Tracker' },
   { pattern: '/automations/*', pageLabel: 'Automations' },
-  { pattern: '/scrum', pageLabel: 'Scrum' },
   { pattern: '/skills', pageLabel: 'Skills' },
   { pattern: '/inbox', pageLabel: 'Inbox' },
   { pattern: '/workflows/*', pageLabel: 'Workflows' },
@@ -337,7 +334,6 @@ export const AppRoutes = memo(function AppRoutes() {
   return (
     <Routes>
       <Route path="/p/:projectId" element={<ProjectScopeRoute />}>
-        <Route path="scrum" element={<Suspense fallback={<div role="status" className="p-6">Loading Scrum…</div>}><ScrumRoute /></Suspense>} />
         <Route index element={<TasksOverviewRoute />} />
         <Route path="new" element={<NewTaskProjectRoute />} />
 

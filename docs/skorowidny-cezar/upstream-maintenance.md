@@ -29,7 +29,7 @@ Podstawowe porównania:
 git log --oneline HEAD..upstream/main
 git diff upstream/main...HEAD -- packages/cezar packages/contract packages/api-client
 git diff upstream/main...HEAD -- packages/web packages/desktop
-git diff upstream/main...HEAD -- fork docs/skorowidny-cezar examples/skorowidny-scrum
+git diff upstream/main...HEAD -- fork docs/skorowidny-cezar
 ```
 
 Trzy kropki pokazują zmiany danej strony od wspólnego przodka, nie pełną różnicę drzew. Dla dokładnego porównania zawartości używamy `git diff upstream/main HEAD -- <ścieżki>`.
@@ -79,7 +79,6 @@ npm run test:unit
 npm run build
 npm run test:package
 python3 -m unittest discover -s fork/tools -p 'test_*.py' -v
-# Polecenie testów backendu: examples/skorowidny-scrum/backend/README.md
 ```
 
 Długie polecenia uruchamiać z odpowiednim `timeout` i zapisem logów. Nie uznawać pominiętego lub przerwanego testu za sukces. Nowe błędy w niezmienionym upstreamie zapisać osobno, zamiast zmieniać cudzy core w ramach przygotowania przykładów.

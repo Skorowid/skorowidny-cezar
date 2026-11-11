@@ -1,5 +1,3 @@
-import { attachScrumChat, createScrumRoutes, type ScrumServices } from './scrum.ts';
-import { chatSystemPrompt as scrumChatSystemPrompt, SCRUM_COORDINATOR_RUNNER, SCRUM_FALLBACK_RUNNER, SCRUM_TAKEOVER_HOLD_MS, scrumChatWorkflow } from '../scrum/chat.ts';
 import { createWebhookRoutes } from './webhooks.ts';
 import { WebhookCoordinator } from '../webhooks/coordinator.ts';
 import { webhooksEnabled } from '../webhooks/service.ts';
@@ -7910,95 +7908,8 @@ export function createApp(deps: ServerDeps) {
       return c.json({ stopped: true });
     });
 
-  // SCRUM-LOCAL-01 / SCRUM-CHAT-01 / SCRUM-COORD-01: keep provider policy, execution and the
-  // coordinator thread in the existing engine — the Scrum module only decides WHAT to start.
-  // Say so before a thread is opened. Cached briefly, since the cockpit polls and the binary is slow to answer.
-  let opencodeCheck: { at: number; problem: string | null } | undefined;
-  const opencodeProblem = async (): Promise<string | null> => {
-    if (process.env.CEZ_DRY_RUN === '1') return null;
-    if (opencodeCheck && Date.now() - opencodeCheck.at < 60_000) return opencodeCheck.problem;
-    const found = (await detectEnvironment()).find(check => check.name === 'opencode');
-    const problem = !found?.available
-      ? 'OpenCode is not installed'
-      : null;
-    opencodeCheck = { at: Date.now(), problem };
-    return problem;
-  };
-  // Owner's decision 2026-11-03: when OpenCode cannot do the work, Codex takes its role. Known here:
-  // not installed, no login, or a real failure within the hold.
-  let opencodeFailure: { at: number; reason: string } | undefined;
-  const opencodeCannot = async (root: string): Promise<string | null> => {
-    if (opencodeFailure && Date.now() - opencodeFailure.at < SCRUM_TAKEOVER_HOLD_MS) return opencodeFailure.reason;
-    return (await opencodeProblem()) ?? (await providerActionError(providersRequiredByWorkflow(scrumChatWorkflow(SCRUM_COORDINATOR_RUNNER), SCRUM_COORDINATOR_RUNNER), { repoRoot: root })) ?? null;
-  };
-  const codexCannot = async (root: string): Promise<string | null> =>
-    (await providerActionError(providersRequiredByWorkflow(scrumChatWorkflow(SCRUM_FALLBACK_RUNNER), SCRUM_FALLBACK_RUNNER), { repoRoot: root })) ?? null;
-  const scrumServices: ScrumServices = {
-    async coordinatorRunner(project) {
-      const reason = await opencodeCannot(project.root);
-      if (!reason) return { runner: SCRUM_COORDINATOR_RUNNER, reason: null, blocker: null };
-      const codex = await codexCannot(project.root);
-      return codex
-        ? { runner: SCRUM_COORDINATOR_RUNNER, reason, blocker: `OpenCode cannot do the work (${reason}), and Codex cannot take over (${codex}).` }
-        : { runner: SCRUM_FALLBACK_RUNNER, reason, blocker: null };
-    },
-    opencodeFailed(reason, at) {
-      if (!opencodeFailure || at > opencodeFailure.at) opencodeFailure = { at, reason };
-    },
-    async launch(project, prompt, { readOnly, agent }) {
-      const { workflows } = await loadWorkflows(project.root);
-      const workflow = workflows.find(candidate => candidate.name === 'quick-task');
-      if (!workflow) throw new Error('The quick-task workflow is unavailable');
-      const wanted = agent.runner ?? (await loadConfig(project.root)).defaultRunner ?? 'claude';
-      const cannot = wanted === SCRUM_COORDINATOR_RUNNER ? await opencodeCannot(project.root) : null;
-      const runner = cannot ? SCRUM_FALLBACK_RUNNER : wanted;
-      const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
-      if (blocked) throw new Error(cannot ? `OpenCode cannot do the work (${cannot}), and Codex cannot take over (${blocked})` : blocked);
-      // `startRun` drops the model under `modelsLocked`; no model means the runner's own choice. An OpenCode model means nothing to Codex.
-      const run = project.manager.startRun(workflow, {
-        task: prompt, runner, readOnly, worktree: !readOnly,
-        ...(agent.model && !cannot ? { model: agent.model } : {}),
-        autonomous: false, generateFollowups: false,
-      });
-      return { id: run.id };
-    },
-    async startChat(project, text, model, { runner, handover }) {
-      const workflow = scrumChatWorkflow(runner);
-      const blocked = await providerActionError(providersRequiredByWorkflow(workflow, runner), { repoRoot: project.root });
-      if (blocked) throw new Error(blocked);
-      const run = project.manager.startRun(workflow, {
-        task: text, runner, readOnly: true, worktree: false,
-        ...(model ? { model } : {}),
-        autonomous: false, generateFollowups: false, systemPrompt: scrumChatSystemPrompt(handover),
-      });
-      return { id: run.id };
-    },
-    // Same precedence as `configAnswer`: locked → native settings only; else the coordinator
-    // override, the project's OpenCode preset, then OpenCode's own settings; none → OpenCode decides.
-    async coordinatorModel(project, override) {
-      const native = (await readAgentModelDefaults(project.root)).opencode ?? null;
-      if (agentModelsLocked(project.root)) return { model: native, source: 'locked' as const, locked: true };
-      if (override) return { model: override, source: 'override' as const, locked: false };
-      const config = await loadConfig(project.root);
-      const preset = config.defaultModels?.opencode;
-      if (preset) return { model: preset, source: 'project-default' as const, locked: false };
-      if (config.defaultModelsAuto?.opencode !== true && native) return { model: native, source: 'opencode-settings' as const, locked: false };
-      return { model: null, source: 'opencode-own-default' as const, locked: false };
-    },
-    runBlocked: async (project, run) => (await providerActionError([providerForActiveRun(run)], {
-      repoRoot: project.root,
-      profileFor: (provider) => recordedProfileFor(run, provider),
-    })) ?? null,
-  };
-  const scrumRoutes = createScrumRoutes(scrumServices);
-  // Chat turns reach the backlog even when no Scrum page is open.
-  const offScrumBoot = attachScrumChat(bootContext, scrumServices);
-  const offScrumBuilt = contexts.onContextBuilt(context => { attachScrumChat(context, scrumServices); });
-  deps.onDispose?.(() => { offScrumBoot(); offScrumBuilt(); });
-
   const v1 = new Hono<ProjectApiEnv>()
     .use('*', resolveProjectScope)
-    .route('/', scrumRoutes)
     .route('/', launchKeyRoutes)
     .route('/', skillsRoutes)
     .route('/', uiStateRoutes)
