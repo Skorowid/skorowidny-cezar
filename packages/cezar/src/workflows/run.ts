@@ -30,6 +30,7 @@ import {
 import { onUsage, registerRunProcess, unregisterRunProcess, type ProcessUsage } from '../core/process-usage.ts';
 import { exhaustedBudget, formatGb, guardPercent, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
 import { describeReaped, reapTaskProcesses, taskMemoryByRun, taskProcessReapEnabled } from '../core/task-processes.ts';
+import { buildArtifactCleanupEnabled, cleanBuildArtifacts } from '../worktree-artifacts.ts';
 import { parseUsageLimit } from '../core/usage-limit.ts';
 import { diskFullAgentErrorText } from '../disk-space.ts';
 import { accountStateHint, classifyAgentFailure, isOauthRefreshRace, transientRetryCap, transientRetryDelayMs } from '../core/agent-failure-class.ts';
@@ -304,6 +305,8 @@ const CANCEL_GRACE_MS = 1_000;
 export const MONITORING_LIVENESS_MS = 4 * DEFAULT_IDLE_TIMEOUT_MINUTES * 60_000;
 /** How long a settled task's agent CLI gets to exit on its own before its leftovers are reaped (#1411). */
 const LEFTOVER_SETTLE_GRACE_MS = 5_000;
+/** After the leftover reap (grace + its SIGTERM→SIGKILL window), so no build recreates a cache. */
+const ARTIFACT_CLEANUP_DELAY_MS = 15_000;
 /** `runs/<id><suffix>` holds how many messages `deferMessage` is holding for that run. */
 const DEFERRED_MARKER_SUFFIX = '.deferred-messages';
 /** How long a fork waits for the namer's branch (spec 2026-10-11-branch-naming-instructions).
@@ -1716,6 +1719,28 @@ export class RunManager {
   }
 
   /**
+   * Remove git-ignored cache directories (CACHEDIR.TAG — a Rust `target/`) from a finished task's
+   * own worktree after `delayMs`: done, cancelled or archived, never live, never an in-place run.
+   * Re-checked when the timer fires, so a Continue meanwhile keeps its build. Fire-and-forget.
+   */
+  cleanWorktreeArtifacts(runId: string, delayMs = 0): void {
+    if (!buildArtifactCleanupEnabled()) return;
+    const timer = setTimeout(() => {
+      const run = this.store.getRun(runId);
+      if (!run || this.active.has(runId) || run.worktree === false || !run.worktreePath) return;
+      if (run.worktreePath === this.repoRoot || !existsSync(run.worktreePath)) return;
+      if (!(run.archived || run.status === 'done' || run.status === 'cancelled')) return;
+      void cleanBuildArtifacts(run.worktreePath)
+        .then((removed) => {
+          if (removed.length === 0) return;
+          this.store.appendEvent(runId, { type: 'lifecycle', message: `removed build caches from the worktree: ${removed.join(', ')}` });
+        })
+        .catch(() => undefined);
+    }, delayMs);
+    timer.unref?.();
+  }
+
+  /**
    * Stop every process carrying this run's `CEZ_TASK_ID` after `delayMs`, unless a new session
    * opened meanwhile — the immediate counterpart of `reapLeftoverProcesses` for a run that is
    * paused rather than settled. Fire-and-forget.
@@ -2642,6 +2667,8 @@ export class RunManager {
     removeAgentTmpDir(this.dataDir, runId);
     // Whatever the task started and left running (#1411) — same single terminal hook.
     this.reapLeftoverProcesses([runId], LEFTOVER_SETTLE_GRACE_MS, 'still running after the task settled');
+    // Build caches of a finished worktree (`worktree-artifacts.ts`), once its processes are gone.
+    this.cleanWorktreeArtifacts(runId, ARTIFACT_CLEANUP_DELAY_MS);
     // Last, so the Continue starts from exactly the state a Continue posted just after the drop would.
     if (queuedContinue) {
       const resumed = this.continueRun(runId, queuedContinue.opts, queuedContinue.deferForCapacity);
