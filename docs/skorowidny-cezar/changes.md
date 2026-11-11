@@ -1,5 +1,20 @@
 # skorowidny-cezar changes
 
+## 2026-11-11 — Upstream 0.19.0 merged
+
+Merged `v0.19.0` from open-mercato/cezar. Fork priorities kept where the two meet:
+
+| Area | Resolution |
+|---|---|
+| Codex sandbox | Upstream's `codexThreadOverrides` now applies the fork's reviewed-execution policy; the run's artifacts directory (HTML artifacts) is always a `workspace-write` writable root, since the fork always runs in that sandbox. |
+| OpenCode 2.x | Upstream's runner (#1826) replaces the fork's own 2.x driver; the fork's version only served the removed Scrum module. |
+| Task index | Upstream's per-record salvage of `runs.json` reads through the fork's external prompt files (`systemPromptRef`). |
+| Transcripts | Upstream's agent fallback checks a failed step's output with a bounded backwards read (`findLastEventSync`) instead of reading the whole transcript. |
+| Agent instructions | Upstream text plus the fork's `## Resources (cezar)` rules. |
+| Settings | Meshy AI and upstream's Transfer section both in Global settings. |
+
+Verification: `npm run typecheck`, `npm run build` PASS; Meshy, Codex/OpenCode runners, run store, memory guard, settings and contract-parity suites 828 PASS.
+
 ## 2026-11-08 — Codex reviewed execution moved from a hand patch into source
 
 Owner-approved (2026-11-08). The fork's Codex execution policy, previously applied as a manual patch to the built runner, now lives in source as `codexExecutionPolicy` (`packages/cezar/src/core/codex-app-server-runner.ts`), applied on `thread/start`, `thread/resume` and `thread/fork`:

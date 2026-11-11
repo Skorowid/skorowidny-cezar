@@ -1,8 +1,8 @@
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type {
   AgentEvent,
   AgentRunResult,
@@ -12,14 +12,20 @@ import type {
   ContentBlock,
 } from './agent-runner.ts';
 import type { AgentSession, SessionOptions } from './agent-runner.ts';
-import { prependSystemPrompt, trackChildExit } from './agent-runner.ts';
+import {
+  assertReasoningEffortSupported,
+  prependSystemPrompt,
+  trackChildExit,
+} from './agent-runner.ts';
 import { buildChildEnv } from './agent-env.ts';
+import { agentTmpDir } from '../runs/agent-tmpdir.ts';
 import { disclaimedCommand } from './disclaim-spawn.ts';
 import { AUTO_END_DELAY_MS, DEFAULT_RUN_TIMEOUT_MS } from './claude-cli-runner.ts';
 import { parseModelIdentity } from './model-identity.ts';
 import { parseAskRequest, type AskQuestion } from './ask.ts';
 import { userInputAnswers } from './codex-app-server-runner.ts';
 import { V1TextCoalescer } from './v1-text-coalescer.ts';
+import { OpencodeV2Events } from './opencode-v2-events.ts';
 import {
   OpencodeTransportError,
   openOpencodeEventStream,
@@ -33,7 +39,6 @@ import {
   type OpencodeUiMapperState,
   type OpencodeUiMapping,
 } from './opencode-ui-mapper.ts';
-import { OpencodeV2Translator, opencodeV2FormOf, opencodeV2PermissionOf } from './opencode-v2-events.ts';
 import { opencodeConfigContent } from './private-mcp.ts';
 import { armInactivityDeadline, inactivityTimeoutMessage, type InactivityDeadline } from './inactivity-deadline.ts';
 
@@ -96,9 +101,6 @@ const QUOTA_REASON_RE = /limit|quota/i;
  * nothing can answer a permission prompt, so the runner answers each one
  * itself (`opencodePermissionReply`). OpenCode has no per-tool allowlist, so
  * `spec.allowedTools` is ignored. `spec.model` is `provider/model`.
- *
- * OpenCode 2.x (OC-1) serves a different API under `/api` and needs a password; `bootstrap()`
- * detects it and the 2.x path resumes `spec.sessionId` when that session still exists.
  */
 export class OpencodeServerRunner implements AgentRunner {
   readonly backend = 'opencode' as const;
@@ -125,6 +127,7 @@ export class OpencodeServerRunner implements AgentRunner {
     onEvent?: (event: AgentEvent) => void,
     opts: SessionOptions = {},
   ): AgentSession {
+    assertReasoningEffortSupported('opencode', spec.reasoningEffort);
     const session = new OpencodeSession(this.bin, this.timeoutMs, spec, onEvent, opts);
     this.lastSession = session;
     return session;
@@ -139,30 +142,21 @@ class OpencodeStatusError extends Error {
   }
 }
 
-/** Neither the 1.x session route nor the 2.x `/api` answered: not a server this runner knows. */
+/** No session id in the text: the store's secret redaction would print it as `[REDACTED]`. */
+const OPENCODE_MISSING_SESSION = 'opencode no longer has the session this task resumes';
+
+/** True only for the runner's own "reopen answered 404" error — never a URL that merely names a session. */
+export function isOpencodeMissingSessionError(message: string): boolean {
+  return message.includes(OPENCODE_MISSING_SESSION);
+}
+
+/** The server answered neither the 2.x `/api/info` probe nor the 1.x session route (#1513). */
 export function unsupportedServerMessage(status: number): string {
   return (
-    `this OpenCode server has no POST /session route (HTTP ${status}) and no 2.x /api surface. ` +
-    'cezar drives the OpenCode 1.x and 2.x server APIs — check the installed version with `opencode --version`.'
+    `this OpenCode server has no POST /session route (HTTP ${status}) and did not identify itself ` +
+    'as OpenCode 2.x on GET /api/info — update OpenCode to a 1.x or 2.x release cezar can drive.'
   );
 }
-
-/**
- * 2.x can enforce what 1.x could only ask: a tool list without edits or shell (a read-only run)
- * becomes session rules that remove those tools and reads outside the working directory. Absent list: no rules, as before.
- */
-export function readOnlyPermissions(allowedTools: readonly string[] | undefined): { permissions?: { action: string; resource: string; effect: 'deny' }[] } {
-  if (!allowedTools) return {};
-  const denied = [
-    // Outside the working directory too: a read-only agent has no business in other projects or home.
-    ...(allowedTools.includes('Edit') || allowedTools.includes('Write') ? [] : ['edit', 'write', 'external_directory']),
-    ...(allowedTools.includes('Bash') ? [] : ['shell']),
-  ];
-  return denied.length > 0 ? { permissions: denied.map(action => ({ action, resource: '*', effect: 'deny' as const })) } : {};
-}
-
-/** OpenCode's fixed Basic-auth user; the password is per session and never leaves this process and its child. */
-const OPENCODE_SERVER_USER = 'opencode';
 
 /** One live `opencode serve` process driving a single session. */
 class OpencodeSession implements AgentSession {
@@ -176,12 +170,14 @@ class OpencodeSession implements AgentSession {
   private closed!: Promise<void>;
   private stderrChunks: string[] = [];
   private serverOpen = true;
+  private stopped = false;
   private baseUrl: string | undefined;
   private sessionId: string | undefined;
-  /** Sent as Basic auth; 2.x refuses every API call without it, 1.x honours the same variable. */
-  private readonly serverPassword = randomBytes(24).toString('hex');
-  /** Set once `bootstrap()` found a 2.x server: its routes and events differ, the turn logic does not. */
-  private v2: OpencodeV2Translator | undefined;
+  private apiVersion: 1 | 2 = 1;
+  private v2Events: OpencodeV2Events | undefined;
+  private readonly headers: Record<string, string>;
+  private readonly password: string;
+  private turnGeneration = 0;
   private ready!: Promise<void>;
   private exited!: Promise<void>;
   private readonly sse = new AbortController();
@@ -200,7 +196,8 @@ class OpencodeSession implements AgentSession {
   private readonly toolsSeen = new Set<string>();
   private readonly permissionsAnswered = new Set<string>();
   /** The native `question` tool call the session is blocked on; the next user message answers it (#1652). */
-  private pendingQuestion: { id: string; questions: AskQuestion[]; fields?: Record<string, unknown>[]; route?: string } | undefined;
+  private pendingQuestion: { id: string; questions: AskQuestion[] } | undefined;
+  private readonly v2UsageByMessage = new Map<string, { tokens: number; cost: number }>();
   /** messageID → role. Parts carry no role; only assistant parts are surfaced
    *  (the user's own message also streams as parts over the same SSE feed). */
   private readonly msgRole = new Map<string, string>();
@@ -244,6 +241,10 @@ class OpencodeSession implements AgentSession {
     private readonly onEvent: ((event: AgentEvent) => void) | undefined,
     private readonly opts: SessionOptions,
   ) {
+    // Both APIs support Basic auth. Own credentials for this private child,
+    // never the shared service's registration or a user-authored config file.
+    this.password = randomBytes(32).toString('hex');
+    this.headers = { authorization: `Basic ${Buffer.from(`opencode:${this.password}`).toString('base64')}` };
     this.spawnServer(randomServerPort());
     const urlReady = this.listen();
 
@@ -255,6 +256,7 @@ class OpencodeSession implements AgentSession {
 
     this.ready = (async () => {
       this.baseUrl = await urlReady;
+      await this.detectApiVersion();
       await this.bootstrap();
     })();
 
@@ -264,7 +266,8 @@ class OpencodeSession implements AgentSession {
         // Live for the whole session; the SSE loop runs until end()/interrupt.
         await this.exited;
       } catch (err) {
-        if (!this.timedOut && !this.retryGaveUp) {
+        // `stopped`, not `serverOpen`: a child that exits on its own also closes the server (#1396).
+        if (!this.timedOut && !this.retryGaveUp && !this.stopped) {
           const message = err instanceof Error ? err.message : String(err);
           this.emit({ type: 'error', message: `opencode: ${message}` });
         }
@@ -323,6 +326,7 @@ class OpencodeSession implements AgentSession {
     void this.ready
       .then(() => this.prompt(text))
       .catch((err: unknown) => {
+        if (!this.serverOpen) return;
         const message = err instanceof Error ? err.message : String(err);
         this.emit({ type: 'note', message: `opencode: prompt failed: ${message}` });
       });
@@ -330,6 +334,7 @@ class OpencodeSession implements AgentSession {
   }
 
   end(): void {
+    this.stopped = true;
     if (!this.serverOpen) return;
     this.serverOpen = false;
     this.finishTurn();
@@ -338,10 +343,11 @@ class OpencodeSession implements AgentSession {
   }
 
   interrupt(): void {
+    this.stopped = true;
     this.serverOpen = false;
     if (this.baseUrl && this.sessionId) {
-      const route = this.v2 ? `/api/session/${encodeURIComponent(this.sessionId)}/interrupt` : `/session/${this.sessionId}/abort`;
-      void this.http('POST', route, undefined).catch(() => undefined);
+      const path = this.apiVersion === 2 ? `/api/session/${this.sessionId}/interrupt` : `/session/${this.sessionId}/abort`;
+      void this.http('POST', path, undefined).catch(() => undefined);
     }
     this.finishTurn();
     this.sse.abort();
@@ -389,13 +395,14 @@ class OpencodeSession implements AgentSession {
     let child: ChildProcessWithoutNullStreams;
     try {
       const env = buildChildEnv({ backend: 'opencode', extraEnv: this.spec.env });
+      env.OPENCODE_SERVER_PASSWORD = this.password;
+      // V2 prefers this alias over SERVER_PASSWORD; neither may inherit a shared service's credential.
+      env.OPENCODE_PASSWORD = this.password;
       // Private MCP servers (spec 2026-10-07-private-project-mcp): OpenCode loads
       // OPENCODE_CONFIG_CONTENT after the project config, so these are added and win on a clash.
       if (this.spec.mcpServers?.length) {
         env.OPENCODE_CONFIG_CONTENT = opencodeConfigContent(this.spec.mcpServers, env.OPENCODE_CONFIG_CONTENT);
       }
-      env.OPENCODE_SERVER_USERNAME = OPENCODE_SERVER_USER;
-      env.OPENCODE_SERVER_PASSWORD = this.serverPassword;
       const [file, argv] = disclaimedCommand(this.bin, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], env);
       child = nodeSpawn(file, argv, { cwd: this.spec.cwd, env });
     } catch (err) {
@@ -404,6 +411,9 @@ class OpencodeSession implements AgentSession {
     this.child = child;
     this.serverPort = port;
     this.hasExited = trackChildExit(child);
+    child.once('exit', () => {
+      this.serverOpen = false;
+    });
 
     child.on('error', (err: NodeJS.ErrnoException) => {
       this.spawnFailed = wrapSpawnError(err, this.bin);
@@ -440,13 +450,14 @@ class OpencodeSession implements AgentSession {
         return await this.waitForServerUrl(this.serverPort);
       } catch (err) {
         const retry = attempt < SERVER_PORT_ATTEMPTS && this.hasExited() && (await this.lostPort());
-        if (!retry || !this.serverOpen) {
+        if (!retry || this.stopped) {
           // Local transcript only: the stderr tail can name paths, so it stays
           // out of the error message that telemetry groups on.
           const tail = this.stderrChunks.join('').trim().slice(-800);
           if (tail) this.emit({ type: 'note', message: `opencode serve stderr: ${tail}` });
           throw err;
         }
+        this.serverOpen = true;
         this.spawnServer(randomServerPort());
       }
     }
@@ -510,7 +521,7 @@ class OpencodeSession implements AgentSession {
         if (m) succeed(m[0].replace('//localhost:', '//127.0.0.1:'));
       };
       const probe = setInterval(() => {
-        void opencodeRequest(`${probeUrl}/path`, { method: 'GET', headers: this.authHeaders(), signal: AbortSignal.any([probeAbort.signal, AbortSignal.timeout(2_000)]) })
+        void opencodeRequest(`${probeUrl}/path`, { method: 'GET', signal: AbortSignal.any([probeAbort.signal, AbortSignal.timeout(2_000)]) })
           .then((res) => {
             if (res.status !== 200) return;
             const dir = stringField(parseRecord(res.body), 'directory');
@@ -541,23 +552,68 @@ class OpencodeSession implements AgentSession {
     });
   }
 
-  private async bootstrap(): Promise<void> {
-    if (await this.isV2Server()) {
-      await this.bootstrapV2();
-      return;
+  private async detectApiVersion(): Promise<void> {
+    const res = await opencodeRequest(`${this.baseUrl}/api/info`, {
+      method: 'GET', headers: this.headers,
+      signal: AbortSignal.any([this.sse.signal, AbortSignal.timeout(10_000)]),
+    });
+    // Legacy servers answer their web shell (or 404) here. Never downgrade a
+    // real auth/server error, and never repeat a state-changing request.
+    if (res.status === 404) return;
+    if (res.status < 200 || res.status >= 300) throw new Error(`GET /api/info → ${res.status}`);
+    let info: unknown;
+    try { info = JSON.parse(res.body); } catch { return; }
+    if (!info || typeof info !== 'object' || !('version' in info) || typeof info.version !== 'string') return;
+    if (/^2\./.test(info.version)) this.apiVersion = 2;
+    else if (!/^1\./.test(info.version)) throw new Error('Unsupported OpenCode server API version');
+  }
+
+  /** Reopens the 1.x session a Continue resumes (#1193); a 404 is the one "it is gone" answer. */
+  private async reopenSession(sessionId: string): Promise<Record<string, unknown>> {
+    let reopened: Record<string, unknown>;
+    try {
+      reopened = await this.http('GET', `/session/${encodeURIComponent(sessionId)}`, undefined);
+    } catch (err) {
+      if (err instanceof OpencodeStatusError && err.status === 404) throw new Error(OPENCODE_MISSING_SESSION);
+      throw err;
     }
+    if (stringField(reopened, 'id') !== sessionId) throw new Error(OPENCODE_MISSING_SESSION);
+    return reopened;
+  }
+
+  private async bootstrap(): Promise<void> {
+    // Only 1.x is reopened: a 2.x resume still starts a new session, as before.
+    const resumeId = this.spec.resume && this.apiVersion === 1 ? this.spec.sessionId : undefined;
+    if (resumeId) await this.openSession(await this.reopenSession(resumeId));
+    else await this.openSession(await this.createSession());
+    await this.prompt(resumeId ? this.spec.userPrompt : prependSystemPrompt(this.spec.systemPrompt, this.spec.userPrompt));
+  }
+
+  private async createSession(): Promise<Record<string, unknown>> {
+    const id = parseModelIdentity(this.spec.model);
+    const model = id ? v2Model(id.provider, id.model) : undefined;
+    const body = this.apiVersion === 2 ? {
+      title: 'cezar task', location: { directory: this.spec.cwd },
+      permissions: [{ action: '*', resource: '*', effect: 'allow' }],
+      ...(model ? { model } : {}),
+    } : { title: 'cezar task' };
     let created: Record<string, unknown>;
     try {
-      created = await this.http('POST', '/session', { title: 'cezar task' });
+      created = await this.http('POST', this.apiVersion === 2 ? '/api/session' : '/session', body);
     } catch (err) {
-      // Neither surface: a build that dropped the 1.x route without the 2.x one (telemetry dc1a91a6).
-      if (err instanceof OpencodeStatusError && (err.status === 404 || err.status === 405)) {
+      // Probing said 1.x yet the session route is refused: not a server we can drive.
+      if (this.apiVersion === 1 && err instanceof OpencodeStatusError && (err.status === 404 || err.status === 405)) {
         throw new Error(unsupportedServerMessage(err.status));
       }
       throw err;
     }
-    this.sessionId = stringField(created, 'id');
+    return created;
+  }
+
+  private async openSession(opened: Record<string, unknown>): Promise<void> {
+    this.sessionId = stringField(opened, 'id');
     if (!this.sessionId) throw new Error('opencode did not return a session id');
+    if (this.apiVersion === 2) this.v2Events = new OpencodeV2Events(this.sessionId);
     this.emit({ type: 'session', sessionId: this.sessionId });
     const sessionId = this.sessionId;
     this.emitUi((state) => opencodeSessionStarted(sessionId, state));
@@ -566,49 +622,7 @@ class OpencodeSession implements AgentSession {
     // events the server emits while the POST is in flight would otherwise be
     // lost (a race this await closes; the bundled mock made it visible).
     await this.consumeEvents();
-
-    const first = prependSystemPrompt(this.spec.systemPrompt, this.spec.userPrompt);
-    await this.prompt(first);
-  }
-
-  /** 2.x answers `GET /api/location` with JSON; a 1.x server has no such route. */
-  private async isV2Server(): Promise<boolean> {
-    if (!this.baseUrl) return false;
-    const res = await opencodeRequest(`${this.baseUrl}/api/location`, { method: 'GET', headers: this.authHeaders() }).catch(() => undefined);
-    return res?.status === 200 && typeof parseRecord(res.body).directory === 'string';
-  }
-
-  private async bootstrapV2(): Promise<void> {
-    const directory = this.spec.cwd ?? process.cwd();
-    const id = parseModelIdentity(this.spec.model);
-    const model = id ? { id: id.model, providerID: id.provider } : undefined;
-    let sessionId: string | undefined;
-    if (this.spec.sessionId) {
-      // The session survives the server, so Continue keeps its history; gone or moved → a new one.
-      const found = await this.http('GET', `/api/session/${encodeURIComponent(this.spec.sessionId)}`, undefined).catch(() => undefined);
-      const data = found && isRecord(found.data) ? found.data : undefined;
-      const location = data && isRecord(data.location) ? stringField(data.location, 'directory') : undefined;
-      if (data && location && canonicalPath(location) === canonicalPath(directory)) {
-        sessionId = this.spec.sessionId;
-        if (model) await this.http('POST', `/api/session/${encodeURIComponent(sessionId)}/model`, { model });
-      }
-    }
-    if (!sessionId) {
-      const created = await this.http('POST', '/api/session', {
-        title: 'cezar task',
-        location: { directory },
-        ...(model ? { model } : {}),
-        ...readOnlyPermissions(this.spec.allowedTools),
-      });
-      sessionId = isRecord(created.data) ? stringField(created.data, 'id') : undefined;
-    }
-    if (!sessionId) throw new Error('opencode did not return a session id');
-    this.sessionId = sessionId;
-    this.v2 = new OpencodeV2Translator(sessionId);
-    this.emit({ type: 'session', sessionId });
-    this.emitUi((state) => opencodeSessionStarted(sessionId, state));
-    await this.consumeEvents();
-    await this.prompt(prependSystemPrompt(this.spec.systemPrompt, this.spec.userPrompt));
+    if (this.apiVersion === 2 && !this.sseConnected) throw new Error('OpenCode V2 event stream could not be established');
   }
 
   /**
@@ -625,12 +639,13 @@ class OpencodeSession implements AgentSession {
    * signal is coming.
    */
   private async prompt(text: string): Promise<void> {
-    if (!this.sessionId) return;
+    if (!this.sessionId || !this.serverOpen) return;
     // A prompt posted while a turn is still in flight supersedes it — the
     // cockpit lets a user type into a running task (#986), so this is reachable.
     // Close the old turn here or its `await turnEnded` never resolves, and with
     // it the `sendMessage`/`bootstrap` call that is waiting on it.
     this.finishTurn();
+    const generation = ++this.turnGeneration;
     if (this.autoEndTimer) {
       clearTimeout(this.autoEndTimer);
       this.autoEndTimer = undefined;
@@ -643,19 +658,6 @@ class OpencodeSession implements AgentSession {
     });
     // v2 turn boundary — the prompt POST is the turn start (§7.1).
     this.emitUi(opencodeTurnStarted);
-    if (this.v2) {
-      // Admitted durably and answered at once; only `session.execution.*` ends the turn, and a quiet
-      // provider is no signal, so no grace window — the inactivity deadline bounds it instead.
-      try {
-        await this.http('POST', `/api/session/${encodeURIComponent(this.sessionId)}/prompt`, { text });
-      } catch (err) {
-        this.finishTurn();
-        throw err;
-      }
-      this.turnPostSettled = true;
-      await turnEnded;
-      return;
-    }
     const body: Record<string, unknown> = { parts: [{ type: 'text', text }] };
     // `spec.model` arrives already normalised to canonical `provider/model`
     // (the run wiring's fail-loud gate). Split it with the shared parser — the
@@ -664,8 +666,15 @@ class OpencodeSession implements AgentSession {
     if (id) body.model = { providerID: id.provider, modelID: id.model };
     let failure: unknown;
     try {
-      const res = await this.http('POST', `/session/${this.sessionId}/message`, body);
-      this.absorbUsage(res);
+      if (this.apiVersion === 2) {
+        await this.http('POST', `/api/session/${this.sessionId}/prompt`, { text });
+        // V2 admits input immediately. Only the agent loop's wait/idle, NOT
+        // the prompt acknowledgement or a quiet five seconds, ends the turn.
+        await this.http('POST', `/api/experimental/session/${this.sessionId}/wait`, undefined);
+      } else {
+        const res = await this.http('POST', `/session/${this.sessionId}/message`, body);
+        this.absorbUsage(res);
+      }
     } catch (err) {
       // A transport drop on a session the event bus still shows alive is no
       // evidence about the agent — swallow it and keep listening. Anything
@@ -676,6 +685,14 @@ class OpencodeSession implements AgentSession {
       } else {
         failure = err;
       }
+    }
+    if (generation !== this.turnGeneration || !this.serverOpen) return;
+    if (this.apiVersion === 2 && this.turnDropped !== undefined && failure === undefined) {
+      // A dropped wait is not a successful wait. Keep listening for native
+      // idle; stream loss, server exit and the session deadline still bound
+      // this path. Never start the completion grace on a transport failure.
+      await turnEnded;
+      return;
     }
     this.turnPostSettled = true;
     if (failure !== undefined) {
@@ -699,6 +716,11 @@ class OpencodeSession implements AgentSession {
    */
   private finishTurn(fromIdle = false): void {
     if (!this.turnInFlight) return;
+    if (this.apiVersion === 2 && !fromIdle) {
+      // The wait fallback, disconnect and teardown must close BOTH protocol
+      // streams, not leave the cockpit with a permanently running turn.
+      this.emitUi((state) => mapOpencodeEvent({ type: 'session.idle', properties: { sessionID: this.sessionId } }, state));
+    }
     this.turnInFlight = false;
     if (this.turnGraceTimer) {
       clearTimeout(this.turnGraceTimer);
@@ -730,7 +752,6 @@ class OpencodeSession implements AgentSession {
    */
   private armTurnGrace(): void {
     if (!this.turnInFlight || !this.turnPostSettled) return;
-    if (this.v2 && this.sseConnected && !this.sseClosed) return;
     if (this.turnGraceTimer) {
       clearTimeout(this.turnGraceTimer);
       this.turnGraceTimer = undefined;
@@ -758,14 +779,19 @@ class OpencodeSession implements AgentSession {
    *  event emitted after this resolves can be missed. */
   private async consumeEvents(): Promise<void> {
     if (!this.baseUrl) return;
-    this.sseConnected = await openOpencodeEventStream(`${this.baseUrl}${this.v2 ? '/api/event' : '/event'}`, {
-      headers: this.authHeaders(),
+    this.sseConnected = await openOpencodeEventStream(`${this.baseUrl}${this.apiVersion === 2 ? '/api/event' : '/event'}`, {
+      headers: this.headers,
       signal: this.sse.signal,
       onFrame: (frame) => this.handleFrame(frame),
       // The bus is the turn's evidence of life; once it is gone a turn waiting
       // on `session.idle` would wait forever.
       onClose: () => {
         this.sseClosed = true;
+        if (this.apiVersion === 2 && this.serverOpen && !this.sse.signal.aborted) {
+          this.emit({ type: 'error', message: 'opencode: V2 event stream disconnected' });
+          this.end();
+          return;
+        }
         this.armTurnGrace();
       },
     });
@@ -777,88 +803,20 @@ class OpencodeSession implements AgentSession {
       .filter((l) => l.startsWith('data:'))
       .map((l) => l.slice(5).trim());
     if (dataLines.length === 0) return;
-    let evt: OpencodeEvent;
+    let evt: unknown;
     try {
-      evt = JSON.parse(dataLines.join('\n')) as OpencodeEvent;
+      evt = JSON.parse(dataLines.join('\n'));
     } catch {
       return;
     }
-    if (this.v2) {
-      this.handleV2Frame(evt, this.v2);
-      return;
-    }
     // The bus's own keep-alives prove the server is up, not that the agent is working.
-    if (evt.type !== 'server.heartbeat' && evt.type !== 'server.connected') this.deadline.touch();
-    this.emitUi((state) => mapOpencodeEvent(evt, state));
-    this.handleEvent(evt);
-  }
-
-  private handleV2Frame(evt: OpencodeEvent, translator: OpencodeV2Translator): void {
-    if (evt.type !== 'server.heartbeat' && evt.type !== 'server.connected') this.deadline.touch();
-    const permission = opencodeV2PermissionOf(evt);
-    if (permission) {
-      void this.answerPermissionV2(permission);
-      return;
+    const kind = (evt as { type?: unknown } | null)?.type;
+    if (kind !== 'server.heartbeat' && kind !== 'server.connected') this.deadline.touch();
+    const events = this.v2Events ? this.v2Events.normalize(evt) : [evt as OpencodeEvent];
+    for (const event of events) {
+      this.emitUi((state) => mapOpencodeEvent(event, state));
+      this.handleEvent(event);
     }
-    const form = opencodeV2FormOf(evt);
-    if (form) {
-      this.handleFormV2(form);
-      return;
-    }
-    const { events, failure } = translator.translate(evt);
-    // Reported before the idle that follows it, so the turn ends already knowing it failed.
-    if (failure) this.emit({ type: 'error', message: `opencode: ${failure}` });
-    for (const legacy of events) {
-      this.emitUi((state) => mapOpencodeEvent(legacy, state));
-      this.handleEvent(legacy);
-    }
-  }
-
-  private async answerPermissionV2(request: { id: string; sessionID: string; checks: Record<string, unknown>[] }): Promise<void> {
-    if (this.permissionsAnswered.has(request.id)) return;
-    this.permissionsAnswered.add(request.id);
-    const refused = request.checks.find(check => opencodePermissionReply(check, this.spec.env) === 'reject');
-    if (refused) {
-      const path = isRecord(refused.metadata) ? stringField(refused.metadata, 'filepath') : undefined;
-      this.emit({ type: 'note', message: `opencode: refused ${stringField(refused, 'permission') ?? 'unknown'} permission${path ? ` for ${path}` : ''}` });
-    }
-    await this.http('POST', `/api/session/${encodeURIComponent(request.sessionID)}/permission/${encodeURIComponent(request.id)}/reply`, {
-      decision: refused ? 'reject' : 'once',
-    }).catch(() => undefined);
-  }
-
-  /** 2.x asks through forms. Single and multi choice become an ask card; anything the card cannot
-   *  carry is cancelled rather than left blocking the session (same rule as `handleQuestion`). */
-  private handleFormV2(form: Record<string, unknown>): void {
-    const id = stringField(form, 'id');
-    const sessionID = stringField(form, 'sessionID');
-    if (!id || !sessionID) return;
-    const route = `/api/session/${encodeURIComponent(sessionID)}/form/${encodeURIComponent(id)}`;
-    const fields = (Array.isArray(form.fields) ? form.fields : []).filter(isRecord);
-    const questions = sessionID === this.sessionId
-      ? parseAskRequest({
-        questions: fields.map((field, index) => {
-          const text = stringField(field, 'description') ?? stringField(field, 'title') ?? stringField(form, 'title') ?? '';
-          return {
-            id: stringField(field, 'key') ?? String(index),
-            header: (stringField(field, 'title') ?? stringField(form, 'title') ?? text).slice(0, 12),
-            question: text,
-            options: (Array.isArray(field.options) ? field.options : []).filter(isRecord).map(option => ({
-              label: stringField(option, 'title') ?? stringField(option, 'label') ?? stringField(option, 'value') ?? '',
-              ...(stringField(option, 'description') ? { description: stringField(option, 'description') } : {}),
-            })),
-            multiSelect: field.type === 'multiselect',
-          };
-        }),
-      })?.questions
-      : undefined;
-    if (!questions) {
-      this.emit({ type: 'note', message: 'opencode: declined a form the cockpit cannot render' });
-      void this.http('DELETE', route, undefined).catch(() => undefined);
-      return;
-    }
-    this.pendingQuestion = { id, questions, fields, route };
-    this.opts.onUiEvent?.({ type: 'ask.requested', requestId: `opencode-${id}`, questions });
   }
 
   private handleEvent(evt: OpencodeEvent): void {
@@ -883,6 +841,9 @@ class OpencodeSession implements AgentSession {
       // own scope, exactly as the v2 mapper reads it.
       const sid = stringField(props, 'sessionID');
       if (sid === undefined || sid === this.sessionId) this.finishTurn(true);
+    } else if (type === 'session.error' && this.apiVersion === 2) {
+      const error = props.error as Record<string, unknown> | undefined;
+      this.emit({ type: 'error', message: `opencode: ${error && stringField(error, 'message') || 'session error'}` });
     } else if (type === 'session.status') {
       const sid = stringField(props, 'sessionID');
       if (sid === undefined || sid === this.sessionId) this.giveUpOnLongRetry(props.status);
@@ -964,33 +925,8 @@ class OpencodeSession implements AgentSession {
     this.opts.onUiEvent?.({ type: 'ask.requested', requestId: `opencode-${id}`, questions });
   }
 
-  private async replyQuestion(
-    pending: { id: string; questions: AskQuestion[]; fields?: Record<string, unknown>[]; route?: string },
-    text: string,
-  ): Promise<void> {
+  private async replyQuestion(pending: { id: string; questions: AskQuestion[] }, text: string): Promise<void> {
     const byId = userInputAnswers(pending.questions, text);
-    if (pending.route) {
-      const answer: Record<string, unknown> = {};
-      pending.questions.forEach((q, i) => {
-        const key = q.id ?? String(i);
-        const answers = byId[key]?.answers ?? [];
-        const field = pending.fields?.[i];
-        // A choice replies with its stored value, the card shows its label.
-        const options = field && Array.isArray(field.options) ? field.options.filter(isRecord) : [];
-        const values = answers.map(label => {
-          const option = options.find(o => (stringField(o, 'title') ?? stringField(o, 'label') ?? stringField(o, 'value')) === label);
-          return (option && stringField(option, 'value')) ?? label;
-        });
-        answer[key] = field?.type === 'multiselect' ? values : values[0] ?? '';
-      });
-      try {
-        await this.http('POST', `${pending.route}/reply`, { answer });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.emit({ type: 'note', message: `opencode: form reply failed: ${message}` });
-      }
-      return;
-    }
     const answers = pending.questions.map((q, i) => byId[q.id ?? String(i)]?.answers ?? []);
     try {
       await this.http('POST', `/question/${encodeURIComponent(pending.id)}/reply`, { answers });
@@ -1024,6 +960,9 @@ class OpencodeSession implements AgentSession {
     } else if (kind === 'tool') {
       const state = (part.state as Record<string, unknown> | undefined) ?? {};
       const status = stringField(state, 'status');
+      // V2's input-start contains no arguments yet; keep the UI's pending
+      // item, but only record a v1 tool-call once parsed input is available.
+      if (this.apiVersion === 2 && status === 'pending') return;
       const name = stringField(part, 'tool') ?? stringField(part, 'name') ?? 'tool';
       const callId = id || `${name}-${this.toolsSeen.size}`;
       if (!this.toolsSeen.has(callId)) {
@@ -1045,6 +984,29 @@ class OpencodeSession implements AgentSession {
   /** Pull cumulative tokens/cost out of an assistant message info object. */
   private absorbUsage(info: Record<string, unknown> | undefined): void {
     if (!info) return;
+    if (this.apiVersion === 2) {
+      const id = stringField(info, 'id');
+      const tokens = info.tokens as Record<string, unknown> | undefined;
+      if (!id || (!tokens && typeof info.cost !== 'number')) return;
+      const cache = tokens?.cache as Record<string, unknown> | undefined;
+      const count = tokens ? numField(tokens, 'input') + numField(tokens, 'output') + numField(tokens, 'reasoning')
+        + (cache ? numField(cache, 'read') + numField(cache, 'write') : 0) : 0;
+      const previous = this.v2UsageByMessage.get(id);
+      const cost = typeof info.cost === 'number' && Number.isFinite(info.cost) ? info.cost : 0;
+      this.v2UsageByMessage.set(id, { tokens: Math.max(previous?.tokens ?? 0, count), cost: Math.max(previous?.cost ?? 0, cost) });
+      let total = 0;
+      let usd = 0;
+      for (const usage of this.v2UsageByMessage.values()) { total += usage.tokens; usd += usage.cost; }
+      if (total > this.tokensUsed) {
+        this.tokensUsed = total;
+        this.emit({ type: 'token-usage', tokensUsed: total });
+      }
+      if (usd > (this.lastCost ?? 0)) {
+        this.emit({ type: 'cost', usd: usd - (this.lastCost ?? 0) });
+        this.lastCost = usd;
+      }
+      return;
+    }
     const tokens = info.tokens as Record<string, unknown> | undefined;
     if (tokens) {
       const input = numField(tokens, 'input');
@@ -1082,7 +1044,7 @@ class OpencodeSession implements AgentSession {
     body: unknown,
   ): Promise<Record<string, unknown>> {
     if (!this.baseUrl) throw new Error('opencode server not ready');
-    const res = await opencodeRequest(`${this.baseUrl}${path}`, { method, body, headers: this.authHeaders() });
+    const res = await opencodeRequest(`${this.baseUrl}${path}`, { method, body, headers: this.headers, signal: this.sse.signal });
     if (res.status < 200 || res.status >= 300) {
       const envelope = parseRecord(res.body);
       const data = isRecord(envelope.data) ? envelope.data : {};
@@ -1093,14 +1055,13 @@ class OpencodeSession implements AgentSession {
     }
     if (!res.body) return {};
     try {
-      return JSON.parse(res.body) as Record<string, unknown>;
+      const parsed = JSON.parse(res.body) as Record<string, unknown>;
+      return this.apiVersion === 2 && parsed.data && typeof parsed.data === 'object'
+        ? parsed.data as Record<string, unknown> : parsed;
     } catch {
+      if (this.apiVersion === 2) throw new Error(`OpenCode V2 returned invalid JSON for ${method} ${path}`);
       return {};
     }
-  }
-
-  private authHeaders(): Record<string, string> {
-    return { authorization: `Basic ${Buffer.from(`${OPENCODE_SERVER_USER}:${this.serverPassword}`).toString('base64')}` };
   }
 
   private emit(event: AgentEvent): void {
@@ -1127,6 +1088,12 @@ class OpencodeSession implements AgentSession {
 interface OpencodeEvent {
   type?: string;
   properties?: Record<string, unknown>;
+}
+
+/** V2 separates a variant from the provider-native model id. */
+function v2Model(providerID: string, model: string): Record<string, string> {
+  const [id, variant] = model.split('#', 2);
+  return { providerID, id: id!, ...(variant ? { variant } : {}) };
 }
 
 function textOf(content: ContentBlock[]): string {
@@ -1161,7 +1128,8 @@ export function opencodePermissionReply(
   if (target === handoff) return 'once';
   const runsDir = dirname(handoff);
   if (dirname(target) === join(runsDir, `${taskId}-images`)) return 'once';
-  const tmp = join(dirname(runsDir), 'tmp', taskId);
+  // Resolved through the same helper that placed it — #999 moved it out of `<dataDir>/tmp`.
+  const tmp = canonicalPath(agentTmpDir(dirname(runsDir), taskId));
   if (env.TMPDIR && canonicalPath(env.TMPDIR) === tmp && (target === tmp || target.startsWith(tmp + sep))) {
     return 'once';
   }

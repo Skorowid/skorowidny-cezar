@@ -8,6 +8,7 @@ import {
   ChevronsUpDownIcon,
   CircleStopIcon,
   CopyIcon,
+  FolderMinusIcon,
   EllipsisIcon,
   EllipsisVerticalIcon,
   MailIcon,
@@ -28,6 +29,7 @@ import {
   useReferenceProjectId,
   useRuns,
 } from '@/api/queries'
+import { useRunClaudeAccount } from '@/api/agent-accounts'
 import type { ApiRun, OpenTarget } from '@open-mercato/cezar-api-client'
 import { DiffStatLabel } from '@/components/diff-stat'
 import { TitleEditInput, useTitleEditor, type TitleEditor } from '@/components/editable-title'
@@ -53,6 +55,8 @@ import { OpenInMenu, type OpenInChoice } from '@/components/open-in-menu'
 import { toast } from '@/components/ui/toaster'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DirectionalUsage } from '@/components/directional-usage'
+import { accountPart, LiveUsage, liveUsageParts } from '@/components/live-usage'
+import { useLiveUsageEnabled } from '@/lib/live-usage-pref'
 import { buildTaskCommands, type TaskCommand } from '@/components/task-palette/commands'
 import { ATTENTION_RANK, budgetStop, deriveAttention, type AttentionTone } from '@/lib/attention'
 import { queuePositions, runTitle } from '@/lib/task-groups'
@@ -69,12 +73,15 @@ import { cn, isHttpUrl } from '@/lib/utils'
 
 import {
   isRunActive,
+  canRemoveTaskWorktree,
   resumeHint,
   runActionFlags,
 } from './run-actions'
 import { GitActions } from '../task-git/git-toolbar'
 import { useRunGitStep, type RunGitStep } from '../task-git/run-git-step'
+import { ImpactChip } from '../task-assets/impact-chip'
 import { RunConfirmDialog } from './run-confirm-dialog'
+import { TaskWorktreeRemovalDialog } from './task-worktree-removal'
 import { useRunEngine } from './run-engine'
 import { WorkflowSteps } from './step-rail'
 import { useDraft } from './thread-draft'
@@ -203,6 +210,7 @@ function RunHeaderView({
             <span data-slot="run-identity" className="flex min-w-0 flex-1 items-center gap-2.5">
               <EditableTitle run={run} />
               <RunProgress planTally={planTally} budget={budget} />
+              <ImpactChip run={run} />
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-2.5">
               {/* The run's state, top right, beside the git button it decides. */}
@@ -352,6 +360,10 @@ function RunHeaderView({
           onOpenChange={(open) => !open && actions.setConfirming(null)}
           onConfirm={(kind) => (kind === 'delete' ? actions.delete.mutate() : actions.cancel.mutate())}
         />
+        {actions.worktreeRemovalOpen ? (
+          <TaskWorktreeRemovalDialog key={run.id} run={run} pending={actions.removeWorktree.isPending}
+            onClose={() => actions.setWorktreeRemovalOpen(false)} onConfirm={() => actions.removeWorktree.mutate()} />
+        ) : null}
       </header>
     </ReferenceStatusProvider>
   )
@@ -491,7 +503,7 @@ function TaskItemActions({
       >
         <Trash2Icon aria-hidden="true" />
       </IconAction>
-      {moreStop || moreEnd ? (
+      {moreStop || moreEnd || canRemoveTaskWorktree(run) ? (
         <DropdownMenu>
           <IconTooltip label="More actions">
             <DropdownMenuTrigger asChild>
@@ -501,6 +513,11 @@ function TaskItemActions({
             </DropdownMenuTrigger>
           </IconTooltip>
           <DropdownMenuContent align="end" data-slot="run-more-menu">
+            {canRemoveTaskWorktree(run) ? (
+              <DropdownMenuItem disabled={actions.removeWorktree.isPending} onSelect={() => actions.setWorktreeRemovalOpen(true)}>
+                <FolderMinusIcon aria-hidden="true" /> Remove worktree…
+              </DropdownMenuItem>
+            ) : null}
             {moreEnd ? (
               <DropdownMenuItem onSelect={() => actions.finish.mutate()}>
                 <CheckIcon aria-hidden="true" /> End session
@@ -914,6 +931,7 @@ function prChipNodes(run: ApiRun, references: ReturnType<typeof taskReferences>)
           references={prReferences}
           taskTitle={runTitle(run)}
           hidden={prReferences.length - 1}
+          conflictActionFor={(reference) => <ResolveConflictsButton run={run} prNumber={reference.number} />}
         />
       ) : null}
     </span>,
@@ -935,7 +953,10 @@ function RunUsage({
   continuationEngine?: ReactNode
   className?: string
 }) {
+  const showLiveUsage = useLiveUsageEnabled() && liveUsageParts(run.liveUsage).length > 0
+  const account = accountPart(useRunClaudeAccount(run, showLiveUsage))
   const usage: ReactNode[] = []
+  if (showLiveUsage) usage.push(<LiveUsage key="live" usage={run.liveUsage} account={account} />)
   if (showTokens && (run.inputTokens !== undefined || run.outputTokens !== undefined)) {
     usage.push(
       <DirectionalUsage
@@ -1364,6 +1385,11 @@ function ActionsKebab({
             {KEBAB_LABELS[command.id] ?? command.label}
           </DropdownMenuItem>
         ))}
+        {canRemoveTaskWorktree(run) ? (
+          <DropdownMenuItem disabled={actions.removeWorktree.isPending} onSelect={() => actions.setWorktreeRemovalOpen(true)}>
+            <FolderMinusIcon aria-hidden="true" /> Remove worktree…
+          </DropdownMenuItem>
+        ) : null}
         {stop || remove ? <DropdownMenuSeparator /> : null}
         {[stop, remove].map((command) =>
           command ? (
