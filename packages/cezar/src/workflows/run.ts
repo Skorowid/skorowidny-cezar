@@ -28,8 +28,8 @@ import {
   type PrivateMcpServer,
 } from '../core/private-mcp.ts';
 import { onUsage, registerRunProcess, unregisterRunProcess, type ProcessUsage } from '../core/process-usage.ts';
-import { exhaustedBudget, formatGb, guardPercent, largestRun, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
-import { describeReaped, reapTaskProcesses, taskProcessReapEnabled } from '../core/task-processes.ts';
+import { exhaustedBudget, formatGb, guardPercent, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
+import { describeReaped, reapTaskProcesses, taskMemoryByRun, taskProcessReapEnabled } from '../core/task-processes.ts';
 import { parseUsageLimit } from '../core/usage-limit.ts';
 import { diskFullAgentErrorText } from '../disk-space.ts';
 import { accountStateHint, classifyAgentFailure, isOauthRefreshRace, transientRetryCap, transientRetryDelayMs } from '../core/agent-failure-class.ts';
@@ -193,10 +193,22 @@ import {
 
 /** Backends whose runner honors `resume` (AgentRunSpec) — graph `session.continue` and the
  *  verdict nudge need it. OpenCode always starts a new session; Cursor has no resume yet. */
-/** Host memory guard (`enforceHostMemoryGuard`): one pause per window across every project's
- *  manager, so memory freed by the last pause is measured before the next. */
+/** Host memory guard (`enforceHostMemoryGuard`): one action per window across every project's
+ *  manager, so memory freed by the last one is measured before the next. */
 const HOST_GUARD_COOLDOWN_MS = 15_000;
-const hostGuard = { cooldownUntil: 0, readAt: 0, budgets: [] as MemoryBudget[] };
+/** A task holding less than this share of the exhausted budget is never paused: stopping it cannot
+ *  relieve the shortage, which then lies outside cezar's tasks. */
+const HOST_GUARD_MIN_SHARE = 0.05;
+/** Lets a paused agent exit on its own before its leftover processes are signalled. */
+const HOST_GUARD_REAP_DELAY_MS = 2_000;
+const hostGuard = {
+  cooldownUntil: 0,
+  readAt: 0,
+  budgets: [] as MemoryBudget[],
+  taskMemory: taskMemoryByRun as () => Promise<Map<string, number>>,
+  scan: undefined as { at: number; result: Promise<Map<string, number>> } | undefined,
+  quietUntil: 0,
+};
 
 /** Budgets read at most once a second, however many managers sample. */
 function currentMemoryBudgets(): MemoryBudget[] {
@@ -208,11 +220,26 @@ function currentMemoryBudgets(): MemoryBudget[] {
   return hostGuard.budgets;
 }
 
+/** Per-task memory by `CEZ_TASK_ID`, scanned at most once a second for every manager. */
+function currentTaskMemory(): Promise<Map<string, number>> {
+  const now = Date.now();
+  if (!hostGuard.scan || now - hostGuard.scan.at >= 1_000) {
+    hostGuard.scan = { at: now, result: hostGuard.taskMemory().catch(() => new Map<string, number>()) };
+  }
+  return hostGuard.scan.result;
+}
+
 /** Test seam: the guard's state is module-global. */
-export function __resetHostMemoryGuardForTests(budgets?: MemoryBudget[]): void {
+export function __resetHostMemoryGuardForTests(
+  budgets?: MemoryBudget[],
+  taskMemory?: () => Promise<Map<string, number>>,
+): void {
   hostGuard.cooldownUntil = 0;
+  hostGuard.quietUntil = 0;
   hostGuard.readAt = budgets ? Number.MAX_SAFE_INTEGER : 0;
   hostGuard.budgets = budgets ?? [];
+  hostGuard.taskMemory = taskMemory ?? taskMemoryByRun;
+  hostGuard.scan = undefined;
 }
 
 const RESUMABLE_BACKENDS: ReadonlySet<RunnerId> = new Set<RunnerId>(['claude', 'codex', 'pi']);
@@ -1590,13 +1617,13 @@ export class RunManager {
     // The sampler is module-global (one `ps` for the whole process), so with
     // multiple projects a snapshot carries EVERY project's runs. Act only on
     // rows this manager owns (multi-project spec, step 2.4).
+    this.enforceHostMemoryGuard(snapshot);
     const runIds = Object.keys(snapshot).filter((runId) => this.active.has(runId));
     if (runIds.length === 0) return;
     // Workspace limit from the shared semaphore's in-memory cache (step 2.5:
     // refreshed at boot and on PUT /api/workspace/config — never N per-tick
     // file reads across N projects). Legacy per-repo `memoryLimitMb` keys are
     // ignored post-migration.
-    this.enforceHostMemoryGuard(snapshot, runIds);
     const limitMb = this.semaphore.memoryLimitMb();
     if (!limitMb || limitMb <= 0) return;
     const limitBytes = limitMb * 1024 * 1024;
@@ -1621,41 +1648,93 @@ export class RunManager {
       state.autonomous = false;
       this.clearIdleTimer(state);
       state.session.end();
+      this.reapRunNow(runId, HOST_GUARD_REAP_DELAY_MS, `memory limit exceeded (${usedMb} MiB > ${limitMb} MiB)`);
     }
   }
 
   /**
-   * Default-on host memory guard (`memory-pressure.ts`): when the host or a
-   * limited cgroup cezar runs in has less than `CEZ_HOST_MEMORY_GUARD_PCT` (10) percent left, pause
-   * this manager's largest task — one per cooldown across every project — through the same
-   * session-end path as the per-task limit. Without it a soft cgroup limit throttles instead of
-   * killing, and the machine stalls.
+   * Default-on host memory guard (`memory-pressure.ts`): when the host or a limited cgroup cezar
+   * runs in has less than `CEZ_HOST_MEMORY_GUARD_PCT` (10) percent left, stop the task holding the
+   * most memory — one action per cooldown across every project. A task's memory is the larger of
+   * its sampled process tree and every process carrying its `CEZ_TASK_ID`, so builds an agent
+   * detached into the background count. A live task is paused (session end, then its leftover
+   * processes are reaped); a settled one that left processes behind has them reaped. A task under
+   * `HOST_GUARD_MIN_SHARE` of the budget is never stopped: the shortage is then outside cezar.
    */
-  private enforceHostMemoryGuard(snapshot: Record<string, ProcessUsage>, runIds: string[]): void {
+  private enforceHostMemoryGuard(snapshot: Record<string, ProcessUsage>): void {
     const pct = guardPercent();
     if (pct <= 0 || Date.now() < hostGuard.cooldownUntil) return;
     const budget = exhaustedBudget(currentMemoryBudgets(), pct);
     if (!budget) return;
-    const victim = largestRun(snapshot, (runId) => {
-      const state = this.active.get(runId);
-      return runIds.includes(runId) && !this.memoryPausing.has(runId) && !!state?.session?.open && !state.cancelled;
-    });
-    if (!victim) return;
-    const state = this.active.get(victim)!;
-    hostGuard.cooldownUntil = Date.now() + HOST_GUARD_COOLDOWN_MS;
-    this.memoryPausing.add(victim);
-    const used = formatGb(snapshot[victim]!.rssBytes);
+    void this.relieveMemory(snapshot, budget).catch(() => undefined);
+  }
+
+  private async relieveMemory(snapshot: Record<string, ProcessUsage>, budget: MemoryBudget): Promise<void> {
+    const byTask = await currentTaskMemory();
+    const usage = new Map<string, number>(byTask);
+    for (const [runId, sample] of Object.entries(snapshot)) {
+      usage.set(runId, Math.max(usage.get(runId) ?? 0, sample.rssBytes));
+    }
+    // Only the manager owning the largest task acts; every manager sees the same numbers.
+    let victim: string | undefined;
+    let victimBytes = 0;
+    for (const [runId, bytes] of usage) {
+      if (bytes <= victimBytes || this.memoryPausing.has(runId)) continue;
+      victim = runId;
+      victimBytes = bytes;
+    }
+    if (Date.now() < hostGuard.cooldownUntil) return;
     const left = `${formatGb(budget.availableBytes)} of ${formatGb(budget.totalBytes)} left (${budget.label})`;
-    console.error(`[cez] memory guard: ${left}; pausing run ${victim.slice(0, 8)} (${used})`);
-    this.store.appendEvent(victim, {
-      type: 'note',
-      tone: 'danger',
-      message: `⚠ the machine is running out of memory — ${left}. Pausing this task, the largest one (${used}), so the machine does not stall; resume it with Continue once memory is free.`,
-    });
-    this.store.appendEvent(victim, { type: 'lifecycle', message: `paused — machine memory low (${left})` });
-    state.autonomous = false;
-    this.clearIdleTimer(state);
-    state.session!.end();
+    if (!victim || victimBytes < budget.totalBytes * HOST_GUARD_MIN_SHARE) {
+      if (Date.now() >= hostGuard.quietUntil) {
+        hostGuard.quietUntil = Date.now() + 10 * HOST_GUARD_COOLDOWN_MS;
+        console.error(`[cez] memory guard: ${left}; no task holds ${HOST_GUARD_MIN_SHARE * 100}% of it — the memory is used outside cezar's tasks`);
+      }
+      return;
+    }
+    const run = this.store.getRun(victim);
+    if (!run) return; // another project's task: its own manager acts on the same sample
+    hostGuard.cooldownUntil = Date.now() + HOST_GUARD_COOLDOWN_MS;
+    const used = formatGb(victimBytes);
+    const state = this.active.get(victim);
+    if (state?.session?.open && !state.cancelled) {
+      this.memoryPausing.add(victim);
+      console.error(`[cez] memory guard: ${left}; pausing run ${victim.slice(0, 8)} (${used})`);
+      this.store.appendEvent(victim, {
+        type: 'note',
+        tone: 'danger',
+        message: `⚠ the machine is running out of memory — ${left}. Pausing this task, the largest one (${used}), and stopping the processes it started, so the machine does not stall; resume it with Continue once memory is free.`,
+      });
+      this.store.appendEvent(victim, { type: 'lifecycle', message: `paused — machine memory low (${left})` });
+      state.autonomous = false;
+      this.clearIdleTimer(state);
+      state.session.end();
+    } else {
+      console.error(`[cez] memory guard: ${left}; stopping processes left by run ${victim.slice(0, 8)} (${used})`);
+    }
+    this.reapRunNow(victim, HOST_GUARD_REAP_DELAY_MS, `machine memory low (${left})`);
+  }
+
+  /**
+   * Stop every process carrying this run's `CEZ_TASK_ID` after `delayMs`, unless a new session
+   * opened meanwhile — the immediate counterpart of `reapLeftoverProcesses` for a run that is
+   * paused rather than settled. Fire-and-forget.
+   */
+  private reapRunNow(runId: string, delayMs: number, reason: string): void {
+    if (!taskProcessReapEnabled()) return;
+    const timer = setTimeout(() => {
+      const startedAgain = (): boolean => {
+        const state = this.active.get(runId);
+        return !!state?.session?.open && !this.memoryPausing.has(runId);
+      };
+      void reapTaskProcesses({ match: (id) => id === runId, stillSettled: () => !startedAgain() })
+        .then((reaped) => {
+          if (reaped.length === 0) return;
+          this.store.appendEvent(runId, { type: 'lifecycle', message: `stopped ${describeReaped(reaped)} — ${reason}` });
+        })
+        .catch(() => undefined);
+    }, delayMs);
+    timer.unref?.();
   }
 
   /** Env the spawned claude gets so the agent can find its handoff file and

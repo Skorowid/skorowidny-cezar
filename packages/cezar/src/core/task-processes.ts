@@ -186,3 +186,30 @@ export function describeReaped(procs: TaskProcess[]): string {
   const more = procs.length > shown.length ? `, +${procs.length - shown.length} more` : '';
   return `${procs.length} process${procs.length === 1 ? '' : 'es'}: ${shown.join(', ')}${more}`;
 }
+
+/** Linux page size; every platform cezar runs agents on in production uses 4 KiB pages. */
+const PAGE_BYTES = 4096;
+
+/**
+ * Resident memory per task, summed over every process carrying its `CEZ_TASK_ID` — detached and
+ * re-parented ones included, which a process-tree walk from the agent misses. Linux only; empty
+ * elsewhere or on any failure.
+ */
+export async function taskMemoryByRun(list: () => Promise<TaskProcess[]> = listTaskProcesses): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (process.platform !== 'linux') return out;
+  const procs = await list().catch(() => [] as TaskProcess[]);
+  for (let i = 0; i < procs.length; i += SCAN_BATCH) {
+    await Promise.all(
+      procs.slice(i, i + SCAN_BATCH).map(async (p) => {
+        try {
+          const resident = Number((await readFile(`/proc/${p.pid}/statm`, 'utf8')).split(' ')[1]);
+          if (Number.isFinite(resident)) out.set(p.taskId, (out.get(p.taskId) ?? 0) + resident * PAGE_BYTES);
+        } catch {
+          // exited mid-scan
+        }
+      }),
+    );
+  }
+  return out;
+}

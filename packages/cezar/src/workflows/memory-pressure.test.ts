@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { emitUsageForTest } from '../core/process-usage.ts';
+import { listTaskProcesses } from '../core/task-processes.ts';
 import { RunStore, type RunRecord } from '../runs/store.ts';
 import {
   cgroupBudgets,
@@ -153,5 +154,70 @@ describe('RunManager host memory guard (default on)', { timeout: 30_000 }, () =>
     await new Promise((r) => setTimeout(r, 300));
     expect(store.getRun(id)?.status).toBe('waiting');
     expect(notes(id).some((m) => m.includes('running out of memory'))).toBe(false);
+  });
+
+  const lifecycle = (id: string): string[] => {
+    const path = join(repoRoot, '.ai/cezar/runs', `${id}.ndjson`);
+    if (!existsSync(path)) return [];
+    return readFileSync(path, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; message?: string })
+      .filter((e) => e.type === 'lifecycle').map((e) => String(e.message));
+  };
+
+  /** What an agent does with `nohup cargo test > log &`: a detached process carrying the task id. */
+  const leaveBackgroundProcess = async (taskId: string): Promise<void> => {
+    spawn('setsid', ['sleep', '100001'], { env: { ...process.env, CEZ_TASK_ID: taskId }, detached: true, stdio: 'ignore' }).unref();
+    await until(async () => await backgroundAlive(taskId));
+  };
+  const backgroundAlive = async (taskId: string): Promise<boolean> =>
+    (await listTaskProcesses()).some((p) => p.taskId === taskId && p.command.includes('sleep 100001'));
+  const until = async (check: () => Promise<boolean>, ms = 15_000): Promise<boolean> => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (await check()) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  };
+
+  it('never pauses a task holding a negligible share, however low memory is', async () => {
+    const id = await parkedRun();
+    __resetHostMemoryGuardForTests([{ label: 'host', totalBytes: 40 * GB, availableBytes: 1 * GB }], async () => new Map());
+    emitUsageForTest({ [id]: { cpuPct: 1, rssBytes: 0.3 * GB, procCount: 3 } });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(store.getRun(id)?.status).toBe('waiting');
+    expect(notes(id).some((m) => m.includes('running out of memory'))).toBe(false);
+  });
+
+  it.runIf(process.platform === 'linux')('counts detached processes by CEZ_TASK_ID: a big leftover build is stopped, the small live agent is not paused', async () => {
+    const live = await parkedRun();
+    const { id: builder } = store.createRun({ title: 'b', workflow: 'quick-task', task: 'x', steps: [] });
+    store.updateRun(builder, { status: 'done' });
+    await leaveBackgroundProcess(builder);
+    __resetHostMemoryGuardForTests(
+      [{ label: 'host', totalBytes: 40 * GB, availableBytes: 2 * GB }],
+      async () => new Map([[builder, 15 * GB]]),
+    );
+    emitUsageForTest({ [live]: { cpuPct: 1, rssBytes: 3 * GB, procCount: 2 } });
+    expect(await until(async () => !(await backgroundAlive(builder)))).toBe(true);
+    expect(store.getRun(live)?.status).toBe('waiting');
+    expect(notes(live).some((m) => m.includes('running out of memory'))).toBe(false);
+  });
+
+  describe.runIf(process.platform === 'linux')('stops the processes a task detached', () => {
+    it('on a memory-guard pause', async () => {
+      const id = await parkedRun();
+      await leaveBackgroundProcess(id);
+      __resetHostMemoryGuardForTests([{ label: 'host', totalBytes: 40 * GB, availableBytes: 2 * GB }]);
+      emitUsageForTest({ [id]: { cpuPct: 1, rssBytes: 12 * GB, procCount: 3 } });
+      expect(await until(async () => !(await backgroundAlive(id)))).toBe(true);
+      expect(await until(async () => lifecycle(id).some((m) => m.includes('sleep 100001') && m.includes('machine memory low')))).toBe(true);
+    });
+
+    it('on cancel of a live run', async () => {
+      const id = await parkedRun();
+      await leaveBackgroundProcess(id);
+      manager.cancel(id);
+      expect(await until(async () => !(await backgroundAlive(id)), 20_000)).toBe(true);
+    });
   });
 });
