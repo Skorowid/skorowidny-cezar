@@ -522,7 +522,12 @@ function keepLimit(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 1 ? n : fallback;
 }
 /** Every save rewrites the whole index, and a live run touches its record at event rate. */
-const SAVE_DEBOUNCE_MS = 1_000;
+const SAVE_DEBOUNCE_MS = 3_000;
+/** A system prompt at least this long is stored once under `runs/prompts/` and referenced from the
+ *  index: one shared prompt repeated in every record made up most of a large `runs.json`, which is
+ *  rewritten whole on every save. */
+const PROMPT_EXTERNAL_MIN_CHARS = 1_024;
+const PROMPT_REF_RE = /^[0-9a-f]{32}$/;
 /** Statuses the run manager still acts on — a record in one of them must outlive pruning. */
 const LIVE_STATUSES: ReadonlySet<string> = new Set<RunStatus>(['queued', 'running', 'waiting']);
 
@@ -1253,7 +1258,7 @@ export class RunStore extends EventEmitter {
     const indexPath = join(dataDir, 'runs.json');
     if (existsSync(indexPath)) {
       try {
-        const raw = JSON.parse(readFileSync(indexPath, 'utf8'));
+        const raw = store.hydrateIndex(JSON.parse(readFileSync(indexPath, 'utf8')));
         const parsed = z.array(runRecordSchema).safeParse(raw);
         if (parsed.success) {
           for (const run of parsed.data) {
@@ -2335,6 +2340,7 @@ export class RunStore extends EventEmitter {
    *  which is exactly how long a deletion has to outlive its own index entry. */
   private forget(id: string): boolean {
     this.forgotten.add(id);
+    this.deletionPending = true;
     if (this.runs.has(id)) this.observeLifecycle(id, undefined);
     this.sessionBackends.delete(id);
     this.persisted.delete(id);
@@ -2374,10 +2380,71 @@ export class RunStore extends EventEmitter {
   }
 
   /** Debounced so token-usage updates don't rewrite the index per event. */
+  private deletionPending = false;
+
+  /** Nothing to write: every record is as last saved and no run was forgotten since. */
+  private indexClean(): boolean {
+    if (this.deletionPending) return false;
+    for (const [id, run] of this.runs) {
+      if (this.persisted.get(id) !== JSON.stringify(run)) return false;
+    }
+    return true;
+  }
+
+  private readonly promptTexts = new Map<string, string>();
+
+  private promptsDir(): string {
+    return join(this.dataDir, 'runs', 'prompts');
+  }
+
+  /** The record as written to `runs.json`: a long system prompt becomes a reference to its file. */
+  private dehydrate(run: RunRecord): RunRecord | Record<string, unknown> {
+    const text = run.systemPrompt;
+    if (typeof text !== 'string' || text.length < PROMPT_EXTERNAL_MIN_CHARS) return run;
+    const ref = createHash('sha256').update(text).digest('hex').slice(0, 32);
+    if (!this.promptTexts.has(ref)) {
+      try {
+        mkdirSync(this.promptsDir(), { recursive: true });
+        writeFileSync(join(this.promptsDir(), `${ref}.md`), text, { encoding: 'utf8', flag: 'wx' });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return run; // keep it inline
+      }
+      this.promptTexts.set(ref, text);
+    }
+    const { systemPrompt: _inline, ...rest } = run;
+    return { ...rest, systemPromptRef: ref };
+  }
+
+  /** Raw index entries with every `systemPromptRef` turned back into `systemPrompt`. An unreadable
+   *  prompt file costs only that prompt, never the record. */
+  private hydrateIndex(raw: unknown): unknown {
+    if (!Array.isArray(raw)) return raw;
+    return raw.map((entry) => {
+      if (entry === null || typeof entry !== 'object') return entry;
+      const record = entry as Record<string, unknown>;
+      const ref = record.systemPromptRef;
+      if (typeof ref !== 'string') return entry;
+      const { systemPromptRef: _ref, ...rest } = record;
+      if (typeof rest.systemPrompt === 'string' || !PROMPT_REF_RE.test(ref)) return rest;
+      let text = this.promptTexts.get(ref);
+      if (text === undefined) {
+        try {
+          text = readFileSync(join(this.promptsDir(), `${ref}.md`), 'utf8');
+          this.promptTexts.set(ref, text);
+        } catch {
+          return rest;
+        }
+      }
+      return { ...rest, systemPrompt: text };
+    });
+  }
+
   private scheduleSave(): void {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
+      // Whole-file rewrite: skip it when nothing persisted changed since the last one.
+      if (this.indexClean()) return;
       this.saveNow();
     }, SAVE_DEBOUNCE_MS);
     this.saveTimer.unref?.();
@@ -2393,11 +2460,12 @@ export class RunStore extends EventEmitter {
       // later rename from overwriting another writer's acknowledged additions.
       release = lockRunIndex(this.dataDir);
       const merged = this.mergeWithIndexOnDisk(indexPath);
-      writeFileSync(tmpPath, JSON.stringify(merged, null, pretty ? 2 : undefined), 'utf8');
+      writeFileSync(tmpPath, JSON.stringify(merged.map((run) => this.dehydrate(run)), null, pretty ? 2 : undefined), 'utf8');
       renameSyncWithRetry(tmpPath, indexPath);
       // Do not reconcile/adopt foreign state into live manager-owned records. Remember our
       // local snapshot so future unchanged fields still defer to the latest persisted value.
       for (const [id, run] of this.runs) this.persisted.set(id, JSON.stringify(run));
+      this.deletionPending = false;
     } catch (err) {
       if (throwOnError) throw new Error('Could not persist automation run provenance; the launch was not confirmed.');
       const message = err instanceof Error ? err.message : String(err);
@@ -2422,7 +2490,7 @@ export class RunStore extends EventEmitter {
    */
   private mergeWithIndexOnDisk(indexPath: string): RunRecord[] {
     let raw: unknown;
-    try { raw = JSON.parse(readFileSync(indexPath, 'utf8')); } catch { return this.listRuns(); }
+    try { raw = this.hydrateIndex(JSON.parse(readFileSync(indexPath, 'utf8'))); } catch { return this.listRuns(); }
     if (!Array.isArray(raw)) return this.listRuns();
     const merged = new Map<string, RunRecord>();
     for (const entry of raw) {

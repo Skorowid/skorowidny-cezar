@@ -2465,7 +2465,7 @@ describe('RunStore — a save never drops another process’s runs', () => {
   });
 });
 
-const SAVE_DEBOUNCE_WINDOW_MS = 1_000;
+const SAVE_DEBOUNCE_WINDOW_MS = 3_000; // store.ts SAVE_DEBOUNCE_MS
 
 describe('RunStore — seq rehydration from the persisted high-water mark', () => {
   let dataDir: string;
