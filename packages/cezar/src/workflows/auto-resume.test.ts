@@ -481,7 +481,7 @@ describe('a run stopped by a usage limit resumes itself', () => {
     const resumeAt = Date.parse(failed?.autoResumeAt ?? '');
     expect(resumeAt).toBeGreaterThanOrEqual(started + 3_600_000 + AUTO_RESUME_GRACE_MS);
     expect(resumeAt).toBeLessThanOrEqual(Date.now() + 3_600_000 + AUTO_RESUME_GRACE_MS);
-    const events = store.readEvents(record.id);
+    const events = store.readEventsSync(record.id);
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'error', message }),
       expect.objectContaining({ type: 'session.error', message, fatal: true }),
