@@ -25,7 +25,7 @@ Dispatch (`cez task create`, 4 dzieci w locie), skrzynki `.ai/cezar/dispatch/<ro
 | 8 | **Limity kont** | ręczne anulowanie i ponowny dispatch na innym runnerze + lista gałęzi częściowych | przy `account-resume`/`usageLimitExceeded` engine proponuje (lub wg ustawienia wykonuje) przeniesienie zadania na inny runner, z gałęzią poprzednika do kontynuacji |
 | 9 | **Lżejsze worktree** | brak (pełny checkout ~4 GB pack) | opcjonalny sparse-checkout z pliku `.ai/cezar/sparse` (wzorce do pominięcia, np. duże PNG/GLB), `worktree add --no-checkout` + `sparse-checkout set` |
 | 10 | **shortstat kokpitu** | `.gitattributes` binary w projekcie, przesunięty `main` | jeden `git diff --shortstat` naraz na worktree (single-flight) i baza = gałąź rodzica, nie stary base branch |
-| 11 | **Scratch w RAM** | pilotaż: `/dev/shm/<zadanie>` jako TMPDIR dla 1/4 procesów (2026-11-15) | `CEZ_SCRATCH_SHM` — część zadań (proporcja) dostaje TMPDIR w `/dev/shm` z limitem; sprzątanie przy zakończeniu |
+| 11 | **Scratch w RAM** | pilotaż: tmpfs `/mnt/cezar-scratch` (`vm/tmpfs-setup.sh`, `vm/scratch-env.sh` w ai-env-configs-tools) jako TMPDIR dla 1/4 procesów (2026-11-15) | `CEZ_SCRATCH_SHM` — część zadań (proporcja) dostaje TMPDIR w `/dev/shm` z limitem; sprzątanie przy zakończeniu |
 
 ## Zasady przy wdrażaniu (z AGENTS.md cezara)
 
