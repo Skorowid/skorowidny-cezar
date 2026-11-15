@@ -204,7 +204,9 @@ export class UsageLimitMonitor {
   parkingDeadline(account: string, now = Date.now()): number | null {
     this.ensureLoaded();
     const state = this.states.get(account);
-    if (!state || state.state === 'ok' || state.resetsAt === null || state.resetsAt <= now) return null;
+    // Exhausted accounts are held by the auto-resume/fallback holds (spec 2026-08-03); parking them
+    // too would hold the resume that reopens the window.
+    if (!state || state.state !== 'low' || state.resetsAt === null || state.resetsAt <= now) return null;
     return state.resetsAt;
   }
 

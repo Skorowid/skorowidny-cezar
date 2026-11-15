@@ -1,9 +1,9 @@
 {
   "repository": "https://github.com/open-mercato/cezar.git",
-  "integration_ref": "refs/tags/v0.18.0",
-  "baseline_commit": "0d801132ecc4a628e650c4cc1b5072e5d256ff15",
-  "package_version_at_baseline": "0.18.0",
-  "baseline_kind": "verified release tag v0.18.0",
-  "recorded_on": "2026-11-03",
+  "integration_ref": "refs/tags/v0.20.0",
+  "baseline_commit": "2e6b2fd53c779f03d99cb81ffe0c579a53102ae3",
+  "package_version_at_baseline": "0.20.0",
+  "baseline_kind": "verified release tag v0.20.0",
+  "recorded_on": "2026-11-15",
   "fork_repository": "https://github.com/Skorowid/skorowidny-cezar"
 }

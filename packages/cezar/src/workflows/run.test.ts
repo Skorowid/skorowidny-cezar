@@ -439,6 +439,24 @@ describe('RunManager.recordTurnEnd', () => {
     expect(after?.prNumber).toBe(500);
   });
 
+  it('the first marker title sticks — a later CEZ:TITLE does not rename the task', async () => {
+    const record = store.createRun({ title: 't', workflow: 'w', task: 'task', steps: [] });
+    await manager.recordTurnEnd(record.id, 'CEZ:TITLE=adding comment threads');
+    await manager.recordTurnEnd(record.id, 'CEZ:TITLE=fixing the sse watchdog');
+    const after = store.getRun(record.id);
+    expect(after?.titleSummary).toBe('adding comment threads');
+    expect(after?.titleOrigin).toBe('marker');
+  });
+
+  it('a CEZ:TITLE after the namer settled the title does not rename the task (#1252)', async () => {
+    const record = store.createRun({ title: 't', workflow: 'w', task: 'task', steps: [] });
+    store.updateRun(record.id, { titleSummary: 'fixing the sse watchdog', titleOrigin: 'auto', titleSettled: true });
+    await manager.recordTurnEnd(record.id, 'CEZ:TITLE=carrying forward a pr');
+    const after = store.getRun(record.id);
+    expect(after?.titleSummary).toBe('fixing the sse watchdog');
+    expect(after?.titleOrigin).toBe('auto');
+  });
+
   it('a junk CEZ:TITLE never blanks the title', async () => {
     const record = store.createRun({ title: 't', workflow: 'w', task: 'task', steps: [] });
     await manager.recordTurnEnd(record.id, 'CEZ:PR=500\nCEZ:TITLE=...');
@@ -4023,6 +4041,38 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
     // reject as an unknown command.
     expect(echoed?.text).toContain('Selected skill: /demo-review');
     expect(echoed?.text).not.toContain('/demo-review look at the diff');
+  }, 40_000);
+
+  // PR #2013: a `/command` buffered before the session opens is flushed before `session.started`
+  // arrives, so the step's own backend — not the task's — must already be the one that picks its variant.
+  it("a /command buffered before a step's session opens is delivered on that step's backend", async () => {
+    mkdirSync(join(repoRoot, '.claude/commands'), { recursive: true });
+    writeFileSync(join(repoRoot, '.claude/commands/rv.md'), 'review $ARGUMENTS\n');
+    vi.mocked(track).mockClear();
+    const record = manager.startRun(
+      { name: 'claude-step', source: 'built-in', steps: [{ id: 'task', name: 'Task', prompt: '{{task}}', runner: 'claude' }] },
+      { task: 'do the first thing', worktree: false, runner: 'codex' },
+    );
+    runId = record.id;
+    // What `deferMessage` buffers while the run starts up; seeded directly to skip the race for that window.
+    (manager as unknown as { deferredMessages: Map<string, ContentBlock[][]> }).deferredMessages.set(record.id, [
+      [{ type: 'text', text: '/rv the diff' }],
+    ]);
+    // The backend the variant pick reads (`deliverMessage`), as it stands when the buffer flushes.
+    const internals = manager as unknown as {
+      active: Map<string, { sessionBackend?: string }>;
+      sendMessage(id: string, content: ContentBlock[]): boolean;
+    };
+    const seen: Array<string | undefined> = [];
+    const send = internals.sendMessage.bind(manager);
+    internals.sendMessage = (id, content) => {
+      seen.push(internals.active.get(id)?.sessionBackend);
+      return send(id, content);
+    };
+    await waitFor(() => eventsOf(record.id).some((e) => e.type === 'text' && e.text?.includes('Selected skill: /rv')));
+    expect(seen[0]).toBe('claude');
+    // The install trails delivery; let its `skill_used` land here, not in the next test's count.
+    await waitFor(() => vi.mocked(track).mock.calls.some(([event]) => event === 'skill_used'));
   }, 40_000);
 
   it("installs the slash skill and the companion it names into the task's worktree", async () => {

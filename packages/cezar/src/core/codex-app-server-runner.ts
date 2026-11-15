@@ -75,7 +75,7 @@ const RESUME_LOCK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000, 4_000, 
 
 /** The `thread/start` / `thread/resume` overrides. */
 export function codexThreadOverrides(
-  spec: Pick<AgentRunSpec, 'model' | 'cwd' | 'env'>,
+  spec: Pick<AgentRunSpec, 'model' | 'cwd' | 'env' | 'enforceReadOnly'>,
   mcpConfig: Record<string, unknown> | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, unknown> {
@@ -89,7 +89,8 @@ export function codexThreadOverrides(
   return {
     model: spec.model,
     cwd: spec.cwd,
-    sandbox: policy.sandbox,
+    // A manager's read-only repository (upstream #2038) stays read-only under the fork policy too.
+    sandbox: spec.enforceReadOnly ? 'read-only' : policy.sandbox,
     approvalPolicy: policy.approvalPolicy,
     config: {
       ...mcpConfig,
