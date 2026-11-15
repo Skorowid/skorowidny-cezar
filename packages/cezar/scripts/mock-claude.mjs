@@ -87,7 +87,8 @@ function emitPlanWindows() {
     rate_limit_info: {
       status: 'allowed',
       unifiedWindows: {
-        five_hour: { utilization: 0.17, resetsAt: nowSec + 2 * 3600 + 19 * 60 },
+        // CEZ_MOCK_PLAN_UTILIZATION lets the usage-limit guard tests drive a low window.
+        five_hour: { utilization: Number(process.env.CEZ_MOCK_PLAN_UTILIZATION ?? 0.17), resetsAt: nowSec + 2 * 3600 + 19 * 60 },
         seven_day: { utilization: 0.2, resetsAt: nowSec + 3 * 86400 },
       },
     },

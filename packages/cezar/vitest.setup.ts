@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync } 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeEach } from 'vitest'
+import { usageLimitMonitor } from './src/workspace/usage-limit-monitor.ts'
 
 // Inside a cezar task TMP is `<repo>/.ai/cezar/tmp/<run>` — the user's own checkout. Cases that
 // take a fresh `tmpdir()` folder for "outside any repo" then ran git there: `commitAll` committed
@@ -123,6 +124,20 @@ if (process.env.CEZ_GEMINI_SMOKE !== '1') {
     delete process.env[name]
   }
 }
+// The implicit usage-limit fallback (spec 2026-11-15) would hand a `mock:limit` task to Codex,
+// which the dry run does not mock — a real, paid CLI. Off for the suite; its own tests enable it
+// with the Codex app-server fixture.
+const pinLimitFallbackOff = () => {
+  process.env.CEZ_LIMIT_FALLBACK = '0'
+}
+pinLimitFallbackOff()
+beforeEach(pinLimitFallbackOff)
+// The usage-limit monitor is a process-wide singleton: a `mock:limit` in one case must not leave
+// its account parked for the next.
+beforeEach(() => {
+  usageLimitMonitor.resetForTests()
+  if (process.env.CEZ_HOME) rmSync(join(process.env.CEZ_HOME, 'usage-limits.json'), { force: true })
+})
 // Registered before any suite's own hooks, so vitest runs it last on the way out —
 // after a case's `afterEach` has deleted the pin.
 afterEach(pinSandboxHome)

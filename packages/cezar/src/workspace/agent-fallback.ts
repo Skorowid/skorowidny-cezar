@@ -272,3 +272,32 @@ export function eligibleFallbackCandidates(
 export async function loadFallbackAccounts(): Promise<AgentAccountStore | null> {
   return loadAgentAccounts().catch(() => null);
 }
+
+/**
+ * Owner-approved default (2026-11-15, spec 2026-11-15-usage-limit-fallback): a project that never
+ * saved a fallback list still hands an exhausted task to another agent — Claude and Codex default
+ * logins, then every named Claude/Codex account. A saved policy (any revision, on or off) is the
+ * user's answer and always wins; `CEZ_LIMIT_FALLBACK=0` turns the implicit one off.
+ */
+export const IMPLICIT_FALLBACK_TOKEN = 'implicit-default';
+const IMPLICIT_PROVIDERS: ProviderId[] = ['claude', 'codex'];
+
+export function implicitFallbackPolicy(accounts?: AgentAccountStore | null): AgentFallbackPolicy {
+  const candidates: AgentFallbackCandidate[] = IMPLICIT_PROVIDERS.map((provider) => ({ provider, profileId: DEFAULT_AGENT_ACCOUNT_ID }));
+  for (const account of accounts?.accounts ?? []) {
+    if (!IMPLICIT_PROVIDERS.includes(account.provider as ProviderId) || account.id === DEFAULT_AGENT_ACCOUNT_ID) continue;
+    if (candidates.length >= 10) break;
+    candidates.push({ provider: account.provider as ProviderId, profileId: account.id });
+  }
+  return { enabled: true, candidates, revision: 0, incarnation: IMPLICIT_FALLBACK_TOKEN, revocation: IMPLICIT_FALLBACK_TOKEN };
+}
+
+export const isImplicitFallbackPolicy = (policy: Pick<AgentFallbackPolicy, 'incarnation'> | undefined): boolean =>
+  policy?.incarnation === IMPLICIT_FALLBACK_TOKEN;
+
+/** The policy the engine applies: the saved one, else the implicit default unless switched off. */
+export function effectiveAgentFallbackPolicySync(root: string, env: NodeJS.ProcessEnv = process.env): AgentFallbackPolicy {
+  const saved = getAgentFallbackPolicySync(root);
+  if (saved.revision > 0 || saved.enabled || env.CEZ_LIMIT_FALLBACK === '0') return saved;
+  return implicitFallbackPolicy();
+}

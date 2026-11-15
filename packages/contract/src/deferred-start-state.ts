@@ -34,5 +34,7 @@ export type DeferredCreationRecord = z.infer<typeof deferredCreationRecordSchema
 export const queueWaitReasonSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('usage-reset'), until: z.string().datetime(), timeZone: z.string().optional() }),
   z.object({ kind: z.literal('account-resume') }),
+  // Spec 2026-11-15-usage-limit-fallback: the account is under its low-limit threshold until the reset.
+  z.object({ kind: z.literal('limit-low'), resetsAt: z.string().datetime() }),
 ]);
 export type QueueWaitReason = z.infer<typeof queueWaitReasonSchema>;

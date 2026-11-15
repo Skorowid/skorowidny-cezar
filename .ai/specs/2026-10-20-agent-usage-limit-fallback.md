@@ -1,5 +1,8 @@
 # Automatic agent fallback after a usage limit
 
+> Fork update 2026-11-15: a project with no saved list now gets an implicit default list
+> (owner-approved, `CEZ_LIMIT_FALLBACK=0` opts out) — see `2026-11-15-usage-limit-fallback.md`.
+
 ## Purpose and scope
 
 Automatic fallback continues an existing task with an ordered, user-selected agent/account

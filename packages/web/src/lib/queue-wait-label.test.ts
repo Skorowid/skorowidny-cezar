@@ -21,3 +21,7 @@ it('keeps the account-resume wording and passes no reason through', () => {
 it('uses the server zone carried with a reset reason at both default call sites', () => {
   expect(queueWaitLabel({ ...reason, timeZone: 'Europe/Warsaw' })).toBe('Waiting for usage limit reset · 18:30 · Europe/Warsaw')
 })
+
+it('names the UTC reset of a limit-low park', () => {
+  expect(queueWaitLabel({ kind: 'limit-low', resetsAt: '2099-01-01T17:30:00Z' })).toBe("Parked while this account's usage is low · resets 17:30 UTC")
+})

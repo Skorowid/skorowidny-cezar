@@ -158,10 +158,14 @@ import {
   candidateKey,
   eligibleFallbackCandidates,
   fallbackConsentCurrent,
-  getAgentFallbackPolicySync,
+  effectiveAgentFallbackPolicySync,
+  implicitFallbackPolicy,
+  isImplicitFallbackPolicy,
   loadFallbackAccounts,
   type AgentFallbackPolicy,
 } from '../workspace/agent-fallback.ts';
+import { usageLimitConfig, usageLimitMonitor, type LimitTransition } from '../workspace/usage-limit-monitor.ts';
+import { limitLowText, rankByImportance, rampOrder, treeRole } from './limit-guard.ts';
 import { DEFAULT_IDLE_TIMEOUT_MINUTES } from '../workspace/config.ts';
 import { WorkspaceSemaphore, type AccountHolds } from '../workspace/semaphore.ts';
 import { SecretStore } from '../workspace/secrets.ts';
@@ -1585,6 +1589,16 @@ export class RunManager {
   /** The stalled-queue watchdog (see `rescueStalledQueue`). */
   private readonly queueWatchdog: ReturnType<typeof setInterval>;
 
+  /** Usage-limit guard (spec 2026-11-15-usage-limit-fallback). */
+  private readonly offLimits: () => void;
+  /** Queued runs parked on a low account: when they parked and whether they rank as important. */
+  private readonly limitParked = new Map<string, { account: string; parkedAt: number; important: boolean; resetsAt: number }>();
+  /** Accounts whose window reset and whose parked work is coming back one task at a time. */
+  private readonly limitRamp = new Map<string, { nextAt: number }>();
+  /** Per low window: the tasks chosen to keep working (see `limitKeepSet`). */
+  private readonly limitKeep = new Map<string, { resetsAt: number | null; ids: Set<string> }>();
+  private limitTimers = new Set<ReturnType<typeof setTimeout>>();
+
   /** Set by the watchdog for exactly one sweep: ignore the usage-limit hold and make progress. */
   private forceNextPump = false;
 
@@ -1699,6 +1713,8 @@ export class RunManager {
     };
     this.queueWatchdog = setInterval(() => void this.rescueStalledQueue(), QUEUE_WATCHDOG_MS);
     this.queueWatchdog.unref?.();
+    this.offLimits = usageLimitMonitor.subscribe((transition) => { void this.onLimitTransition(transition); });
+    for (const until of usageLimitMonitor.parkingAccounts().values()) this.armLimitTimer(until);
     // Preserve holds written by older versions before a source task can be deleted.
     for (const run of this.store.listRuns()) {
       for (const hold of run.usageLimitHolds ?? []) this.usageHolds.remember(hold);
@@ -1723,6 +1739,12 @@ export class RunManager {
     this.store.off('deleted', this.onRunDeletedHolds);
     this.lifecycle.dispose();
     this.offUsage();
+    this.offLimits();
+    for (const timer of this.limitTimers) clearTimeout(timer);
+    this.limitTimers.clear();
+    this.limitRamp.clear();
+    this.limitParked.clear();
+    this.limitKeep.clear();
     this.offStoreLifecycle();
     this.offSemaphore();
     clearInterval(this.queueWatchdog);
@@ -2089,7 +2111,12 @@ export class RunManager {
       trackerContext = trackerPrompt({ binding, ...(context && contextFile ? { context, contextFile } : {}), ...(unavailable ? { unavailable } : {}), commands });
     }
     const usageProvider = backend === 'claude' ? 'claude' : boundIdentity ? 'codex' : undefined;
-    const onUsageWindows = usageProvider ? async (observation: UsageWindowsObservation) => {
+    const monitorAccount = `${backend}:${resolved.profile.id}`;
+    // Every Claude/Codex stream feeds the limit monitor (spec 2026-11-15); the attributed store
+    // below still records only what it can bind to an identity.
+    const onUsageWindows = backend === 'claude' || backend === 'codex' ? async (observation: UsageWindowsObservation) => {
+      try { usageLimitMonitor.observe(monitorAccount, observation); } catch { /* metadata only */ }
+      if (!usageProvider) return;
       try {
         if (usageProvider === 'codex') {
           if (attributionDisabled) return;
@@ -2150,7 +2177,7 @@ export class RunManager {
       // so a queued run picks it up at dequeue and every later resume reads the same answer.
       agentProfile: input.agentProfile,
       // Snapshotted only when on: an absent snapshot already means "this task never uses fallback".
-      fallbackPolicy: ((policy) => (policy.enabled ? policy : undefined))(getAgentFallbackPolicySync(this.repoRoot)),
+      fallbackPolicy: ((policy) => (policy.enabled ? policy : undefined))(effectiveAgentFallbackPolicySync(this.repoRoot)),
       // The global inbox is the ceiling on the per-run flag (#471). Enforced here rather than
       // at the HTTP route because `cezar run`, the inbox's own "▶ Run" and variants all reach
       // startRun directly — a route-level gate would leave those writing todos.json.
@@ -2480,10 +2507,14 @@ export class RunManager {
         const anyHold = holds.deadline.size > 0 || holds.inFlight.size > 0;
         // Only pay for the config read when something is actually held: a queued record may name
         // no runner, and then the account it would use is the configured default.
-        const defaultRunner = anyHold ? (await loadConfig(this.repoRoot)).defaultRunner : undefined;
+        const parking = this.queue.length > 0 && !forced ? usageLimitMonitor.parkingAccounts() : new Map<string, number>();
+        const limitActive = parking.size > 0 || this.limitRamp.size > 0;
+        const defaultRunner = anyHold || limitActive ? (await loadConfig(this.repoRoot)).defaultRunner : undefined;
+        const limitGate = limitActive ? this.limitGate(parking, defaultRunner ?? 'claude') : undefined;
         const startable = (id: string): boolean => {
           const queued = this.store.getRun(id);
           if (queued && anyHold && accountHeldFor(queued, holds, defaultRunner ?? 'claude', this.askingAccounts())) return false;
+          if (limitGate && !limitGate.admits(id)) return false;
           // "Start now" goes over `maxParallel` on purpose, but a non-git root still runs one at a time.
           if (this.startNowRequested.has(id)) return repo !== null || this.busySlots() < 1;
           return capacity();
@@ -2500,6 +2531,7 @@ export class RunManager {
           if (next === -1) break; // nothing queued can start right now
           const runId = this.queue.splice(next, 1)[0];
           if (!runId) break;
+          limitGate?.admitted(runId);
           // Leaving the queue gives up a "Run First" place. The store would retire it anyway once
           // the run's status moves on, but the run is still `queued` until `execute` writes
           // `running` — and a usage-limit send-back in that window must not re-enter at the front.
@@ -3763,6 +3795,185 @@ export class RunManager {
    * which is exactly the pre-feature behavior — except the safety cap, which says so on the
    * transcript, because a run that stops resuming itself needs to explain why.
    */
+  /** The account a run spends on: its recorded step when it has run, else what its spawn resolves to. */
+  private limitAccountOf(run: RunRecord, defaultRunner: RunnerId): string {
+    return runAccountKey(run, run.runner ?? defaultRunner, this.accountStore && {
+      store: this.accountStore, repoRoot: this.repoRoot, holding: run.status !== 'queued',
+    });
+  }
+
+  /**
+   * The tasks that may keep spending from a low account until its reset: the `keep` most important
+   * when the window first went low, frozen for that window — a kept task that finishes frees no
+   * slot, or the parked work would drain the rest of the allowance one task at a time.
+   */
+  private limitKeepSet(account: string, resetsAt: number | null, runs: readonly RunRecord[], keyOf: (run: RunRecord) => string, keep: number): Set<string> {
+    const frozen = this.limitKeep.get(account);
+    if (frozen && (frozen.resetsAt === resetsAt || (frozen.resetsAt !== null && resetsAt !== null && Math.abs(frozen.resetsAt - resetsAt) < 120_000))) return frozen.ids;
+    const onAccount = runs.filter((r) => !r.archived && (r.status === 'queued' || this.active.has(r.id)) && keyOf(r) === account);
+    const ids = new Set(rankByImportance(onAccount, runs).slice(0, keep).map((r) => r.id));
+    this.limitKeep.set(account, { resetsAt, ids });
+    return ids;
+  }
+
+  private limitReason(runId: string): RunRecord['queueWaitReason'] {
+    const parked = this.limitParked.get(runId);
+    return parked ? { kind: 'limit-low', resetsAt: new Date(parked.resetsAt).toISOString() } : undefined;
+  }
+
+  /** Publish a run's limit-low wait, never over a usage-limit hold's own reason. */
+  private publishLimitReason(runId: string): void {
+    const run = this.store.getRun(runId);
+    if (!run || run.status !== 'queued') return;
+    if (run.queueWaitReason && run.queueWaitReason.kind !== 'limit-low') return;
+    const reason = this.limitReason(runId);
+    if (JSON.stringify(reason) !== JSON.stringify(run.queueWaitReason)) this.store.updateRun(runId, { queueWaitReason: reason });
+  }
+
+  private readonly limitTimerAt = new Map<number, ReturnType<typeof setTimeout>>();
+  /** Wake at a reset (or a ramp step): expire the monitor's state, then pump. */
+  private armLimitTimer(at: number): void {
+    if (this.disposed || this.limitTimerAt.has(at)) return;
+    const timer = setTimeout(() => {
+      this.limitTimerAt.delete(at);
+      this.limitTimers.delete(timer);
+      if (this.disposed) return;
+      usageLimitMonitor.tick();
+      void this.pump();
+    }, Math.max(0, at - Date.now()) + 50);
+    timer.unref?.();
+    this.limitTimerAt.set(at, timer);
+    this.limitTimers.add(timer);
+  }
+
+  /**
+   * One pump's view of the usage-limit guard (spec 2026-11-15-usage-limit-fallback). While an
+   * account is low only its `CEZ_LIMIT_KEEP` most important tasks may start or continue; after
+   * its reset the parked ones come back one per `CEZ_LIMIT_RAMP_SEC`. `admits` is pure — the
+   * pump also asks it while deciding whether to read the catalog — and `admitted` records a start.
+   */
+  private limitGate(parking: Map<string, number>, defaultRunner: RunnerId) {
+    const now = Date.now();
+    const config = usageLimitConfig();
+    const runs = this.store.listRuns();
+    const keys = new Map<string, string>();
+    const keyOf = (run: RunRecord): string => {
+      let key = keys.get(run.id);
+      if (key === undefined) keys.set(run.id, key = this.limitAccountOf(run, defaultRunner));
+      return key;
+    };
+    const keep = new Map<string, Set<string>>();
+    for (const [account, until] of parking) keep.set(account, this.limitKeepSet(account, until, runs, keyOf, config.keepRunning));
+    for (const id of [...this.limitParked.keys()]) {
+      if (!this.queue.includes(id)) { this.limitParked.delete(id); this.publishLimitReason(id); }
+    }
+    const rampNext = new Map<string, string>();
+    for (const [account, ramp] of this.limitRamp) {
+      if (parking.has(account)) { this.limitRamp.delete(account); continue; }
+      const queued = this.queue.map((id) => this.store.getRun(id)).filter((r): r is RunRecord => Boolean(r) && keyOf(r!) === account);
+      if (queued.length === 0) { this.limitRamp.delete(account); continue; }
+      if (ramp.nextAt > now) { this.armLimitTimer(ramp.nextAt); continue; }
+      const parked = rampOrder(queued.filter((r) => this.limitParked.has(r.id)).map((r) => ({ ...this.limitParked.get(r.id)!, id: r.id })));
+      rampNext.set(account, parked[0]?.id ?? queued[0]!.id);
+    }
+    for (const id of this.queue) {
+      const run = this.store.getRun(id);
+      if (!run) continue;
+      const account = keyOf(run);
+      const until = parking.get(account);
+      if (until === undefined || keep.get(account)?.has(id)) continue;
+      const parked = this.limitParked.get(id);
+      if (parked) parked.resetsAt = until;
+      else this.limitParked.set(id, { account, parkedAt: now, important: treeRole(run, runs) !== 'task', resetsAt: until });
+      this.publishLimitReason(id);
+      this.armLimitTimer(until);
+    }
+    return {
+      admits: (id: string): boolean => {
+        const run = this.store.getRun(id);
+        if (!run) return true;
+        const account = keyOf(run);
+        // A window that went low with fewer than `keep` tasks around still has room for one more.
+        if (parking.has(account)) { const kept = keep.get(account); return Boolean(kept && (kept.has(id) || kept.size < config.keepRunning)); }
+        if (this.limitRamp.has(account)) return rampNext.get(account) === id;
+        return true;
+      },
+      admitted: (id: string): void => {
+        const run = this.store.getRun(id);
+        if (!run) return;
+        const account = keyOf(run);
+        const ramp = this.limitRamp.get(account);
+        if (ramp && rampNext.get(account) === id) {
+          rampNext.delete(account);
+          ramp.nextAt = Date.now() + config.rampMs;
+          this.armLimitTimer(ramp.nextAt);
+          this.store.appendEvent(id, { type: 'note', message: `usage limit of ${account} has reset — resuming parked work one task at a time` });
+        }
+        if (parking.has(account)) keep.get(account)?.add(id);
+        if (this.limitParked.delete(id)) this.store.updateRun(id, { queueWaitReason: undefined });
+      },
+    };
+  }
+
+  private async onLimitTransition(transition: LimitTransition): Promise<void> {
+    if (this.disposed) return;
+    const { state } = transition;
+    if (transition.kind === 'cleared') {
+      this.limitKeep.delete(state.account);
+      if ([...this.limitParked.values()].some((p) => p.account === state.account)) {
+        this.limitRamp.set(state.account, { nextAt: Date.now() });
+      }
+      void this.pump();
+      return;
+    }
+    if (state.resetsAt !== null) this.armLimitTimer(state.resetsAt);
+    if (transition.kind === 'low') await this.notifyLimitLow(state).catch(() => undefined);
+    void this.pump();
+  }
+
+  /**
+   * LIMIT-LOW, once per window: every live task on the account is told to save its work (or, for
+   * the few that keep going, to finish what matters first); tree roots and supervisors — on this
+   * account or above a task that is — also get the reset time and their tasks on it.
+   */
+  private async notifyLimitLow(state: { account: string; remainingPercent: number | null; resetsAt: number | null }): Promise<void> {
+    const config = usageLimitConfig();
+    await this.refreshAccounts();
+    const defaultRunner = (await loadConfig(this.repoRoot).catch(() => undefined))?.defaultRunner ?? 'claude';
+    if (this.disposed) return;
+    const runs = this.store.listRuns();
+    const byId = new Map(runs.map((r) => [r.id, r]));
+    const keyOf = (run: RunRecord) => this.limitAccountOf(run, defaultRunner);
+    const onAccount = runs.filter((r) => !r.archived && (r.status === 'queued' || this.active.has(r.id)) && keyOf(r) === state.account);
+    if (onAccount.length === 0) return;
+    const keep = this.limitKeepSet(state.account, state.resetsAt, runs, keyOf, config.keepRunning);
+    const onIds = new Set(onAccount.map((r) => r.id));
+    const ancestors = (run: RunRecord): string[] => {
+      const out: string[] = [];
+      for (let parent = run.dispatch?.parentRunId; parent && !out.includes(parent); parent = byId.get(parent)?.dispatch?.parentRunId) out.push(parent);
+      return out;
+    };
+    const live = (id: string) => this.active.has(id) && !isTerminalStatus(byId.get(id)?.status ?? 'done') && !byId.get(id)?.archived;
+    const targets = new Set(onAccount.filter((r) => live(r.id)).map((r) => r.id));
+    for (const run of onAccount) for (const id of ancestors(run)) if (live(id)) targets.add(id);
+    for (const id of targets) {
+      const run = byId.get(id)!;
+      const role = treeRole(run, runs);
+      const tree = role === 'task' ? undefined : onAccount.filter((r) => r.id !== id && ancestors(r).includes(id))
+        .map((r) => ({ id: r.id, title: r.title, status: r.status }));
+      const text = limitLowText({
+        account: state.account, remainingPercent: state.remainingPercent, resetsAt: state.resetsAt,
+        keep: config.keepRunning, keepsRunning: onIds.has(id) ? keep.has(id) : null, ...(tree ? { tree } : {}),
+      });
+      const blocks: PastedContent[] = [{ type: 'text', text }];
+      if (!this.deliverMessage(id, blocks, false)) this.enqueueMessage(id, blocks);
+      this.store.appendEvent(id, {
+        type: 'note',
+        message: `LIMIT-LOW ${state.account}: warning sent — ${!onIds.has(id) ? 'tree owner' : keep.has(id) ? 'keeps working until the reset' : 'save and park'}`,
+      });
+    }
+  }
+
   private scheduleAutoResumeIfLimited(runId: string): void {
     if (this.autoResumeTimers.has(runId)) return; // already promised
     const run = this.store.getRun(runId);
@@ -3770,6 +3981,12 @@ export class RunManager {
     // Archiving IS resigning from a task. Reviving one because a window happened to reopen would
     // be the feature working against the clearest signal the user can give it.
     if (run.archived || run.fallbackEpisode?.done) return;
+    // Only a window still shut feeds the monitor: boot recovery replays old failures too.
+    const exhaustedUntil = run.status === 'failed' && isUsageExhaustion(run.error) ? parseUsageLimit(run.error)?.resetAt.getTime() : undefined;
+    if (exhaustedUntil !== undefined && exhaustedUntil > Date.now()) {
+      const failed = [...run.steps].reverse().find((step) => step.status === 'failed');
+      usageLimitMonitor.markExhausted(`${failed?.backend ?? run.runner ?? 'claude'}:${failed?.profileId ?? run.agentProfile ?? DEFAULT_AGENT_ACCOUNT_ID}`, exhaustedUntil);
+    }
     // An explicitly enabled fallback owns this failure only when it can transfer the task safely;
     // every other case — graphs included — takes the reset-time auto-resume exactly as on main.
     if (this.claimAgentFallback(run)) return;
@@ -3868,7 +4085,8 @@ export class RunManager {
    * still ahead keep the main behaviour, because a continuation would silently skip that work.
    */
   private fallbackFailure(run: RunRecord) {
-    const snapshot = run.fallbackPolicy;
+    // A task that predates the implicit default (spec 2026-11-15) takes it at its first exhaustion.
+    const snapshot = run.fallbackPolicy ?? ((live) => (isImplicitFallbackPolicy(live) ? live : undefined))(effectiveAgentFallbackPolicySync(this.repoRoot));
     if (!snapshot?.enabled || run.workflowDef?.graph) return undefined;
     const failed = [...run.steps].reverse().find((step) => step.status === 'failed');
     if (!failed || failed.kind === 'check') return undefined;
@@ -3884,7 +4102,7 @@ export class RunManager {
       const index = defined.findIndex((step) => step.id === failed.id);
       if (index !== -1 && index < defined.length - 1) return undefined;
     }
-    const live = getAgentFallbackPolicySync(this.repoRoot);
+    const live = effectiveAgentFallbackPolicySync(this.repoRoot);
     if (!fallbackConsentCurrent(snapshot as AgentFallbackPolicy, live)) return undefined;
     return { failed, successorFailedToStart };
   }
@@ -3912,6 +4130,7 @@ export class RunManager {
     const { failed, successorFailedToStart } = failure;
     const episode = run.fallbackEpisode;
     this.store.updateRun(run.id, {
+      ...(run.fallbackPolicy ? {} : { fallbackPolicy: effectiveAgentFallbackPolicySync(this.repoRoot) }),
       status: 'queued', finishedAt: undefined,
       fallbackEpisode: { ...episode, attempted: episode?.attempted ?? [], pending: true, done: undefined },
     });
@@ -3990,7 +4209,9 @@ export class RunManager {
     const run = this.store.getRun(runId);
     // Someone else moved the task on while the accounts loaded (a human Continue, a cancel, a delete).
     if (!run || !this.stillAwaitingFallback(runId, failedStepId)) return;
-    const snapshot = run.fallbackPolicy as AgentFallbackPolicy | undefined;
+    const stored = run.fallbackPolicy as AgentFallbackPolicy | undefined;
+    // The implicit list is re-derived now, so a named account added since the task started counts.
+    const snapshot = stored && isImplicitFallbackPolicy(stored) ? implicitFallbackPolicy(accounts) : stored;
     const attempted = new Set(run.fallbackEpisode?.attempted ?? []);
     if (!snapshot) return;
     const label = (key: string) => fallbackLabel(key, accounts);
@@ -4012,7 +4233,7 @@ export class RunManager {
       const refusal = await this.fallbackProviderRefusal(candidate.provider as RunnerId, candidate.profileId);
       if (this.disposed) return;
       if (!this.stillAwaitingFallback(runId, failedStepId)) return;
-      if (!fallbackConsentCurrent(snapshot, getAgentFallbackPolicySync(this.repoRoot))) {
+      if (!fallbackConsentCurrent(snapshot, effectiveAgentFallbackPolicySync(this.repoRoot))) {
         this.finishFallbackAdmission(runId, 'automatic fallback was switched off before the next agent started');
         return;
       }
@@ -4044,6 +4265,16 @@ export class RunManager {
       void this.pump();
       return;
     }
+    if (isImplicitFallbackPolicy(snapshot) && parseUsageLimit(run.error)) {
+      // The owner's default (spec 2026-11-15): no agent has allowance left, so the task waits for
+      // its own reset exactly as before fallback existed. The episode closes so the next limit
+      // after that resume may hand over again.
+      this.store.updateRun(runId, { status: 'failed', finishedAt: new Date().toISOString(), fallbackEpisode: undefined });
+      this.store.appendEvent(runId, { type: 'note', message: 'no other agent has usage left — waiting for this account\'s reset' });
+      const failed = this.store.getRun(runId);
+      if (failed) this.armUsageLimitResume(failed);
+      return;
+    }
     this.store.updateRun(runId, { status: 'failed', finishedAt: new Date().toISOString(), fallbackEpisode: { attempted: [...attempted], done: true } });
     const resets = (run.usageLimitHolds ?? []).filter((hold) => Date.parse(hold.until) > Date.now())
       .map((hold) => `${label(hold.account)} resets at ${formatWakeInstant(new Date(hold.until))}`).join('; ');
@@ -4061,7 +4292,7 @@ export class RunManager {
   private retireRevokedFallback(runId: string, stepId: string): boolean {
     const run = this.store.getRun(runId);
     if (!run?.fallbackPolicy || run.fallbackEpisode?.current?.stepId !== stepId) return false;
-    if (fallbackConsentCurrent(run.fallbackPolicy as AgentFallbackPolicy, getAgentFallbackPolicySync(this.repoRoot))) return false;
+    if (fallbackConsentCurrent(run.fallbackPolicy as AgentFallbackPolicy, effectiveAgentFallbackPolicySync(this.repoRoot))) return false;
     const finishedAt = new Date().toISOString();
     this.store.updateStep(runId, stepId, { status: 'failed', finishedAt });
     this.store.updateRun(runId, {
@@ -4370,6 +4601,8 @@ export class RunManager {
       const deadline = Date.parse(run.autoResumeAt);
       if (Number.isFinite(deadline) && deadline > now) return;
     }
+    // A low account parks its work until a reset that has its own timer (spec 2026-11-15).
+    if (this.limitParked.size > 0 && (usageLimitMonitor.parkingAccounts(now).size > 0 || this.limitRamp.size > 0)) return;
     if (this.semaphore.accountHolds().inFlight.size === 0) {
       // Not the hold, then — some other wakeup went missing. An ordinary pump is the whole fix,
       // and it is idempotent, so this stays quiet.
@@ -4444,7 +4677,8 @@ export class RunManager {
       const until = holds.deadlines?.get(key);
       const reason: RunRecord['queueWaitReason'] = run.status !== 'queued' ? undefined
         : until !== undefined ? { kind: 'usage-reset', until: new Date(until).toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-        : holds.inFlight.has(key) && !resumeInFlight(run) ? { kind: 'account-resume' } : undefined;
+        : holds.inFlight.has(key) && !resumeInFlight(run) ? { kind: 'account-resume' }
+        : this.limitReason(run.id);
       if (JSON.stringify(reason) !== JSON.stringify(run.queueWaitReason)) this.store.updateRun(run.id, { queueWaitReason: reason });
     }
   }
@@ -6024,7 +6258,7 @@ export class RunManager {
       const refusal = missing ? 'fallback account no longer exists'
         : await this.fallbackProviderRefusal(backend, profile);
       if (this.disposed || state.cancelled) { this.dropActive(runId, state); return; }
-      if (!fallback.fallbackPolicy || !fallbackConsentCurrent(fallback.fallbackPolicy as AgentFallbackPolicy, getAgentFallbackPolicySync(this.repoRoot))) {
+      if (!fallback.fallbackPolicy || !fallbackConsentCurrent(fallback.fallbackPolicy as AgentFallbackPolicy, effectiveAgentFallbackPolicySync(this.repoRoot))) {
         failBeforeSpawn('automatic fallback was switched off before the next agent started');
         return;
       }
@@ -6113,7 +6347,7 @@ export class RunManager {
     if (fallback?.fallbackEpisode?.current?.stepId === stepId) {
       const current = this.store.getRun(runId);
       if (!current?.fallbackPolicy || !fallbackConsentCurrent(
-        current.fallbackPolicy as AgentFallbackPolicy, getAgentFallbackPolicySync(this.repoRoot),
+        current.fallbackPolicy as AgentFallbackPolicy, effectiveAgentFallbackPolicySync(this.repoRoot),
       )) {
         failBeforeSpawn('automatic fallback was switched off before the next agent started');
         return;

@@ -36,3 +36,29 @@ export const usageWindowsSnapshotSchema = usageWindowsObservationSchema.extend({
   binding: usageAccountBindingSchema,
 }).refine((s) => s.provider === s.binding.provider, 'Provider must match account binding');
 export type UsageWindowsSnapshot = z.infer<typeof usageWindowsSnapshotSchema>;
+
+/** One account's limit as the monitor sees it (spec 2026-11-15-usage-limit-fallback). */
+export const usageLimitStateSchema = z.object({
+  /** `provider:profileId`, the queue's account key. */
+  account: z.string().min(1).max(320),
+  provider: z.string().min(1).max(64),
+  profileId: z.string().min(1).max(256),
+  /** Remaining share of the tightest account-wide window, 0–100; null when no percentage is known. */
+  remainingPercent: z.number().min(0).max(100).nullable(),
+  resetsAt: z.number().int().positive().nullable(),
+  windowId: z.string().max(256).nullable(),
+  state: z.enum(['ok', 'low', 'exhausted']),
+  observedAt: z.number().int().nonnegative(),
+  /** The reset instant of the window whose LIMIT-LOW warning was already sent. */
+  warnedResetsAt: z.number().int().positive().nullable(),
+});
+export type UsageLimitState = z.infer<typeof usageLimitStateSchema>;
+
+export const usageLimitsResponseSchema = z.object({
+  lowPercent: z.number(),
+  keepRunning: z.number().int(),
+  rampSeconds: z.number().int(),
+  fallback: z.boolean(),
+  accounts: z.array(usageLimitStateSchema),
+});
+export type UsageLimitsResponse = z.infer<typeof usageLimitsResponseSchema>;

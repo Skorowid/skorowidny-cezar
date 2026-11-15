@@ -380,6 +380,7 @@ import {
 import { ProviderRuntimeAuthObserver } from './provider-auth-runtime.ts';
 import { MessageReceipts } from './message-receipts.ts';
 import { MeshyRefusal, findPython, meshyPaths, readMeshyStatus, setProjectMeshy } from '../meshy/meshy.ts';
+import { usageLimitConfig, usageLimitMonitor } from '../workspace/usage-limit-monitor.ts';
 import { setMeshyProjectInputSchema, type MeshyStatus } from '@open-mercato/cezar-contract';
 import type { MessageResponse } from '@open-mercato/cezar-contract';
 import {
@@ -3508,6 +3509,18 @@ export function createApp(deps: ServerDeps) {
     );
     return readMeshyStatus(meshyPathsFor, refs, capabilities().localHandoff);
   };
+  // Usage-limit monitor (spec 2026-11-15-usage-limit-fallback): what the runners last reported.
+  const usageLimitRoutes = new Hono()
+    .get('/workspace/usage-limits', (c) => {
+      const config = usageLimitConfig();
+      return c.json({
+        lowPercent: config.lowPercent,
+        keepRunning: config.keepRunning,
+        rampSeconds: Math.round(config.rampMs / 1000),
+        fallback: config.fallback,
+        accounts: usageLimitMonitor.list(),
+      });
+    });
   const meshyRoutes = new Hono()
     .get('/workspace/meshy', async (c) => c.json(await meshyStatusResponse()))
     .put(
@@ -8519,6 +8532,7 @@ export function createApp(deps: ServerDeps) {
     .route('/', agentProfilesRoutes)
     .route('/', skillsUpdateRoutes)
     .route('/', meshyRoutes)
+    .route('/', usageLimitRoutes)
     .route('/', selfUpdateRoutes)
     .route('/', starCountRoutes)
     .route('/', previewRoutes)

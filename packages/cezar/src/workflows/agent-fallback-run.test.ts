@@ -157,7 +157,8 @@ describe('automatic agent fallback', () => {
     expect(summary?.tone).toBe('danger');
   }, 40_000);
 
-  it('leaves the zero-config path untouched: no policy means the reset-time auto-resume, exactly as before', async () => {
+  it('with CEZ_LIMIT_FALLBACK=0 and no policy, keeps the reset-time auto-resume, exactly as before', async () => {
+    process.env.CEZ_LIMIT_FALLBACK = '0';
     manager = new RunManager(store, repoRoot);
     const started = manager.startRun(workflow, { task: 'mock:limit', worktree: false });
     await until(() => settled(started.id), 'run to fail');

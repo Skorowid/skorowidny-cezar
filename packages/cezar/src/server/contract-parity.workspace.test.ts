@@ -43,6 +43,7 @@ import type {
   skillsUpdateStateSchema,
   meshyStatusSchema,
   setMeshyProjectInputSchema,
+  usageLimitsResponseSchema,
   selfUpdateStatusSchema,
   starCountSchema,
   designProxyResponseSchema,
@@ -166,6 +167,7 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
   type Meshy200 = InferResponseType<typeof client.api.v1.workspace.meshy.$get, 200>;
   type SetMeshy200 = InferResponseType<(typeof client.api.v1.workspace.meshy.projects)[':projectId']['$put'], 200>;
   type SetMeshyBody = InferRequestType<(typeof client.api.v1.workspace.meshy.projects)[':projectId']['$put']>['json'];
+  type UsageLimits200 = InferResponseType<(typeof client.api.v1.workspace)['usage-limits']['$get'], 200>;
 
   // ---- self-update (PoC) --------------------------------------------------------------------
   type SelfUpdate200 = InferResponseType<(typeof client.api.v1.workspace)['self-update']['$get'], 200>;
@@ -295,6 +297,7 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
     Assert<Exact<z.infer<typeof meshyStatusSchema>, Meshy200>>,
     Assert<Exact<z.infer<typeof meshyStatusSchema>, SetMeshy200>>,
     Assert<Exact<z.input<typeof setMeshyProjectInputSchema>, SetMeshyBody>>,
+    Assert<Exact<z.infer<typeof usageLimitsResponseSchema>, UsageLimits200>>,
     // self-update
     Assert<Exact<z.infer<typeof selfUpdateStatusSchema>, SelfUpdate200>>,
     Assert<Exact<z.infer<typeof selfUpdateStatusSchema>, SelfUpdateRefresh200>>,
