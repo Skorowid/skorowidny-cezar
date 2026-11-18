@@ -11,7 +11,6 @@ import {
 } from '@open-mercato/cezar-api-client'
 
 import { ApiError } from '@/api/client'
-import { SID_HEADER, sid } from '@/lib/sid'
 
 /**
  * The configuration bundle routes (spec 2026-11-04-automations-and-config-export-import, Phase 2).
@@ -27,10 +26,8 @@ export const MAX_BUNDLE_BYTES = 5 * 1024 * 1024
 
 async function call(route: string, init: RequestInit = {}): Promise<Response> {
   const url = apiPath(route)
-  const headers = new Headers(init.headers)
-  headers.set(SID_HEADER, sid())
   try {
-    return await fetch(url, { ...init, headers, credentials: 'include' })
+    return await fetch(url, { ...init, credentials: 'include' })
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') throw cause
     throw new ApiError(0, `cannot reach the cezar server (${url})`, { cause })

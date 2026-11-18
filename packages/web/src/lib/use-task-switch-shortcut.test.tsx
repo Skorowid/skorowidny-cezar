@@ -6,13 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createQueryClient } from '@/api/query-client'
 import type { RunRecord } from '@open-mercato/cezar-api-client'
 
-import * as telemetry from './telemetry'
 import { SWITCH_TASK_EVENT, TaskSwitchShortcut } from './use-task-switch-shortcut'
-
-vi.mock('@/lib/telemetry', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/telemetry')>()
-  return { ...actual, trackTaskSwitched: vi.fn() }
-})
 
 function run(id: string, extra: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -56,7 +50,6 @@ afterEach(() => {
   cleanup()
   fetchMock.mockReset()
   vi.unstubAllGlobals()
-  vi.mocked(telemetry.trackTaskSwitched).mockClear()
 })
 
 function LocationProbe() {
@@ -94,7 +87,6 @@ describe('⌥↑ / ⌥↓', () => {
     await waitFor(() => expect(location()).toBe('/tasks/waiting'))
     await press('ArrowUp')
     await waitFor(() => expect(location()).toBe('/tasks/old'))
-    expect(telemetry.trackTaskSwitched).toHaveBeenCalledWith('arrow')
   })
 
   it('start at the top from a page that is not a task', async () => {
@@ -135,7 +127,6 @@ describe('⌥↑ / ⌥↓', () => {
     await send('sideways')
     await act(async () => {})
     expect(location()).toBe('/tasks/review')
-    expect(telemetry.trackTaskSwitched).toHaveBeenCalledWith('arrow')
   })
 
   it('stay quiet under a dialog', async () => {

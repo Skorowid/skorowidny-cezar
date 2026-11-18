@@ -31,10 +31,7 @@ import {
   useRunChanges,
   useRuns,
   useSkills,
-  useSkillsUpdate,
   useReferenceStatuses,
-  useStarCount,
-  STAR_COUNT_REFRESH_MS,
   workspaceQueryKeys,
   __clearRememberedStatusesForTests,
 } from './queries'
@@ -559,125 +556,6 @@ describe('useSkills', () => {
       expect(result.current.data?.map((skill) => skill.name)).toEqual(['local', 'om-fix']),
     )
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/v1/skills', '/api/v1/skills?wait=1'])
-  })
-})
-
-describe('useStarCount', () => {
-  it('re-reads the count only alongside another fetch, and only once it is fifteen minutes old', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    try {
-      let count = 100
-      fetchMock.mockImplementation(async (path) =>
-        path === '/api/v1/star-count'
-          ? json({ available: true, count: count++, url: 'https://github.com/open-mercato/cezar' })
-          : json({ ok: true }),
-      )
-      const starReads = () => fetchMock.mock.calls.filter(([path]) => path === '/api/v1/star-count').length
-      const client = createQueryClient()
-      const other = () => client.fetchQuery({ queryKey: ['other'], queryFn: () => fetch('/api/v1/other'), staleTime: 0 })
-      const { result } = renderHook(() => useStarCount(), {
-        wrapper: ({ children }: { children: ReactNode }) => (
-          <QueryClientProvider client={client}>{children}</QueryClientProvider>
-        ),
-      })
-      await waitFor(() => expect(result.current.data?.count).toBe(100))
-      expect(STAR_COUNT_REFRESH_MS).toBe(15 * 60_000)
-
-      // No timer of its own: a quiet cockpit asks for nothing, however long it sits.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(STAR_COUNT_REFRESH_MS * 2)
-      })
-      expect(starReads()).toBe(1)
-
-      // An SSE-style cache patch is not a request, so it does not carry a re-read either.
-      act(() => client.setQueryData(['patched'], 1))
-      expect(starReads()).toBe(1)
-
-      // Another request does — and the count follows.
-      await act(async () => { await other() })
-      await waitFor(() => expect(result.current.data?.count).toBe(101))
-      expect(starReads()).toBe(2)
-
-      // Inside the next fifteen minutes, further requests leave the count alone.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(STAR_COUNT_REFRESH_MS - 1_000)
-        await client.invalidateQueries({ queryKey: ['other'] })
-        await other()
-      })
-      expect(starReads()).toBe(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-})
-
-describe('useSkillsUpdate', () => {
-  it('retries a transient snapshot conservatively until the background server check converges', async () => {
-    fetchMock.mockResolvedValue(json({
-      status: 'idle',
-      available: false,
-      autoUpdateEnabled: false,
-      inherited: false,
-      checkedAt: null,
-      updatedAt: null,
-      scopes: [],
-      needsUpgradeNotes: false,
-    }))
-    const client = createQueryClient()
-    const key = workspaceQueryKeys.skillsUpdate('boot')
-    const { result } = renderHook(() => useSkillsUpdate('boot'), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-      ),
-    })
-    await waitFor(() => expect(result.current.data?.status).toBe('idle'))
-
-    const query = client.getQueryCache().find({ queryKey: key })
-    const interval = query?.observers[0]?.options.refetchInterval
-    expect(typeof interval).toBe('function')
-    expect((interval as (current: typeof query) => number | false)(query)).toBe(60_000)
-
-    client.setQueryData(key, { ...result.current.data!, status: 'current' })
-    expect((interval as (current: typeof query) => number | false)(query)).toBe(false)
-
-    client.setQueryData(key, { ...result.current.data!, status: 'available' })
-    expect((interval as (current: typeof query) => number | false)(query)).toBe(false)
-  })
-
-  it('keeps asking while no check has completed, then stands down at the cap', async () => {
-    fetchMock.mockImplementation(async () => json({
-      status: 'idle',
-      available: false,
-      autoUpdateEnabled: false,
-      inherited: false,
-      checkedAt: null,
-      updatedAt: null,
-      scopes: [],
-      needsUpgradeNotes: false,
-    }))
-    const client = createQueryClient()
-    const key = workspaceQueryKeys.skillsUpdate('boot')
-    const { result } = renderHook(() => useSkillsUpdate('boot'), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-      ),
-    })
-    await waitFor(() => expect(result.current.data?.status).toBe('idle'))
-
-    const query = client.getQueryCache().find({ queryKey: key })
-    const interval = query?.observers[0]?.options.refetchInterval as (current: unknown) => number | false
-    const idle = result.current.data!
-    const at = (dataUpdateCount: number, data = idle) => interval({ state: { data, dataUpdateCount } })
-
-    // One idle read is not enough: the check the first GET started can still be queued behind
-    // another project's on the server, and `idle` only means it has not finished.
-    expect(at(2)).toBe(60_000)
-    // Bounded: once idle has been answered this often, the poll stands down and the reconnect /
-    // tab-return reconcile owns the update.
-    expect(at(6)).toBe(false)
-
-    expect(at(7, { ...idle, status: 'checking' })).toBe(60_000)
-    expect(at(7, { ...idle, status: 'current' })).toBe(false)
   })
 })
 

@@ -55,7 +55,7 @@ export const NAV_ITEMS: NavItem[] = [
   // After the repo group, before Automations — the approved mockup's order (spec 2026-10-22, Phase 3).
   { to: '/assets', label: 'Assets', icon: LayersIcon, match: ['/assets'] },
   { to: '/automations', label: 'Automations', icon: ZapIcon, match: ['/automations'], automations: true },
-  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'], badge: 'skills-update' },
+  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'] },
   { to: '/workflows', label: 'Workflows', icon: WorkflowIcon, match: ['/workflows'] },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, match: ['/settings'] },
 ]

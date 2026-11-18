@@ -9,7 +9,6 @@ import { TaskPalette } from '@/components/task-palette/task-palette'
 import { ListViewProvider } from '@/components/list-view'
 import { HostUsageWidget } from '@/components/host-usage-widget'
 import { ProviderBannerContainer } from '@/components/provider-banner-container'
-import { TelemetryConsentBanner } from '@/components/telemetry-consent'
 import { ProjectGroups } from '@/components/project-groups'
 import { TaskQuickListContainer } from '@/components/task-quick-list'
 import { ToolsMenu } from '@/components/tools-menu'
@@ -42,12 +41,6 @@ export function repoChipOf(health: HealthResponse | undefined): RepoChip | null 
   return { name, branch: repo.branch }
 }
 
-/** Only a checked, still-actionable result earns chrome. An update failure may retain a proven
- * available scope, so keep that signal; all unknown/transient/degraded states stay quiet. */
-export function skillsUpdateMarkerOf(state: SkillsUpdateState | undefined): boolean {
-  return state?.available === true && (state.status === 'available' || state.status === 'error')
-}
-
 /**
  * The app shell, wired to live data.
  *
@@ -65,11 +58,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
   const projectId = useActiveProjectId()
   const health = useHealth()
   const workspaceConfig = useWorkspaceConfig()
-  const branding = workspaceConfig.data?.branding
-  const customBranding = branding !== undefined && (
-    branding.name !== 'cezar' || branding.logoUrl !== null
-  )
-  const starCount = useStarCount(!customBranding && workspaceConfig.data !== undefined)
   // The global inbox is opt-in (#471). With the capability off there is no Inbox nav item to
   // badge and the endpoint can only answer [], so the query parks rather than polls.
   const inboxAvailable = health.data?.capabilities.followups === true
@@ -77,10 +65,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
   // it the nav must not offer a tab whose every request would 409.
   const automationsAvailable = health.data?.capabilities.automations === true
   const todos = useTodos(inboxAvailable)
-  // One query in the shell feeds every rendering of the active project's navigation (desktop,
-  // mobile drawer, and grouped sidebar). Routes reuse this TanStack Query cache entry.
-  const skillsUpdate = useSkillsUpdate(projectId ?? '', projectId !== null)
-  const skillsUpdateAvailable = skillsUpdateMarkerOf(skillsUpdate.data)
   // Records the visit and dots the nav items whose feature shipped since (spec
   // 2026-10-26-first-run-onboarding, "Coming back").
   const newNavItems = useFeatureNews(stripProjectPrefix(pathname))
@@ -151,8 +135,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
     [globalSettings, projectId, bootProjectId, projectName, registry?.projects],
   )
   const banner = useMemo(() => <ProviderBannerContainer />, [])
-  // The opt-in ask (docs/telemetry.md): renders nothing once this machine has answered.
-  const footerBanner = useMemo(() => <TelemetryConsentBanner />, [])
   const taskQuickList = useMemo(() => <TaskQuickListContainer />, [])
   // The sidebar glance. Created here, not inside `AppShell`, because the shell stays presentational
   // and QueryClient-free: the widget's own wrapper evaluates the viewport and transport gates and
@@ -200,17 +182,12 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
         brandLogoUrl={workspaceConfig.data?.branding.logoUrl ?? null}
         version={health.data?.version ?? null}
         latestVersion={health.data?.latestVersion ?? null}
-        // The ⭐ ask's count. Same honesty rule as the chips above: `available: false` — offline,
-        // a rate-limited IP, or promos silenced with `CEZ_NO_BANNER=1` — is `null` here, and
-        // AppShell renders no chip for it rather than a button that cannot count.
-        starCount={!customBranding && starCount.data?.available ? (starCount.data.count ?? null) : null}
         // `?? null` rather than `?? 0`: no badge while the inbox is unknown, and no badge when it
         // is known to be empty — AppShell renders neither for a falsy count.
         inboxCount={todos.data?.length ?? null}
         // Same `?? null` honesty: no badge while the list is unknown; a loaded list with none
         // unread is 0, which AppShell also renders as no badge.
         unreadCount={runs.data ?? null}
-        skillsUpdateAvailable={skillsUpdateAvailable}
         newNavItems={newNavItems}
         // Shown whenever the remote is a recognized forge, like each project group's tab (#698);
         // a cold or failed probe is the GitHub page's to explain and retry (#1412).
@@ -223,7 +200,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
         tracker={tracker}
         banner={banner}
         whatsNew={whatsNew}
-        footerBanner={footerBanner}
         singleProject={health.data?.capabilities.singleProject === true}
         taskQuickList={taskQuickList}
         hostWidget={hostWidget}

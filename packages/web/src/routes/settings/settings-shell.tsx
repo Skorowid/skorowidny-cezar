@@ -9,7 +9,7 @@ import {
 } from 'react-router'
 import type { Capabilities, ProjectListEntry } from '@open-mercato/cezar-api-client'
 
-import { useHealth, useProjects, useStarCount, useWorkspaceConfig } from '@/api/queries'
+import { useHealth, useProjects, useWorkspaceConfig } from '@/api/queries'
 import { StarChip, VersionChip } from '@/components/app-shell'
 import { BrandLockup } from '@/components/brand-mark'
 import { CommandPaletteHint } from '@/components/command-palette-hint'
@@ -459,8 +459,6 @@ function SettingsSidebarContent({
   const health = useHealth().data
   const version = health?.version ?? null
   const latestVersion = health?.latestVersion ?? null
-  const stars = useStarCount().data
-  const starCount = stars?.available ? (stars.count ?? null) : null
   // White-label branding (main): the same name and logo the app sidebar's lockup and chips show.
   const branding = useWorkspaceConfig().data?.branding
   const brandName = branding?.name ?? 'cezar'

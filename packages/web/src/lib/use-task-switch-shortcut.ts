@@ -7,7 +7,6 @@ import { taskIdFromPath } from '@/components/task-palette/task-palette'
 import { shortcutsBlocked } from './keybindings'
 import { useActiveProjectId, useNavigate } from './project-router'
 import { stepTaskRing, taskRing, type RingDirection } from './task-ring'
-import { trackTaskSwitched } from './telemetry'
 
 /** The ring an ⌥-arrow keydown walks, or null when it is not one. ⇧ picks the Needs-you ring. */
 export function taskSwitchFromEvent(
@@ -45,7 +44,6 @@ export function useTaskSwitchShortcut(): void {
       const now = state.current
       const target = stepTaskRing(taskRing(now.runs ?? [], needsYouOnly), taskIdFromPath(now.pathname), direction)
       if (target === null) return false
-      trackTaskSwitched('arrow')
       now.navigate(`/tasks/${target}`)
       return true
     }

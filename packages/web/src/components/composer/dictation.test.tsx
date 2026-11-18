@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/api/query-client'
 import { onDangerToast, resetToasts, Toaster } from '@/components/ui/toaster'
-import { reportDictationFailed } from '@/lib/telemetry'
 
 import { Composer } from './composer'
 import {
@@ -19,16 +18,10 @@ import {
   type SpeechResultEventLike,
 } from './dictation'
 
-vi.mock('@/lib/telemetry', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/telemetry')>()),
-  reportDictationFailed: vi.fn(),
-}))
-
 afterEach(() => {
   cleanup()
   resetToasts()
   vi.unstubAllGlobals()
-  vi.mocked(reportDictationFailed).mockClear()
   resetDictationAvailability()
 })
 
@@ -207,11 +200,8 @@ describe('the dictation overlay (paseo pattern)', () => {
     expect(await screen.findByText('Dictation failed — bad-grammar')).toBeTruthy()
     expect(document.querySelector('[data-slot="dictation-overlay"]')).toBeNull()
     expect(recognition.aborted).toBe(true)
-    expect(reportDictationFailed).toHaveBeenCalledWith('bad-grammar')
   })
 
-  // telemetry 38ccdbdc / 252d00a6: every code is one report under one fingerprint, never the
-  // generic danger-toast report whose group is the message text.
   // telemetry c55c7b0b (regressed in 0.16.2 from Android Chrome): a refused microphone is the
   // user's or the browser's choice — an actionable notice, never a reported failure.
   it('a refused microphone says what to do and reports nothing', async () => {
@@ -221,7 +211,6 @@ describe('the dictation overlay (paseo pattern)', () => {
     renderComposer()
     act(() => startDictation().onerror!({ error: 'not-allowed' }))
     expect(await screen.findByText("Microphone blocked — allow it for this site in the browser's site settings")).toBeTruthy()
-    expect(reportDictationFailed).not.toHaveBeenCalled()
     expect(toastReports).toEqual([])
     // Not a dead end: the user can unblock the site and try again without a reload.
     expect(screen.getByLabelText('Start dictation').getAttribute('aria-disabled')).not.toBe('true')
@@ -233,7 +222,6 @@ describe('the dictation overlay (paseo pattern)', () => {
     renderComposer()
     act(() => startDictation().onerror!({ error: 'service-not-allowed' }))
     expect(await screen.findByText(DICTATION_NO_SERVICE)).toBeTruthy()
-    expect(reportDictationFailed).not.toHaveBeenCalled()
   })
 
   it('no-speech is a plain notice, not a reported failure; aborted is silent', async () => {
@@ -244,7 +232,6 @@ describe('the dictation overlay (paseo pattern)', () => {
     act(() => startDictation().onerror!({ error: 'no-speech' }))
     const toast = (await screen.findByText('Dictation heard nothing — try again')).closest('[data-tone]')
     expect(toast?.getAttribute('data-tone')).toBe('default')
-    expect(reportDictationFailed).not.toHaveBeenCalled()
   })
 
   it('a speech service that refuses disables the mic for the session, saying why', async () => {
@@ -296,7 +283,6 @@ describe('the dictation overlay (paseo pattern)', () => {
     renderComposer()
     act(() => startDictation().onerror!({ error: 'not-allowed' }))
     expect(await screen.findByText(/System Settings → Privacy & Security/)).toBeTruthy()
-    expect(reportDictationFailed).not.toHaveBeenCalled()
   })
 
   it('a mic that will not start (permissions) toasts honestly instead of hanging the overlay', async () => {

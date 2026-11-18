@@ -18,7 +18,6 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toaster'
 import { formatChord } from '@/lib/keybindings'
-import { trackDesignModeEnabled } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 import {
@@ -220,7 +219,6 @@ export function BrowserView({
   const toggleDesign = useRef<() => boolean>(() => false)
   toggleDesign.current = () => {
     if (!designAllowed || targetOrigin === null) return false
-    if (!design) trackDesignModeEnabled('shortcut')
     setDesign((on) => !on)
     return true
   }

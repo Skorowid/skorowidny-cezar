@@ -2,13 +2,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 
 import { ApiError, MESSAGE_RETRY_DELAYS_MS } from '@/api/client'
-import { uuidv7 } from '@/lib/sid'
+import { uuidv7 } from '@/lib/uuid'
 import { runQueryOptions, useSendMessage } from '@/api/queries'
-import type { ApiRun, AttachmentEntry, MessageSurface, RunStatus } from '@open-mercato/cezar-api-client'
+import type { ApiRun, AttachmentEntry, RunStatus } from '@open-mercato/cezar-api-client'
 
 import type { ContinueAction } from './follow-up-engine'
 import { lastSessionId } from './run-actions'
-import { trackMessageSent } from '@/lib/telemetry'
 
 /**
  * The composer's one delivery path — and its recovery when the record it aimed by was stale.
@@ -93,13 +92,9 @@ export function useDeliverPrompt(
   continueWith: ContinueAction['continueWith'],
   opts: {
     wait?: (delayMs: number) => Promise<void>
-    /** The `message_sent` label for a delivery that landed through this seam. Every caller of one
-     *  thread's composer is `existing_session`; the review gate's notes are `review`. `null` counts
-     *  nothing — the footer's one-click Continue was never a `message_sent` (#1473 review). */
-    surface?: Exclude<MessageSurface, 'cli'> | null
   } = {},
 ): DeliverPrompt {
-  const { wait = delaySessionGapRetry, surface = 'existing_session' } = opts
+  const { wait = delaySessionGapRetry } = opts
   const queryClient = useQueryClient()
   // `mutateAsync` is referentially stable (the mutation RESULT is not — see the thread's `edit`
   // memo for the same rule), so this callback is stable across the streaming re-renders a live
@@ -112,11 +107,8 @@ export function useDeliverPrompt(
       // Every Continue re-post below carries the same key: one accepted behind the run's teardown
       // (continueOnDrop) adds no step yet, so only the server's receipt can tell it already landed.
       const continueKey = uuidv7()
-      const deliver = async (path: DeliveryPath) => {
-        const result = await (path === 'live' ? sendMessageAsync({ text, images }) : continueWith(text, images, continueKey))
-        if (surface) trackMessageSent(surface)
-        return result
-      }
+      const deliver = (path: DeliveryPath) =>
+        path === 'live' ? sendMessageAsync({ text, images }) : continueWith(text, images, continueKey)
       const refetch = () => queryClient.fetchQuery({ ...runQueryOptions(run.id), staleTime: 0 })
       const attempted = deliveryPath(run.status)
       let firstError: unknown
@@ -182,6 +174,6 @@ export function useDeliverPrompt(
         return await deliver(path)
       }
     },
-    [continueWith, knownContinuations, queryClient, run.id, run.status, sendMessageAsync, surface, wait],
+    [continueWith, knownContinuations, queryClient, run.id, run.status, sendMessageAsync, wait],
   )
 }

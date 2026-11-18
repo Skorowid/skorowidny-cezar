@@ -90,7 +90,7 @@ function ReviewActions({ run, diffComments }: { run: ApiRun; diffComments?: Diff
       continueRun(run.id, { text, runner: continuation.runnerOverride, idempotencyKey }),
     [run.id, continuation.runnerOverride],
   )
-  const deliverPrompt = useDeliverPrompt(run, continueWith, { surface: 'review' })
+  const deliverPrompt = useDeliverPrompt(run, continueWith)
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
 
   // Legacy send-back semantics verbatim (web/app.js `data-action="send-back"`): the notes go

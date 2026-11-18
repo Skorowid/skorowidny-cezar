@@ -12,7 +12,7 @@ import {
   formatChord,
   isApplePlatform,
 } from '@/lib/keybindings'
-import { clientSurface } from '@/lib/telemetry'
+import { clientSurface } from '@/lib/client-surface'
 import { useKeybindings } from '@/lib/use-keybindings'
 import { cn } from '@/lib/utils'
 

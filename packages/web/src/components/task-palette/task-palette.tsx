@@ -39,15 +39,6 @@ import { queueFileOpen, taskWorkspaceFor } from '@/lib/task-workspace-bridge'
 import { altGrProblem, BINDABLE_COMMANDS, chordFromEvent, chordProblem, formatChord, isApplePlatform, shortcutsBlocked } from '@/lib/keybindings'
 import { commandShortcutHint, isEditableTarget, useCommandShortcut } from '@/lib/use-command-shortcut'
 import { useKeybindings } from '@/lib/use-keybindings'
-import {
-  countTaskCommand,
-  searchModes,
-  trackPaletteDismissed,
-  trackPaletteModes,
-  trackPaletteOpened,
-  trackTaskSwitched,
-  type PaletteMode as SearchMode,
-} from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import { useRunGitStep } from '@/routes/task-git/run-git-step'
 import { useRunReferences } from '@/routes/task-thread/run-header'
@@ -144,18 +135,12 @@ export function TaskPalette() {
   const close = React.useCallback(() => setOpen(false), [])
   usePaletteExclusion('task', open, close)
 
-  // Telemetry for one palette session (spec 2026-10-17-task-palette): the search modes it used,
-  // and whether ⌘P was cycled — sent when it closes. Shapes only, never the text.
-  const sessionModes = React.useRef(new Set<SearchMode>())
-  const cycled = React.useRef(false)
   const openRef = React.useRef(open)
   openRef.current = open
 
   const show = React.useCallback((subject: string | null, initialSearch: string, { reopen = false } = {}) => {
     // An opening — not a re-scope of an open palette (Tab, Backspace), and not the palette coming
     // back on its own (after a cross-project Tab's navigation, for the rename shortcut).
-    if (!openRef.current && !reopen) trackPaletteOpened(subject ? 'task' : 'task_switch')
-    cycled.current = false
     setSubjectId(subject)
     setSearch(initialSearch)
     setSelected('')
@@ -184,13 +169,11 @@ export function TaskPalette() {
       // Repeated ⌘P walks the switcher: the first repeat lands on the previous task.
       if ((renaming || !search.startsWith('@')) && subjectId) {
         setSearch('@')
-        cycled.current = true
         setCycleTo({ step: 1 })
         return
       }
       const rows = taskRows()
       const at = rows.findIndex((row) => row.dataset.value === selected)
-      cycled.current = true
       setCycleTo({ step: at + 1 >= rows.length ? 0 : at + 1 })
     },
     { inEditable: true },
@@ -262,7 +245,6 @@ export function TaskPalette() {
   const perform = (id: string, beside = false) => {
     const command = subjectApi.current?.build().find((candidate) => candidate.id === id)
     if (!command || command.unavailable) return
-    countTaskCommand(command.id, 'palette')
     // Rename edits in place: the palette's input becomes the title field.
     if (command.id === 'rename') {
       command.perform()
@@ -283,7 +265,6 @@ export function TaskPalette() {
   const pickTask = React.useCallback(
     (task: PaletteTask) => {
       performed.current = true
-      trackTaskSwitched(cycled.current ? 'cycle' : 'enter')
       setOpen(false)
       navigate(paletteTaskPath(task))
     },
@@ -337,7 +318,6 @@ export function TaskPalette() {
       if (!command) return
       event.preventDefault()
       if (command.unavailable) return void toast(command.unavailable)
-      countTaskCommand(command.id, 'shortcut')
       if (command.id === 'rename') {
         now.show(now.pageTaskId, '', { reopen: true })
         setTimeout(now.beginRename, 0)
@@ -390,7 +370,6 @@ export function TaskPalette() {
       const runId = row?.dataset.slot === TASK_ROW ? row.dataset.runId : undefined
       if (!runId) return
       event.preventDefault()
-      trackTaskSwitched('tab')
       actOn({ runId, projectId: row?.dataset.projectId ?? null })
       return
     }
@@ -412,15 +391,6 @@ export function TaskPalette() {
   }
 
   const { mode, query } = renaming ? { mode: 'all' as const, query: '' } : paletteMode(search, subjectId !== null)
-  React.useEffect(() => {
-    if (!open || renaming || recording) return
-    for (const used of searchModes(query, mode === 'all' ? undefined : mode)) sessionModes.current.add(used)
-  }, [open, renaming, recording, query, mode])
-  React.useEffect(() => {
-    if (open || sessionModes.current.size === 0) return
-    trackPaletteModes(sessionModes.current)
-    sessionModes.current = new Set()
-  }, [open])
 
   return (
     <>
@@ -439,7 +409,6 @@ export function TaskPalette() {
         open={open}
         onOpenChange={(next) => {
           // Radix closes only on Escape or a click outside — every command closes it itself.
-          if (!next) trackPaletteDismissed(mode === 'tasks' ? 'tasks' : mode === 'files' ? 'files' : 'actions')
           setOpen(next)
         }}
         title="Task palette"

@@ -82,7 +82,6 @@ export type SettingsSectionId =
   | 'webhooks'
   | 'workspace-secrets'
   | 'transfer'
-  | 'privacy'
   | 'meshy'
 
 /** Which settings area a section belongs to — and therefore which store it writes. */

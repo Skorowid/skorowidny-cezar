@@ -171,24 +171,6 @@ describe('repoChipOf', () => {
   })
 })
 
-const UPDATE: SkillsUpdateState = {
-  status: 'available', available: true, autoUpdateEnabled: true, inherited: true,
-  checkedAt: '2026-07-22T00:00:00.000Z', updatedAt: null, scopes: [], needsUpgradeNotes: false,
-}
-
-describe('skillsUpdateMarkerOf', () => {
-  it.each([
-    ['loading', undefined, false],
-    ['available', UPDATE, true],
-    ['proven available with an error', { ...UPDATE, status: 'error' as const }, true],
-    ['current', { ...UPDATE, status: 'current' as const, available: false }, false],
-    ['unavailable', { ...UPDATE, status: 'unavailable' as const, available: false }, false],
-    ['updating', { ...UPDATE, status: 'updating' as const }, false],
-  ])('%s → %s', (_name, state, expected) => {
-    expect(skillsUpdateMarkerOf(state)).toBe(expected)
-  })
-})
-
 describe('sidebar wiring', () => {
   // The global Tasks page is the one non-project page WITH a sidebar: settings pages render no
   // sidebar at all (chromeless, spec 2026-10-13-unified-settings), so there is no tracker row

@@ -10,25 +10,8 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { recordTaskVisit, resetRecentTasks } from '@/lib/recent-tasks'
 import { publishTaskWorkspace, resetTaskWorkspaceBridge, type TaskWorkspaceBridge } from '@/lib/task-workspace-bridge'
 
-import * as telemetry from '@/lib/telemetry'
-
 import { keepsSubject, paletteMode, rankPaths, TaskPalette, taskIdFromPath } from './task-palette'
 import { __resetGitStepFlights } from '@/routes/task-git/run-git-step'
-
-// Spies over the real helpers (their `send` is a no-op under test): the palettes' wiring is what
-// is asserted here, the helpers themselves in `lib/telemetry-palette.test.ts`.
-vi.mock('@/lib/telemetry', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/telemetry')>()
-  return {
-    ...actual,
-    trackPaletteOpened: vi.fn(),
-    trackPaletteDismissed: vi.fn(),
-    trackPaletteModes: vi.fn(),
-    trackTaskSwitched: vi.fn(),
-    countTaskCommand: vi.fn(),
-    trackShortcutRebound: vi.fn(),
-  }
-})
 
 const fetchMock = vi.fn<typeof fetch>()
 let sent: { method: string; path: string; body: unknown }[] = []
@@ -447,21 +430,17 @@ describe('the grammar', () => {
   })
 })
 
-describe('telemetry', () => {
+describe('command surfaces', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('reports an opening, the command run from a row, and its own surface on the pin', async () => {
+  it('labels a pin run from a palette row with its own surface', async () => {
     renderPalettes('/tasks/r1')
     await pressP()
-    expect(telemetry.trackPaletteOpened).toHaveBeenCalledWith('task')
     fireEvent.click(await within(palette()!).findByText('Pin'))
-    expect(telemetry.countTaskCommand).toHaveBeenCalledWith('pin', 'palette')
     await waitFor(() => expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'palette' }))
-    // Choosing something is not a dismissal.
-    expect(telemetry.trackPaletteDismissed).not.toHaveBeenCalled()
   })
 
-  it('a shortcut is counted as a shortcut, and its pin labelled `shortcut`', async () => {
+  it('labels a pin run from its shortcut `shortcut`', async () => {
     vi.stubGlobal('navigator', { ...navigator, platform: 'MacIntel' })
     uiState = { keybindings: { pin: 'Mod+Shift+L' } }
     renderPalettes('/tasks/r1')
@@ -471,11 +450,9 @@ describe('telemetry', () => {
       })
       expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'shortcut' })
     })
-    expect(telemetry.countTaskCommand).toHaveBeenCalledWith('pin', 'shortcut')
-    expect(telemetry.countTaskCommand).not.toHaveBeenCalledWith('pin', 'palette')
   })
 
-  it('the palette coming back on its own (the rename shortcut) is not a new opening', async () => {
+  it('the rename shortcut brings the palette back with the title in the input', async () => {
     vi.stubGlobal('navigator', { ...navigator, platform: 'MacIntel' })
     uiState = { keybindings: { rename: 'Mod+Shift+E' } }
     renderPalettes('/tasks/r1')
@@ -486,26 +463,5 @@ describe('telemetry', () => {
       expect(palette()).not.toBeNull()
     })
     await waitFor(() => expect(input().value).toBe('Fix the login redirect'))
-    expect(telemetry.trackPaletteOpened).not.toHaveBeenCalled()
-    expect(telemetry.countTaskCommand).toHaveBeenCalledWith('rename', 'shortcut')
-  })
-
-  it('a cycled ⌘P ⌘P ↵ is a `cycle` switch; Escape from the switcher is a `tasks` dismissal with its modes', async () => {
-    recordTaskVisit('r2')
-    recordTaskVisit('r1')
-    renderPalettes('/tasks/r1')
-    await pressP()
-    await within(palette()!).findByText('Pin')
-    await pressP()
-    await waitFor(() => expect(selectedRow()?.dataset.runId).toBe('r2'))
-    fireEvent.keyDown(input(), { key: 'Enter' })
-    await waitFor(() => expect(telemetry.trackTaskSwitched).toHaveBeenCalledWith('cycle'))
-
-    await pressP()
-    fireEvent.change(input(), { target: { value: '@1482' } })
-    fireEvent.keyDown(input(), { key: 'Escape' })
-    await waitFor(() => expect(telemetry.trackPaletteDismissed).toHaveBeenCalledWith('tasks'))
-    const modes = vi.mocked(telemetry.trackPaletteModes).mock.calls.map(([used]) => [...used])
-    expect(modes).toContainEqual(['tasks', 'pr_number'])
   })
 })

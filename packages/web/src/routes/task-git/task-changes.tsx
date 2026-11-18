@@ -28,7 +28,6 @@ import { buildFileTree } from './file-tree'
 import { GitTabLoadError, GitTabLoading } from './git-tab-loading'
 import { GitToolbar } from './git-toolbar'
 import type { DiffNewLineComment } from '@/components/diff/types'
-import { trackDiffCommentAdded } from '@/lib/telemetry'
 
 /**
  * `/tasks/:id/changes` — the session git view's Changes tab (spec §"Session git view —
@@ -92,11 +91,7 @@ export function ChangesView({
   const { add: addDiffComment } = diffComments
   // Counted only once the store accepted it; `start` is set exactly when the comment covers a range.
   const addComment = useCallback(
-    (comment: DiffNewLineComment) => {
-      const added = addDiffComment(comment)
-      if (added) trackDiffCommentAdded(comment.start ? 'multi_line' : 'single_line')
-      return added
-    },
+    (comment: DiffNewLineComment) => addDiffComment(comment),
     [addDiffComment],
   )
   const commentCount = diffComments.comments.length
