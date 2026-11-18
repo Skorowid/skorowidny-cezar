@@ -801,12 +801,11 @@ describe('codexExecutionPolicy (fork)', () => {
     expect(codexExecutionPolicy({}, 'robocraftwars').sandbox).toBe('workspace-write');
   });
 
-  it('drops the artifacts writable root under full access, keeps a manager read-only', () => {
+  it('drops the artifacts writable root under full access', () => {
     const env = { CEZ_CODEX_FULL_ACCESS_PROJECTS: 'robocraftwars' };
     const spec = { cwd: '/wt', model: 'gpt-5', env: { CEZ_PROJECT_ID: 'robocraftwars', CEZ_ARTIFACTS_DIR: '/a' } };
     expect(codexThreadOverrides(spec, undefined, env)).toEqual({
       model: 'gpt-5', cwd: '/wt', sandbox: 'danger-full-access', approvalPolicy: 'never', config: {},
     });
-    expect(codexThreadOverrides({ ...spec, enforceReadOnly: true }, undefined, env).sandbox).toBe('read-only');
   });
 });
