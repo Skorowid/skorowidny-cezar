@@ -670,7 +670,7 @@ export function TaskQuickListContainer() {
   const health = useHealth()
   const activeProjectId = useActiveProjectId()
   const runs = useRunsForProject(activeProjectId, health.data?.bootProject ?? null)
-  const pinMutation = usePinRun('sidebar')
+  const pinMutation = usePinRun()
   const visibility = usageMetricVisibility(health.data)
   const [view, setView] = useListView()
   // Mounted only once a schedule is known, so the sidebar costs no `GET /automations` (#1340).
@@ -694,7 +694,7 @@ export function TaskQuickListContainer() {
       ),
     [pinMutation.mutate],
   )
-  const archiveMutation = useArchiveRun('sidebar')
+  const archiveMutation = useArchiveRun()
   const onToggleArchive = React.useCallback(
     (run: RunRecord, archived: boolean) =>
       archiveMutation.mutate(

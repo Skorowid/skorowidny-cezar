@@ -1231,7 +1231,7 @@ describe('actions hit their endpoints', () => {
     renderHeader(run('done', { archived: true }))
     fireEvent.click(itemActions().getByRole('button', { name: 'Unarchive' }))
     await waitFor(() => {
-      expect(sent.find((r) => r.path === '/api/v1/runs/r1/archive')?.body).toEqual({ archived: false, surface: 'task_view' })
+      expect(sent.find((r) => r.path === '/api/v1/runs/r1/archive')?.body).toEqual({ archived: false })
     })
   })
 
@@ -1240,7 +1240,7 @@ describe('actions hit their endpoints', () => {
     renderHeader(run('done'))
     fireEvent.click(itemActions().getByRole('button', { name: 'Pin' }))
     await waitFor(() => {
-      expect(sent.find((r) => r.path === '/api/v1/runs/r1/pin')?.body).toEqual({ pinned: true, surface: 'task_view' })
+      expect(sent.find((r) => r.path === '/api/v1/runs/r1/pin')?.body).toEqual({ pinned: true })
     })
 
     cleanup()
@@ -1250,7 +1250,7 @@ describe('actions hit their endpoints', () => {
     expect(unpin.getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(unpin)
     await waitFor(() => {
-      expect(unpinning.find((r) => r.path === '/api/v1/runs/r1/pin')?.body).toEqual({ pinned: false, surface: 'task_view' })
+      expect(unpinning.find((r) => r.path === '/api/v1/runs/r1/pin')?.body).toEqual({ pinned: false })
     })
   })
 

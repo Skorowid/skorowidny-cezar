@@ -1084,7 +1084,7 @@ describe('global tasks page', () => {
       expect(sent.find((request) => request.method === 'POST')).toEqual({
         method: 'POST',
         path: '/api/v1/p/infra/runs/i1/archive',
-        body: { archived: true, surface: 'all_tasks' },
+        body: { archived: true },
       }),
     )
     await waitFor(() => expect(rowIds()).toEqual(['a1', 'w1']))
@@ -1100,7 +1100,7 @@ describe('global tasks page', () => {
 
     fireEvent.click(document.querySelector<HTMLButtonElement>('[data-action="unarchive-run"]')!)
     await waitFor(() =>
-      expect(sent.find((request) => request.method === 'POST')?.body).toEqual({ archived: false, surface: 'all_tasks' }),
+      expect(sent.find((request) => request.method === 'POST')?.body).toEqual({ archived: false }),
     )
     await waitFor(() => expect(rowIds()).toEqual([]))
   })

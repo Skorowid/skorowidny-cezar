@@ -827,7 +827,7 @@ function SubjectCommands({
 }) {
   const workspace = taskWorkspaceFor(run.id)
   const onScreen = taskIdFromPath(useLocation().pathname) === run.id
-  const actions = useRunActions(run, { surface: 'palette', onMarkedUnread: workspace?.markedUnread, onScreen })
+  const actions = useRunActions(run, { onMarkedUnread: workspace?.markedUnread, onScreen })
   const git = useRunGitStep(run)
   const canTerminal = useCanOpenTerminal(run)
   const openIn = useRunOpenChoices(run, canTerminal)
@@ -853,9 +853,8 @@ function SubjectCommands({
     {
       markRead: () => actions.markRead.mutate(),
       markUnread: () => actions.markUnread.mutate(),
-      // A shortcut reports itself as the `shortcut` surface; a palette row as `palette` (the hook's).
-      pin: (source) => actions.pin.mutate(source === 'shortcut' ? 'shortcut' : undefined),
-      archive: (source) => actions.archive.mutate(source === 'shortcut' ? 'shortcut' : undefined),
+      pin: () => actions.pin.mutate(),
+      archive: () => actions.archive.mutate(),
       rename: onRename,
       finish: () => actions.finish.mutate(),
       confirmStop: () => actions.setConfirming('cancel'),

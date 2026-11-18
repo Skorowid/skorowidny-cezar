@@ -1626,7 +1626,7 @@ export function TasksOverviewRoute() {
   const onTaskAction = React.useCallback<TasksOverviewActionHandler>(async (run, action) => {
     // Explicit scope stays pinned across project navigation during a selected-row batch (#1599).
     const updated = action === 'archive' || action === 'restore'
-      ? await archiveProjectRun(actionScope, run.id, action === 'archive', 'tasks_table')
+      ? await archiveProjectRun(actionScope, run.id, action === 'archive')
       : await setProjectRunRead(actionScope, run.id, action === 'read')
     if (queryScope() === actionScope) writePatchedRunToCaches(queryClient, updated)
     else void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.runsIndex })
@@ -1654,7 +1654,7 @@ export function TasksOverviewRoute() {
     onError: (error: Error) => toast(error.message, { tone: 'danger' }),
   })
   // Pinning (#935) — this page is the scoped project's own table, so no explicit project id.
-  const pin = usePinRun('tasks_table')
+  const pin = usePinRun()
   // Stable across renders so the memoized rows they reach only re-render for their own run.
   const renameMutate = rename.mutate
   const onRename = React.useCallback(

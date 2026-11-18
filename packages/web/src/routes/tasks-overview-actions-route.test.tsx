@@ -40,7 +40,7 @@ describe('Tasks action route integration (#1599)', () => {
     select('chosen')
     fireEvent.click(screen.getByRole('button', { name: 'Archive (1)' }))
     await waitFor(() => expect(screen.getByRole('status', { name: 'Task action status' }).textContent).toContain('1 succeeded'))
-    expect(posts).toEqual([{ url: '/api/v1/p/project-a/runs/chosen/archive', body: { archived: true, surface: 'tasks_table' } }])
+    expect(posts).toEqual([{ url: '/api/v1/p/project-a/runs/chosen/archive', body: { archived: true } }])
     expect(client.getQueryData<RunRecord>(['project-a', 'runs', 'detail', 'chosen'])?.archived).toBe(true)
     expect(client.getQueryData<RunRecord[]>(['project-a', 'runs', 'list'])?.find((r) => r.id === 'untouched')?.archived).toBe(false)
     expect(document.querySelector('[data-slot="task-table-row"][data-run-id="chosen"]')).toBeNull()

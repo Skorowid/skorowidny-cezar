@@ -108,8 +108,6 @@ function serve(answers: Answers = {}) {
     agentDefaults: {},
     browseRoot: '~/',
     projectsDir: '~/cezar/projects',
-    skillsAutoUpdate: null,
-    effectiveSkillsAutoUpdate: true,
     orgSkillsRepos: [],
     systemPrompt: null,
     composerDefaults: {

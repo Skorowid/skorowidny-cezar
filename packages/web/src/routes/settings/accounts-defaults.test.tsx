@@ -81,8 +81,6 @@ function serve({
     branding: { name: 'cezar', logoUrl: null },
     browseRoot: '~/',
     projectsDir: '~/cezar/projects',
-    skillsAutoUpdate: null,
-    effectiveSkillsAutoUpdate: true,
     orgSkillsRepos: [],
     systemPrompt: null,
     composerDefaults: {
@@ -212,8 +210,6 @@ describe('Agent accounts → Defaults for new projects', () => {
           return json({
             browseRoot: '~/',
             projectsDir: '~/cezar/projects',
-            skillsAutoUpdate: null,
-            effectiveSkillsAutoUpdate: true,
             composerDefaults: {
               autonomous: null,
               worktree: null,

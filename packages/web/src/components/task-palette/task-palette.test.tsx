@@ -169,7 +169,7 @@ describe('⌘P on a task page acts on that task', () => {
     await pressP()
     fireEvent.click(await within(palette()!).findByText('Pin'))
     await waitFor(() => expect(sent.find((request) => request.path.endsWith('/pin'))).toBeDefined())
-    expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'palette' })
+    expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true })
     await waitFor(() => expect(palette()).toBeNull())
   })
 
@@ -299,7 +299,7 @@ describe('shortcuts', () => {
     renderPalettes('/tasks/r1')
     await waitFor(async () => {
       await press(window, 'KeyL', 'l', { metaKey: true, shiftKey: true })
-      expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'shortcut' })
+      expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true })
     })
     const event = new KeyboardEvent('keydown', { code: 'KeyU', key: 'u', metaKey: true, shiftKey: true, cancelable: true })
     act(() => {
@@ -437,7 +437,7 @@ describe('command surfaces', () => {
     renderPalettes('/tasks/r1')
     await pressP()
     fireEvent.click(await within(palette()!).findByText('Pin'))
-    await waitFor(() => expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'palette' }))
+    await waitFor(() => expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true }))
   })
 
   it('labels a pin run from its shortcut `shortcut`', async () => {
@@ -448,7 +448,7 @@ describe('command surfaces', () => {
       await act(() => {
         fireEvent.keyDown(window, { code: 'KeyL', key: 'l', metaKey: true, shiftKey: true })
       })
-      expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true, surface: 'shortcut' })
+      expect(sent.find((request) => request.path.endsWith('/pin'))?.body).toEqual({ pinned: true })
     })
   })
 
