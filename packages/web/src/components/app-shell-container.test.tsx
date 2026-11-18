@@ -10,9 +10,8 @@ import type {
   HealthResponse,
   ProviderStatusResponse,
   RunRecord,
-  SkillsUpdateState,
 } from '@open-mercato/cezar-api-client'
-import { AppShellContainer, repoChipOf, skillsUpdateMarkerOf } from '@/components/app-shell-container'
+import { AppShellContainer, repoChipOf } from '@/components/app-shell-container'
 import { ThemeProvider } from '@/components/theme-provider'
 
 const fetchMock = vi.fn<typeof fetch>()

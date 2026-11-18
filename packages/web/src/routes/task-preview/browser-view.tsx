@@ -705,7 +705,6 @@ export function BrowserView({
               : `Click an element of the page to send it to the agent (${formatChord(DESIGN_CHORD)})`)
             }
             onClick={() => {
-              if (!design) trackDesignModeEnabled('button')
               setDesign((on) => !on)
             }}
             className="ml-1 disabled:opacity-40"

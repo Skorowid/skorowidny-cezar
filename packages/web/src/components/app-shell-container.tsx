@@ -1,8 +1,8 @@
 import { memo, useEffect, useMemo, type ReactNode } from 'react'
 import { useLocation } from 'react-router'
 
-import { useHealth, useProjectRuns, useProjects, useRunsForProject, useSkillsUpdate, useStarCount, useTodos, useWorkspaceConfig } from '@/api/queries'
-import type { HealthResponse, SkillsUpdateState } from '@open-mercato/cezar-api-client'
+import { useHealth, useProjectRuns, useProjects, useRunsForProject, useTodos, useWorkspaceConfig } from '@/api/queries'
+import type { HealthResponse } from '@open-mercato/cezar-api-client'
 import { AppShell, type ProjectSwitcher, type RepoChip } from '@/components/app-shell'
 import { CommandPalette } from '@/components/command-palette'
 import { TaskPalette } from '@/components/task-palette/task-palette'
@@ -154,7 +154,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
           inboxAvailable={inboxAvailable}
           automationsAvailable={automationsAvailable}
           inboxCount={todos.data?.length ?? null}
-          skillsUpdateAvailable={skillsUpdateAvailable}
           newNavItems={newNavItems}
         />
       ) : undefined,
@@ -163,7 +162,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
       inboxAvailable,
       automationsAvailable,
       todos.data?.length,
-      skillsUpdateAvailable,
       newNavItems,
     ],
   )

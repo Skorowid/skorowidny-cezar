@@ -39,14 +39,6 @@ import { lastActivityAt, refPrefixMatches, runTitle, splitRefPrefix } from '@/li
 import { taskReferences, type TaskReference, type TaskReferenceInput } from '@/lib/tasks-table'
 import { automationIdOf, ownAutomationId } from '@/lib/task-origin'
 import { useCommandShortcut, useKeyShortcut } from '@/lib/use-command-shortcut'
-import {
-  searchModes,
-  trackPaletteDismissed,
-  trackPaletteModes,
-  trackPaletteOpened,
-  trackTaskSwitched,
-  type PaletteMode,
-} from '@/lib/telemetry'
 import { openTaskPalette } from '@/components/task-palette/open'
 import { useProjectOrder } from '@/lib/use-project-order'
 import { cn } from '@/lib/utils'
@@ -561,9 +553,6 @@ export function CommandPalette() {
   }, [])
   const close = React.useCallback(() => setOpen(false), [])
   usePaletteExclusion('command', open, close)
-  React.useEffect(() => {
-    if (open) trackPaletteOpened('command')
-  }, [open])
 
   // Tab on a task row hands it to ⌘P, which acts on it (spec 2026-10-17-task-palette).
   const onKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -572,7 +561,6 @@ export function CommandPalette() {
     const runId = row?.dataset.runId
     if (!runId) return
     event.preventDefault()
-    trackTaskSwitched('cmdk_tab')
     setOpen(false)
     openTaskPalette({ runId, projectId: row.dataset.projectId ?? null })
   }, [])
@@ -581,8 +569,6 @@ export function CommandPalette() {
     <CommandDialog
       open={open}
       onOpenChange={(next) => {
-        // Radix closes only on Escape or a click outside — choosing something closes it via `close`.
-        if (!next) trackPaletteDismissed('command')
         setOpen(next)
       }}
       title="Command palette"
@@ -708,13 +694,6 @@ function PaletteContent({ close }: { close: () => void }) {
   // ranking (`paletteScore`); this only decides which SECTIONS exist.
   const [search, setSearch] = React.useState('')
   const searching = search.trim() !== ''
-  // How this session searched (a PR number, "auto") — sent once each when it closes (unmounts).
-  const sessionModes = React.useRef(new Set<PaletteMode>())
-  React.useEffect(() => {
-    // ⌘K has no prefixes: only the shape of what was searched (a PR number, `auto`).
-    for (const used of searchModes(search)) sessionModes.current.add(used)
-  }, [search])
-  React.useEffect(() => () => trackPaletteModes(sessionModes.current), [])
   const { theme, setTheme } = useTheme()
   const { activeProjectId, registry, health, multiProject, projectNames, repoBases, tasks } = usePaletteTasks()
   // The Views row's GitHub gate follows the active project's forge, not the boot folder's (#1410).
@@ -774,7 +753,6 @@ function PaletteContent({ close }: { close: () => void }) {
   // Stable, so typing does not re-render every memoized task row.
   const selectTask = React.useCallback(
     (task: PaletteTask) => {
-      trackTaskSwitched('cmdk')
       close()
       navigate(paletteTaskPath(task))
     },

@@ -21,7 +21,6 @@ import { AddProjectDialog } from '@/components/add-project-dialog'
 import { CloneProjectDialog } from '@/components/clone-project-dialog'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { DialogErrorBoundary } from '@/components/dialog-error-boundary'
-import { trackAddProjectOpened } from '@/lib/telemetry'
 import { CommandPaletteHint } from '@/components/command-palette-hint'
 import { GithubIcon } from '@/components/icons'
 import { Link, stripProjectPrefix } from '@/lib/project-router'
@@ -511,7 +510,6 @@ function SidebarIconRail({
   activeTo,
   inboxCount,
   unreadCount,
-  skillsUpdateAvailable,
   newNavItems,
   brandName,
   brandLogoUrl,
@@ -520,7 +518,7 @@ function SidebarIconRail({
   expandShortcut,
   autoFocus = false,
   desktop,
-}: Pick<NavProps, 'items' | 'activeTo' | 'inboxCount' | 'unreadCount' | 'skillsUpdateAvailable' | 'newNavItems' | 'brandName' | 'brandLogoUrl'> & {
+}: Pick<NavProps, 'items' | 'activeTo' | 'inboxCount' | 'unreadCount' | 'newNavItems' | 'brandName' | 'brandLogoUrl'> & {
   slot: 'sidebar-rail' | 'focus-sidebar-rail'
   onExpand: () => void
   expandTitle: string
@@ -552,7 +550,6 @@ function SidebarIconRail({
           const marked =
             (item.badge === 'inbox-count' && Boolean(inboxCount))
             || (item.badge === 'tasks-unread' && Boolean(unreadCount))
-            || (item.badge === 'skills-update' && skillsUpdateAvailable)
             || newNavItems.has(item.to)
           return (
             <Link
@@ -680,11 +677,9 @@ function SidebarContent({
   repo,
   inboxCount,
   unreadCount,
-  skillsUpdateAvailable,
   newNavItems,
   version,
   latestVersion,
-  starCount,
   taskQuickList,
   hostWidget,
   whatsNew,
@@ -830,15 +825,6 @@ function SidebarContent({
                       {unreadCount}
                     </span>
                   ) : null}
-                  {item.badge === 'skills-update' && skillsUpdateAvailable ? (
-                    <span
-                      data-slot="nav-update-marker"
-                      className="ml-auto flex items-center"
-                    >
-                      <span className="size-1.5 rounded-full bg-violet" aria-hidden="true" />
-                      <span className="sr-only">Skills update available</span>
-                    </span>
-                  ) : null}
                   {newNavItems.has(item.to) ? (
                     <span data-slot="nav-new-marker" className="ml-auto flex items-center">
                       <span className="size-1.5 rounded-full bg-violet" aria-hidden="true" />
@@ -879,7 +865,6 @@ function SidebarContent({
             {toolsMenu}
           </div>
           {version ? <VersionChip version={version} latestVersion={latestVersion} brandName={brandName} /> : null}
-          {starCount === null ? null : <StarChip count={starCount} />}
           <GlobalSettingsLink onNavigate={onNavigate} className="ml-auto" />
           <ThemeToggle />
         </div>
@@ -1040,7 +1025,6 @@ function AddProjectMenu() {
           data-slot="add-project-local"
           onSelect={() => {
             setBrowsing(true)
-            trackAddProjectOpened('folder')
           }}
         >
           <FolderIcon aria-hidden="true" />
@@ -1050,7 +1034,6 @@ function AddProjectMenu() {
           data-slot="add-project-clone"
           onSelect={() => {
             setCloning(true)
-            trackAddProjectOpened('clone')
           }}
         >
           <GithubIcon aria-hidden="true" />
@@ -1060,7 +1043,6 @@ function AddProjectMenu() {
           data-slot="add-project-create"
           onSelect={() => {
             setCreating(true)
-            trackAddProjectOpened('new')
           }}
         >
           <FolderPlusIcon aria-hidden="true" />

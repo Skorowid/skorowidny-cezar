@@ -17,7 +17,6 @@ import {
   KeyRoundIcon,
   BlocksIcon,
   TicketIcon,
-  ShieldCheckIcon,
   ArrowLeftRightIcon,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -32,7 +31,6 @@ import { InstructionsSection } from './instructions-section'
 import { KeyboardSection } from './keyboard-section'
 import { BookmarkletsSection } from './bookmarklets-section'
 import { NotificationsSection } from './notifications-section'
-import { PrivacySection } from './privacy-section'
 import { ProjectsSection } from './projects-section'
 import { ResourcesSection } from './resources-section'
 import { SkillsSection } from './skills-section'
@@ -269,14 +267,6 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: 'Export this machine’s configuration to a file, or import one from another cezar.',
     icon: ArrowLeftRightIcon,
     component: TransferSection,
-    scope: 'global',
-  },
-  {
-    id: 'privacy',
-    title: 'Privacy',
-    description: 'Whether cezar shares usage data with its maintainers. Off unless you turn it on.',
-    icon: ShieldCheckIcon,
-    component: PrivacySection,
     scope: 'global',
   },
 ]

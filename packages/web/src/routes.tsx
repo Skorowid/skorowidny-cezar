@@ -12,7 +12,7 @@ import {
 
 import { useHealth, useProjects } from './api/queries'
 import { ProjectScopeProvider } from './api/project-scope-context'
-import { lazyRoute } from './lib/telemetry'
+import { lazyRoute } from './lib/lazy-route'
 import { bareRootLanding, locationToRestore, readStoredLastLocation } from './lib/last-location'
 import { Navigate as ScopedNavigate, stripProjectPrefix } from './lib/project-router'
 import { AutomationsLoading } from './routes/automations/automations-loading'

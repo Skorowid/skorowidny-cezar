@@ -10,7 +10,7 @@ import {
 import type { Capabilities, ProjectListEntry } from '@open-mercato/cezar-api-client'
 
 import { useHealth, useProjects, useWorkspaceConfig } from '@/api/queries'
-import { StarChip, VersionChip } from '@/components/app-shell'
+import { VersionChip } from '@/components/app-shell'
 import { BrandLockup } from '@/components/brand-mark'
 import { CommandPaletteHint } from '@/components/command-palette-hint'
 import { SidebarDrawer, SidebarFrame, useSidebarWidth } from '@/components/sidebar-frame'
@@ -571,10 +571,8 @@ function SettingsSidebarContent({
       >
         <CommandPaletteHint />
         <div data-slot="settings-sidebar-footer-controls" className="flex items-center gap-2">
-          {/* The app footer's chips, same data: the version (and its update affordance) and the
-              star ask. Health is cached by the shell; the star count by its own query. */}
+          {/* The app footer's version chip (and its update affordance), from the shell's cached health. */}
           {version ? <VersionChip version={version} latestVersion={latestVersion} brandName={brandName} /> : null}
-          {starCount === null ? null : <StarChip count={starCount} />}
           <ThemeToggle className="ml-auto" />
         </div>
       </div>
