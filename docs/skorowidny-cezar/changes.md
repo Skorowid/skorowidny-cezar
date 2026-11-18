@@ -1,8 +1,21 @@
 # skorowidny-cezar changes
 
+## 2026-11-18 — Telemetry, star count and skills auto-update removed; fork stays on 0.19
+
+Owner's decision (2026-11-18): the fork stays on the 0.19 line, and nothing in it may send data to Open Mercato or fetch and run code from them on its own. The code is removed, not switched off. Details, verification and the deploy hand-off: [telemetry-removal.md](telemetry-removal.md).
+
+| Removed | Where |
+|---|---|
+| Opt-in telemetry to `stats.openmercato.cloud`: usage events, error reports, daily ping, consent bar, Settings → Privacy, `cezar telemetry`, the `x-cezar-sid` device id, `/api/v1/telemetry/*`, `CEZ_TELEMETRY*`, `DO_NOT_TRACK` handling | server, CLI, contract, cockpit, CI release workflows |
+| Desktop shell error reports (`telemetry.rs`, "Send error report") | `packages/desktop` |
+| GitHub star count (`/api/v1/star-count`, ⭐ chip, star-ask banner line) | server, contract, cockpit |
+| Open Mercato skills auto-update (`npx skills` run on its own, `/api/v1/workspace/skills-update*`, the Skills setting, `CEZ_SKILLS_AUTO_UPDATE`) | server, contract, cockpit |
+
+The upstream 0.20 merge was reverted on `skorowidny/main`, not rewritten: the owner keeps 0.19 in production. `webhooks/transport.ts` no longer passes `maxRedirections`, so it typechecks against undici 6 and 7; redirects are still never followed.
+
 ## 2026-11-18 — Codex without sandbox per project
 
-Owner's decision (2026-11-18): Codex in project RobocraftWars works without the quarantine sandbox and without write blocks. New server variable `CEZ_CODEX_FULL_ACCESS_PROJECTS` (comma-separated project ids, matched against the run's `CEZ_PROJECT_ID`): a listed project's Codex runs get `danger-full-access` + approval `never` (upstream's policy), no `auto_review`. Other projects keep the reviewed `workspace-write` policy. A manager's read-only repository stays read-only.
+Owner's decision (2026-11-18): Codex in project RobocraftWars works without the quarantine sandbox and without write blocks. New server variable `CEZ_CODEX_FULL_ACCESS_PROJECTS` (comma-separated project ids, matched against the run's `CEZ_PROJECT_ID`): a listed project's Codex runs get `danger-full-access` + approval `never` (upstream's policy), no `auto_review`. Other projects keep the reviewed `workspace-write` policy.
 
 Verification: `codex-app-server-runner.test.ts` 39 PASS (2 new). `typecheck:server` reports the same 209 errors with and without the change (other files).
 
