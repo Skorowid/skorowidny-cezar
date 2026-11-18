@@ -14,7 +14,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { trackAddProjectOpened } from '@/lib/telemetry'
 
 /**
  * The "Add project" dropdown (multi-project spec, "Sidebar → Header"), now the project
@@ -43,7 +42,6 @@ export function AddProjectMenu({ className }: { className?: string }) {
           data-slot="add-project-local"
           onSelect={() => {
             setBrowsing(true)
-            trackAddProjectOpened('folder')
           }}
         >
           <FolderIcon aria-hidden="true" />
@@ -53,7 +51,6 @@ export function AddProjectMenu({ className }: { className?: string }) {
           data-slot="add-project-clone"
           onSelect={() => {
             setCloning(true)
-            trackAddProjectOpened('clone')
           }}
         >
           <GithubIcon aria-hidden="true" />
@@ -63,7 +60,6 @@ export function AddProjectMenu({ className }: { className?: string }) {
           data-slot="add-project-create"
           onSelect={() => {
             setCreating(true)
-            trackAddProjectOpened('new')
           }}
         >
           <FolderPlusIcon aria-hidden="true" />

@@ -21,7 +21,6 @@ import { toast } from '@/components/ui/toaster'
 import { LoadingState } from '@/components/loading-state'
 import { Spinner } from '@/components/ui/spinner'
 import { formatChord } from '@/lib/keybindings'
-import { trackDesignModeEnabled } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 import {
@@ -223,7 +222,6 @@ export function BrowserView({
   const toggleDesign = useRef<() => boolean>(() => false)
   toggleDesign.current = () => {
     if (!designAllowed || targetOrigin === null) return false
-    if (!design) trackDesignModeEnabled('shortcut')
     setDesign((on) => !on)
     return true
   }
@@ -716,7 +714,6 @@ export function BrowserView({
               // live control's hint is the one-line tooltip wrapped around it below.
               title={designUnavailable ?? (targetOrigin === null ? 'Design Mode works on local http:// addresses' : undefined)}
               onClick={() => {
-                if (!design) trackDesignModeEnabled('button')
                 setDesign((on) => !on)
               }}
               className="ml-1 disabled:opacity-40"

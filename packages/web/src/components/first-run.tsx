@@ -85,7 +85,6 @@ import { newTaskPrefillHref } from '@/routes/new-task-params'
 import { shortAge } from '@/lib/format'
 import { githubTaskRef } from '@/lib/github-task'
 import { labelChipStyle } from '@/routes/github/github-filter'
-import { trackAddProjectOpened } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 /**
@@ -1097,7 +1096,6 @@ function ProjectChoices() {
   }
   const openDialog = (kind: 'new' | 'clone' | 'folder') => {
     setDialog(kind)
-    trackAddProjectOpened(kind)
   }
 
   return (

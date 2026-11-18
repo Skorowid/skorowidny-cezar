@@ -354,11 +354,10 @@ describe('AppShell', () => {
       expect(opened).toHaveBeenCalledTimes(1)
     })
 
-    it('keeps the machine glance, Tools, What\u2019s new, star and theme under the ⋯ menu — the version in the footer', () => {
+    it('keeps the machine glance, Tools, What\u2019s new and theme under the ⋯ menu — the version in the footer', () => {
       renderShell('/', {
         version: '1.2.3',
         latestVersion: '1.3.0',
-        starCount: 1234,
         hostWidget: <span data-slot="host-widget-stub">host glance</span>,
         toolsMenu: <span data-slot="tools-stub">tool rows</span>,
         whatsNew: <span data-slot="whats-new">What’s new</span>,
@@ -374,7 +373,6 @@ describe('AppShell', () => {
       expect(within(menu).getByRole('menuitem', { name: 'Tools' })).toBeTruthy()
       expect(menu.querySelector('[data-slot="whats-new"]')).not.toBeNull()
       expect(menu.querySelector('[data-slot="version-chip"]')).toBeNull()
-      expect(menu.querySelector('[data-slot="star-chip"]')?.textContent).toContain('1.2k')
       // The theme is a three-way choice, not a cycling icon.
       const theme = menu.querySelector('[data-slot="theme-toggle"]') as HTMLElement
       expect(within(theme).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual(['System', 'Dark', 'Light'])
@@ -434,8 +432,6 @@ describe('AppShell', () => {
       expect(document.querySelector('[data-slot="repo-chip"]')).toBeNull()
       expect(document.querySelector('[data-slot="nav-badge"]')).toBeNull()
       expect(document.querySelector('[data-slot="version-chip"]')).toBeNull()
-      const menu = openMore()
-      expect(menu.querySelector('[data-slot="star-chip"]')).toBeNull()
     })
 
     it('renders the repo chip and version chip from props', () => {
@@ -443,50 +439,6 @@ describe('AppShell', () => {
       expect(document.querySelector('[data-slot="repo-chip"]')?.textContent).toBe('cezarmain')
       // The chip prefixes the raw semver from /api/v1/health — `v1.2.3`, mono, muted.
       expect(within(footer()).getByText('v1.2.3').className).toContain('font-mono')
-    })
-
-    describe('the ⭐ ask', () => {
-      const chip = () => document.querySelector('[data-slot="star-chip"]') as HTMLAnchorElement | null
-
-      it('is absent — not empty — when the count is unavailable', () => {
-        // Offline, a rate-limited IP, or `CEZ_NO_BANNER=1`. A button advertising a number it
-        // cannot produce is worse than no button.
-        renderShell('/', { version: '1.2.3', starCount: null })
-        openMore()
-        expect(chip()).toBeNull()
-      })
-
-      it('still renders at zero — a real count, not a missing one', () => {
-        renderShell('/', { version: '1.2.3', starCount: 0 })
-        openMore()
-        expect(chip()).not.toBeNull()
-        expect(chip()?.textContent).toContain('0')
-      })
-
-      it('links to cezar, in a new tab, leaking neither opener nor referrer', () => {
-        renderShell('/', { starCount: 42 })
-        openMore()
-        expect(chip()?.getAttribute('href')).toBe('https://github.com/open-mercato/cezar')
-        expect(chip()?.getAttribute('target')).toBe('_blank')
-        expect(chip()?.getAttribute('rel')).toContain('noopener')
-        expect(chip()?.getAttribute('rel')).toContain('noreferrer')
-      })
-
-      it('names itself for a screen reader with the exact count, not the abbreviation', () => {
-        renderShell('/', { starCount: 12_345 })
-        openMore()
-        const label = chip()?.getAttribute('aria-label') ?? ''
-        expect(label).toMatch(/star cezar on github/i)
-        expect(label).toContain(new Intl.NumberFormat().format(12_345))
-        expect(label).not.toContain('12.3k')
-      })
-
-      it('offers no reward and blocks nothing — the item is a link and only a link', () => {
-        renderShell('/', { starCount: 1000 })
-        openMore()
-        expect(chip()?.tagName).toBe('A')
-        expect(chip()?.textContent ?? '').not.toMatch(/\b(unlock|reward|free|upgrade|pro|premium)\b/i)
-      })
     })
 
     describe('version chip update affordance (#368)', () => {
@@ -537,31 +489,12 @@ describe('AppShell', () => {
       expect(document.querySelector('[data-slot="nav-unread-badge"]')).toBeNull()
     })
 
-    it('renders a quiet accessible Skills update marker in desktop and mobile navigation', () => {
-      renderShell('/', { skillsUpdateAvailable: true })
-      expect(document.querySelectorAll('[data-slot="nav-update-marker"]')).toHaveLength(1)
-      fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
-      const markers = document.querySelectorAll('[data-slot="nav-update-marker"]')
-      expect(markers).toHaveLength(2)
-      for (const marker of markers) {
-        expect(marker.textContent).toBe('Skills update available')
-        expect(marker.innerHTML).not.toContain('animate-')
-      }
-      // Radix hides the desktop app from the accessibility tree while the mobile drawer is modal.
-      expect(screen.getAllByRole('link', { name: /Skills update available/ })).toHaveLength(1)
-    })
-
     it('dots a nav item whose feature shipped since the user started (spec 2026-10-26, "Coming back")', () => {
       renderShell('/', { newNavItems: new Set(['/workflows', '/settings']) })
       const markers = [...document.querySelectorAll('[data-slot="nav-new-marker"]')]
       expect(markers).toHaveLength(2)
       expect(markers.map((marker) => marker.closest('a')?.getAttribute('href'))).toEqual(['/workflows', '/settings'])
       expect(screen.getByRole('link', { name: /Workflows\s*New/ })).toBeDefined()
-    })
-
-    it('renders no Skills marker without an actionable update', () => {
-      renderShell()
-      expect(document.querySelector('[data-slot="nav-update-marker"]')).toBeNull()
     })
 
     it('reserves the current-tasks and composer slots', () => {

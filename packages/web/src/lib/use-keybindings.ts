@@ -5,7 +5,6 @@ import { putWorkspaceUiState } from '@/api/client'
 import { useWorkspaceUiState, workspaceQueryKeys } from '@/api/queries'
 import { toast } from '@/components/ui/toaster'
 import type { WorkspaceUiState } from '@open-mercato/cezar-api-client'
-import { trackShortcutRebound } from './telemetry'
 import { assignBinding, effectiveBindings, resetBinding, sanitizeOverrides, type Overrides } from './keybindings'
 
 /**
@@ -51,7 +50,6 @@ export function useKeybindings() {
     assign: React.useCallback(
       (id: string, chord: string | null) => {
         write((current) => assignBinding(current, id, chord))
-        trackShortcutRebound(id)
       },
       [write],
     ),

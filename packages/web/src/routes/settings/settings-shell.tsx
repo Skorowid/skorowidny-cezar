@@ -9,7 +9,7 @@ import {
 } from 'react-router'
 import type { Capabilities, ProjectListEntry } from '@open-mercato/cezar-api-client'
 
-import { useHealth, useProjects, useStarCount, useWorkspaceConfig } from '@/api/queries'
+import { useHealth, useProjects, useWorkspaceConfig } from '@/api/queries'
 import { BrandLockup } from '@/components/brand-mark'
 import { SidebarDrawer, SidebarFrame, useSidebarWidth } from '@/components/sidebar-frame'
 import { SidebarStatusLine } from '@/components/sidebar-status-line'
@@ -452,8 +452,6 @@ function SettingsSidebarContent({
   const health = useHealth().data
   const version = health?.version ?? null
   const latestVersion = health?.latestVersion ?? null
-  const stars = useStarCount().data
-  const starCount = stars?.available ? (stars.count ?? null) : null
   // White-label branding (main): the same name and logo the app sidebar's lockup and chips show.
   const branding = useWorkspaceConfig().data?.branding
   const brandName = branding?.name ?? 'cezar'
@@ -538,12 +536,11 @@ function SettingsSidebarContent({
       </nav>
 
       {/* The app sidebar's status line (#702), pinned under the scrolling nav — without the
-          health dot: nothing here runs tasks. ⌘K, then the ⋯ menu with version, star and theme. */}
+          health dot: nothing here runs tasks. ⌘K, then the ⋯ menu with version and theme. */}
       <SidebarStatusLine
         brandName={brandName}
         version={version}
         latestVersion={latestVersion}
-        starCount={starCount}
       />
     </div>
     </TouchTargetsContext.Provider>

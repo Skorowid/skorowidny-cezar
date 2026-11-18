@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { queryKeys, useSkills, workspaceQueryKeys } from '@/api/queries'
 import { createQueryClient } from '@/api/query-client'
-import type { Skill, SkillsUpdateState, WorkflowsResponse } from '@open-mercato/cezar-api-client'
+import type { Skill, WorkflowsResponse } from '@open-mercato/cezar-api-client'
 import { Toaster, resetToasts } from '@/components/ui/toaster'
 import { AppRoutes } from '@/routes'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -56,17 +56,6 @@ const WORKFLOWS: WorkflowsResponse = {
   issues: [],
 }
 
-const CURRENT_SKILLS_UPDATE: SkillsUpdateState = {
-  status: 'current',
-  available: false,
-  autoUpdateEnabled: true,
-  inherited: true,
-  checkedAt: null,
-  updatedAt: null,
-  scopes: [],
-  needsUpgradeNotes: false,
-}
-
 let requests: Array<{ method: string; url: string; body?: unknown }> = []
 
 function serve({
@@ -75,14 +64,12 @@ function serve({
   importable = [],
   importableFailure = false,
   uiState = {},
-  skillsUpdate = CURRENT_SKILLS_UPDATE,
 }: {
   skills?: Skill[]
   refreshed?: Skill[]
   importable?: Skill[]
   importableFailure?: boolean
   uiState?: Record<string, unknown>
-  skillsUpdate?: SkillsUpdateState
 } = {}) {
   requests = []
   // Skill activation lives in the active project's ui-state.
@@ -117,17 +104,6 @@ function serve({
       }
       if (path === '/api/v1/workflows') return json(WORKFLOWS)
       if (url === '/api/v1/launch-key') return json({ key: 'sekret' })
-      if (path.startsWith('/api/v1/workspace/skills-update?projectId=')) return json(skillsUpdate)
-      if (path === '/api/v1/workspace/skills-update/check' && method === 'POST') return json(skillsUpdate)
-      if (path === '/api/v1/workspace/skills-update/apply' && method === 'POST') {
-        return json({
-          ...skillsUpdate,
-          status: 'current',
-          available: false,
-          updatedAt: '2026-09-24T12:00:00.000Z',
-          needsUpgradeNotes: true,
-        })
-      }
       if (path === '/api/v1/ui-state' && method === 'GET') return json(projectState)
       if (path === '/api/v1/ui-state' && method === 'PUT') {
         const merged = { ...projectState, ...(body as Record<string, unknown>) }
@@ -247,13 +223,6 @@ describe('the catalog list and skill preview', () => {
     })
   })
 
-  it('shows the Open Mercato skills update status when no skills are tracked', async () => {
-    serve()
-    renderAt('/p/boot/skills')
-
-    expect(await screen.findByText('No installed Open Mercato skills are tracked for updates.')).toBeTruthy()
-  })
-
   it('puts team-skill activation in the catalog row without making the name toggle', async () => {
     const importedSkill = openMercatoSkill('team-review')
     serve({ skills: [...SKILLS, importedSkill], importable: [importedSkill] })
@@ -340,50 +309,6 @@ describe('the catalog list and skill preview', () => {
         body: { importedSkills: [] },
       })
     })
-  })
-
-  it('checks and applies installed skill updates for the active project', async () => {
-    const update: SkillsUpdateState = {
-      ...CURRENT_SKILLS_UPDATE,
-      status: 'available',
-      available: true,
-      scopes: [
-        {
-          scope: 'project',
-          status: 'available',
-          available: true,
-          skills: ['om-fix'],
-          checkedAt: null,
-          updatedAt: null,
-        },
-      ],
-    }
-    serve({ skillsUpdate: update })
-    const client = gateSeededClient()
-    client.setQueryData(workspaceQueryKeys.projects, {
-      projects: [
-        {
-          id: 'other',
-          name: 'other',
-          root: '/other',
-          addedAt: '2026-09-24T12:00:00.000Z',
-          lastOpenedAt: '2026-09-24T12:00:00.000Z',
-          source: 'local',
-          status: 'ok',
-        },
-      ],
-      bootProject: 'boot',
-      projectsDir: '~/cezar/projects',
-    })
-    renderAt('/p/other/skills', client)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Update now' }))
-    await waitFor(() => {
-      const request = requests.find((entry) => entry.method === 'POST' && entry.url === '/api/v1/workspace/skills-update/apply')
-      expect(request?.body).toEqual({ projectId: 'other' })
-    })
-    expect(await screen.findByRole('heading', { name: 'Apply the upgrade notes now?' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'No' }))
   })
 
   it('serializes quick toggles so the newest imported-skill selection wins', async () => {

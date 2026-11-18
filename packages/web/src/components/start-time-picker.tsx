@@ -7,7 +7,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { trackScheduleMenuOpened, trackStartOptionPicked } from '@/lib/telemetry'
 
 export type StartChoice = { start: StartCondition; preview?: Extract<DeferredPreview, { available: true }>; settingsKey?: string; invalidated?: string }
 type AtStart = Extract<StartCondition, { kind: 'at' }>
@@ -113,13 +112,7 @@ export function useStartTimePicker({ task, value, onChange, disabledReason, onBl
   const [openState, setOpenState] = useState(false)
   const open = openProp ?? openState
   const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next) }
-  // Counted on the transition, so a host opening the menu (the summary beside Send) counts too.
-  const wasOpen = useRef(open)
-  useEffect(() => {
-    if (open && !wasOpen.current) trackScheduleMenuOpened()
-    wasOpen.current = open
-  }, [open])
-  const pick = (option: 'now' | 'at' | 'usage_reset', next: StartChoice | null) => { trackStartOptionPicked(option); onChange(next) }
+  const pick = (_option: 'now' | 'at' | 'usage_reset', next: StartChoice | null) => onChange(next)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [retry, setRetry] = useState(false)

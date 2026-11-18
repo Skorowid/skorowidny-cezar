@@ -11,7 +11,6 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { toast } from '@/components/ui/toaster'
 import { githubRunBody, githubTaskRef } from '@/lib/github-task'
 import { bumpSkillUsage, searchSkills, searchWorkflows } from '@/lib/skills'
-import { trackMessageSent } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 /** How far a row must travel left before releasing it opens the launcher. */
@@ -146,7 +145,6 @@ export function SwipeLaunchSheet({
       return { pick, created: await createRun(body) }
     },
     onSuccess: ({ pick, created }) => {
-      trackMessageSent('github')
       const run = 'runs' in created ? created.runs[0] : created
       if (run) onQueued(pick.target.url, run.id)
       toast(`Added to the queue — ${pick.target.kind === 'pr' ? 'PR' : 'issue'} #${pick.target.number}`)

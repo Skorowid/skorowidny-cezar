@@ -22,7 +22,7 @@ afterEach(() => {
 function renderLine(props: Partial<SidebarStatusLineProps> = {}) {
   return render(
     <ThemeProvider>
-      <SidebarStatusLine brandName="cezar" version="0.20.0" latestVersion={null} starCount={null} health="healthy" {...props} />
+      <SidebarStatusLine brandName="cezar" version="0.20.0" latestVersion={null} health="healthy" {...props} />
     </ThemeProvider>,
   )
 }
@@ -68,10 +68,10 @@ describe('SidebarStatusLine', () => {
   })
 
   it('keeps the version out of the ⋯ menu', () => {
-    renderLine({ starCount: 12 })
+    renderLine()
     const menu = openMore()
     expect(menu.querySelector('[data-slot="version-chip"]')).toBeNull()
-    expect(menu.querySelector('[data-slot="star-chip"]')?.textContent).toContain('12')
+    expect(menu.querySelector('[data-slot="star-chip"]')).toBeNull()
   })
 
   it('switches the theme from the segmented row', () => {

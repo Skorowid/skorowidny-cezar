@@ -2,8 +2,8 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { matchPath, useLocation } from 'react-router'
 
 import { useManagers } from '@/api/managers'
-import { useHealth, useProjectRuns, useProjects, useRunsForProject, useSkillsUpdate, useStarCount, useTodos, useWorkspaceConfig, useWorkspaceUiState } from '@/api/queries'
-import type { HealthResponse, ProjectsResponse, RunRecord, SkillsUpdateState } from '@open-mercato/cezar-api-client'
+import { useHealth, useProjectRuns, useProjects, useRunsForProject, useTodos, useWorkspaceConfig, useWorkspaceUiState } from '@/api/queries'
+import type { HealthResponse, ProjectsResponse, RunRecord } from '@open-mercato/cezar-api-client'
 import { AppShell, type ProjectSwitcher as ProjectSwitcherData, type RepoChip } from '@/components/app-shell'
 import { CommandPalette } from '@/components/command-palette'
 import { TaskPalette } from '@/components/task-palette/task-palette'
@@ -11,7 +11,6 @@ import { ListViewProvider } from '@/components/list-view'
 import { HostUsageWidget } from '@/components/host-usage-widget'
 import { ProviderBannerContainer } from '@/components/provider-banner-container'
 import { ConnectionBanner } from '@/components/cache-status'
-import { TelemetryConsentBanner } from '@/components/telemetry-consent'
 import { ProjectSwitcher } from '@/components/project-switcher'
 import { CurrentTasksContainer } from '@/components/current-tasks'
 import { ToolsMenuItems, toolsTone, toolsTooltip } from '@/components/tools-menu'
@@ -29,7 +28,6 @@ import { runTitle } from '@/lib/task-groups'
 import { lastProjectId, managerHref, rememberLastProject, rememberManagerLocation } from '@/lib/manager-location'
 import { whatsNewHasUnseen } from '@/lib/onboarding'
 import { isManagerPathname, managersAttention } from '@/lib/managers'
-import { useManagerModeTelemetry } from '@/lib/manager-telemetry'
 import { pageTitleContext, preloadManagerRoutes } from '@/routes'
 
 /**
@@ -49,12 +47,6 @@ export function repoChipOf(health: HealthResponse | undefined): RepoChip | null 
   const name = repo.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
   if (!name) return null
   return { name, branch: repo.branch }
-}
-
-/** Only a checked, still-actionable result earns chrome. An update failure may retain a proven
- * available scope, so keep that signal; all unknown/transient/degraded states stay quiet. */
-export function skillsUpdateMarkerOf(state: SkillsUpdateState | undefined): boolean {
-  return state?.available === true && (state.status === 'available' || state.status === 'error')
 }
 
 /**
@@ -104,11 +96,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
   const projectId = useActiveProjectId()
   const health = useHealth()
   const workspaceConfig = useWorkspaceConfig()
-  const branding = workspaceConfig.data?.branding
-  const customBranding = branding !== undefined && (
-    branding.name !== 'cezar' || branding.logoUrl !== null
-  )
-  const starCount = useStarCount(!customBranding && workspaceConfig.data !== undefined)
   // The global inbox is opt-in (#471). With the capability off there is no Inbox nav item to
   // badge and the endpoint can only answer [], so the query parks rather than polls.
   const inboxAvailable = health.data?.capabilities.followups === true
@@ -123,7 +110,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
   const managersAvailable = health.data?.capabilities.managers === true
   const managers = useManagers(managersAvailable)
   const inManager = managersAvailable && isManagerPathname(pathname)
-  useManagerModeTelemetry(inManager)
   useEffect(() => {
     if (inManager) rememberManagerLocation(`${pathname}${search}`)
   }, [inManager, pathname, search])
@@ -140,10 +126,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
   const managerTo = inManager ? '/manager' : managerHref(managerIds)
   const chatId = inManager ? matchPath('/manager/:id', pathname)?.params.id : undefined
   const chatName = chatId === undefined ? undefined : managers.data?.managers.find((manager) => manager.id === chatId)?.name
-  // One query in the shell feeds every rendering of the active project's navigation (desktop,
-  // mobile drawer, and grouped sidebar). Routes reuse this TanStack Query cache entry.
-  const skillsUpdate = useSkillsUpdate(projectId ?? '', projectId !== null)
-  const skillsUpdateAvailable = skillsUpdateMarkerOf(skillsUpdate.data)
   // Records the visit and dots the nav items whose feature shipped since (spec
   // 2026-10-26-first-run-onboarding, "Coming back").
   const newNavItems = useFeatureNews(stripProjectPrefix(pathname))
@@ -216,8 +198,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
     [globalSettings, navProjectId, projectId, navProject?.name, projectName, registry?.projects],
   )
   const banner = useMemo(() => <><ConnectionBanner /><ProviderBannerContainer /></>, [])
-  // The opt-in ask (docs/telemetry.md): renders nothing once this machine has answered.
-  const footerBanner = useMemo(() => <TelemetryConsentBanner />, [])
   const currentTasks = useMemo(() => <CurrentTasksContainer />, [])
   // The machine glance lives in the footer's "⋯" menu now, so it mounts only while that is open;
   // its own wrapper still gates the viewport and transport (nothing below `md` or in remote).
@@ -268,10 +248,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
         brandLogoUrl={workspaceConfig.data?.branding.logoUrl ?? null}
         version={health.data?.version ?? null}
         latestVersion={health.data?.latestVersion ?? null}
-        // The ⭐ ask's count. Same honesty rule as the chips above: `available: false` — offline,
-        // a rate-limited IP, or promos silenced with `CEZ_NO_BANNER=1` — is `null` here, and
-        // AppShell renders no chip for it rather than a button that cannot count.
-        starCount={!customBranding && starCount.data?.available ? (starCount.data.count ?? null) : null}
         // `?? null` rather than `?? 0`: no badge while the inbox is unknown, and no badge when it
         // is known to be empty — AppShell renders neither for a falsy count.
         inboxCount={todos.data?.length ?? null}
@@ -281,7 +257,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
         nowCount={runs.data?.needsYou ?? null}
         runningCount={runs.data?.running ?? null}
         healthStatus={healthStatus}
-        skillsUpdateAvailable={skillsUpdateAvailable}
         newNavItems={newNavItems}
         // Shown whenever the remote is a recognized forge, like each project group's tab (#698);
         // a cold or failed probe is the GitHub page's to explain and retry (#1412).
@@ -299,7 +274,6 @@ export const AppShellContainer = memo(function AppShellContainer({ children }: {
         healthReason={healthReason}
         linkProjectId={globalSettings ? null : navProjectId}
         offerAddProject={registry === undefined && projectsQuery.isError}
-        footerBanner={footerBanner}
         singleProject={singleProject}
         currentTasks={currentTasks}
         switcher={switcher}

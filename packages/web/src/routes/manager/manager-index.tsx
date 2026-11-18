@@ -8,7 +8,6 @@ import { useHealth } from '@/api/queries'
 import { CenteredState } from '@/components/centered-state'
 import { Button } from '@/components/ui/button'
 import { useNow } from '@/lib/use-now'
-import { noteManagerChatSource } from '@/lib/manager-telemetry'
 import type { ManagerSummary } from '@open-mercato/cezar-api-client'
 
 import { carriesComposerFocus, FOCUS_COMPOSER, FROM_MANAGER_LIST } from './manager-focus'
@@ -73,7 +72,6 @@ export function ManagerIndexRoute() {
   if (!managers.data) return <ManagerIndexLoading />
   if (ordered.length === 0) return <ManagerNewRoute />
   if (params.get('all') === '1' || (!desktop && ordered.length > 1)) return <ManagerListScreen managers={ordered} isFetching={managers.isFetching} isError={managers.isError} />
-  noteManagerChatSource('auto', { ifUnset: true })
   // A delete lands here on its way to the next chat, as does a first-run create: pass focus on.
   return <Navigate to={`/manager/${encodeURIComponent(ordered[0]!.id)}`} replace {...(firstRun || carriesComposerFocus(location.state) ? { state: FOCUS_COMPOSER } : {})} />
 }

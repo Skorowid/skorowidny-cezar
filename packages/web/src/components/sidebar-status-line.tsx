@@ -1,4 +1,4 @@
-import { EllipsisIcon, MonitorIcon, MoonIcon, SearchIcon, StarIcon, SunIcon, WrenchIcon } from 'lucide-react'
+import { EllipsisIcon, MonitorIcon, MoonIcon, SearchIcon, SunIcon, WrenchIcon } from 'lucide-react'
 import * as React from 'react'
 import type { ReactNode } from 'react'
 
@@ -22,7 +22,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { CEZAR_REPO_URL, formatStarCount } from '@/lib/star-promo'
 import type { Theme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { commandShortcutHint } from '@/lib/use-command-shortcut'
@@ -38,7 +37,6 @@ export interface SidebarStatusLineProps {
   brandName: string
   version: string | null
   latestVersion: string | null
-  starCount: number | null
   /** The machine glance (CPU/RAM), mounted only while the menu is open. */
   hostWidget?: ReactNode
   /** `ToolsMenuItems` — the Tools submenu's body. */
@@ -76,7 +74,6 @@ export function SidebarStatusLine({
   brandName,
   version,
   latestVersion,
-  starCount,
   hostWidget,
   toolsMenu,
   whatsNew,
@@ -128,7 +125,6 @@ export function SidebarStatusLine({
           {version ? <VersionChip version={version} latestVersion={latestVersion} brandName={brandName} onOpen={() => setUpdater(true)} /> : null}
           <MoreMenu
             health={health}
-            starCount={starCount}
             hostWidget={hostWidget}
             toolsMenu={toolsMenu}
             whatsNew={whatsNew}
@@ -189,7 +185,6 @@ function VersionChip({
 
 function MoreMenu({
   health,
-  starCount,
   hostWidget,
   toolsMenu,
   whatsNew,
@@ -198,7 +193,6 @@ function MoreMenu({
   setTheme,
 }: {
   health: SidebarHealth | undefined
-  starCount: number | null
   hostWidget?: ReactNode
   toolsMenu?: ReactNode
   whatsNew?: ReactNode
@@ -245,22 +239,6 @@ function MoreMenu({
           </DropdownMenuSub>
         ) : null}
         {whatsNew}
-        {starCount === null ? null : (
-          <DropdownMenuItem asChild className="text-ui">
-            <a
-              data-slot="star-chip"
-              href={CEZAR_REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Star cezar on GitHub — ${starCount.toLocaleString()} stars`}
-              aria-label={`Star cezar on GitHub — ${starCount.toLocaleString()} stars`}
-            >
-              <StarIcon aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">Star cezar on GitHub</span>
-              <span className="shrink-0 text-label text-soft-foreground tabular-nums">{formatStarCount(starCount)}</span>
-            </a>
-          </DropdownMenuItem>
-        )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="eyebrow px-2 pt-1.5 pb-1 text-meta font-semibold text-soft-foreground">
           Theme

@@ -28,7 +28,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { isNeedsYouStatus } from '@/lib/attention'
 import { formatChord, shortcutsBlocked } from '@/lib/keybindings'
-import { trackAddProjectOpened } from '@/lib/telemetry'
 import { isEditableTarget } from '@/lib/use-command-shortcut'
 import { FOLDER_DND_PREFIX, useProjectArrangement, type ProjectSection } from '@/lib/use-project-arrangement'
 import { cn } from '@/lib/utils'
@@ -121,7 +120,6 @@ export function ProjectSwitcher({
     setOpen(false)
     setQuery('')
     setAdding(kind)
-    trackAddProjectOpened(kind)
   }, [])
   const stopAdding = React.useCallback((next: boolean) => {
     if (!next) setAdding(null)

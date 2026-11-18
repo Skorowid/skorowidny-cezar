@@ -77,7 +77,7 @@ describe('user-facing copy names settings pages that exist', () => {
   const titles = new Set(
     SETTINGS_SECTIONS.filter((section) => !section.redirect && !section.hidden).map((section) => section.title),
   )
-  const outside = ['../../components/telemetry-consent.tsx', '../../components/host-usage-widget.tsx', '../../api/agent-accounts.ts']
+  const outside = ['../../components/host-usage-widget.tsx', '../../api/agent-accounts.ts']
   const files = [
     ...readdirSync(dir).filter((name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)),
     ...outside,

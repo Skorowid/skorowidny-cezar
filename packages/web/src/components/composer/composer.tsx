@@ -33,7 +33,6 @@ import { bumpSkillUsage, filterSkills, fuzzyMatch, isProjectSkill } from '@/lib/
 import { useNow } from '@/lib/use-now'
 import { composerEnterSends, useEnterInsertsNewline } from '@/lib/enter-key'
 import { submitShortcutHint } from '@/lib/use-submit-shortcut'
-import { reportDictationFailed, trackAttachmentsSent } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 import {
@@ -290,7 +289,6 @@ export function Composer({
   const queryClient = useQueryClient()
   const [dictationLanguage, setDictationLanguage] = useDictationLanguage()
   const dictation = useDictation(({ message, failure }) => {
-    if (failure) reportDictationFailed(failure)
     toast(message, failure ? { tone: 'danger', reported: true } : {})
   }, dictationLanguage)
 
@@ -535,7 +533,6 @@ export function Composer({
           meta ? onSubmit(body, attachments, meta) : onSubmit(body, attachments),
         )
         releaseStaged(messageImages)
-        trackAttachmentsSent(messageImages.length)
       } catch (error) {
         toast(error instanceof Error ? error.message : String(error), { tone: 'danger' })
         // The queued follow-up would overtake the message that failed; let the user re-send both.

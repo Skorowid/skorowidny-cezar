@@ -10,7 +10,6 @@ import {
   queryKeys,
   useImportableSkills,
   useSkills,
-  useSkillsUpdate,
   useUiState,
   useWorkflows,
 } from '@/api/queries'
@@ -19,7 +18,6 @@ import { CenteredState } from '@/components/centered-state'
 import { SkillDetailBody, SkillSourceTag } from '@/components/skill-detail'
 import type { SkillActivation } from '@/components/skill-detail'
 import { SkillEmptyHint } from '@/components/skill-empty-hint'
-import { SkillsUpdateCard } from '@/components/skills-update-card'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Input } from '@/components/ui/input'
@@ -92,7 +90,6 @@ export function SkillsRoute() {
 
 function SkillsCatalog() {
   const projectId = useActiveProjectId() ?? ''
-  const updateQuery = useSkillsUpdate(projectId, Boolean(projectId))
   const skillsQuery = useSkills()
   const workflowsQuery = useWorkflows()
   const importableQuery = useImportableSkills()
@@ -260,11 +257,6 @@ function SkillsCatalog() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        ) : null}
-        {projectId ? (
-          <div className="shrink-0 px-3 pb-2">
-            <SkillsUpdateCard projectId={projectId} state={updateQuery.data} loadError={updateQuery.error} />
           </div>
         ) : null}
         {importableQuery.isError ? (

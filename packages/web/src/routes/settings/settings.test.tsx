@@ -190,7 +190,6 @@ const MERGED: Array<[string, string, string]> = [
   ['global-instructions', 'agents', 'global-instructions'],
   ['workspace-secrets', 'data-privacy', 'workspace-secrets'],
   ['transfer', 'data-privacy', 'transfer'],
-  ['privacy', 'data-privacy', 'privacy'],
 ]
 
 describe('the section registry', () => {
@@ -468,7 +467,7 @@ describe('the settings rail', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('cezar')
   })
 
-  it('ends the sidebar with the app status line: search, the version chip, then star and theme in the ⋯ menu', () => {
+  it('ends the sidebar with the app status line: search, the version chip, then theme in the ⋯ menu', () => {
     const client = gateSeededClient(false, REGISTRY)
     client.setQueryData(queryKeys.health, {
       bootProject: 'boot',
@@ -476,7 +475,6 @@ describe('the settings rail', () => {
       latestVersion: '0.15.0',
       capabilities: { localHandoff: true, followups: true, singleProject: false },
     })
-    client.setQueryData(workspaceQueryKeys.starCount, { available: true, count: 335 })
     render(
       <QueryClientProvider client={client}>
         <ThemeProvider>
@@ -515,7 +513,7 @@ describe('the settings rail', () => {
     fireEvent.pointerDown(within(footer).getByRole('button', { name: 'More' }), { button: 0, ctrlKey: false })
     const menu = screen.getByRole('menu')
     expect(menu.querySelector('[data-slot="version-chip"]')).toBeNull()
-    expect(menu.querySelector('[data-slot="star-chip"]')?.textContent).toContain('335')
+    expect(menu.querySelector('[data-slot="star-chip"]')).toBeNull()
     expect(menu.querySelector('[data-slot="theme-toggle"]')).not.toBeNull()
   })
 

@@ -1,4 +1,4 @@
-import { hashKey, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { mergeProviderStatusResponse } from '@/lib/provider-status'
@@ -83,19 +83,14 @@ import {
   getWorkflowNodes,
   getWorkspaceConfig,
   getWorkspaceUiState,
-  getSkillsUpdate,
   getMeshyStatus,
   getSelfUpdate,
   getSelfUpdateDevelopment,
-  getStarCount,
-  getTelemetryConsent,
   refreshSelfUpdate,
   setSelfUpdateChannel,
   applySelfUpdate,
   scheduleSelfUpdate,
   cancelScheduledSelfUpdate,
-  checkSkillsUpdate,
-  applySkillsUpdate,
   getWorktrees,
   editQueuedMessage,
   markRunSeen,
@@ -497,18 +492,11 @@ export const workspaceQueryKeys = {
   /** One account's auth state — a child of `agentProfiles`, so removing an account drops it too. */
   agentAccountStatus: (routeId: string) =>
     ['workspace', 'agent-profiles', 'status', routeId] as const,
-  skillsUpdateAll: ['workspace', 'skills-update'] as const,
   /** `GET /api/v1/workspace/meshy` — the fork's Meshy AI settings. */
   meshy: ['workspace', 'meshy'] as const,
-  skillsUpdate: (projectId: string) => ['workspace', 'skills-update', projectId] as const,
   /** cezar's own updater via `GET /api/v1/workspace/self-update` (self-update PoC). */
   selfUpdate: ['workspace', 'self-update'] as const,
   selfUpdateDevelopment: ['workspace', 'self-update', 'development'] as const,
-  /** cezar's own GitHub star count via `GET /api/v1/star-count`, behind the sidebar's ⭐ ask.
-   *  Workspace-led: the number is about cezar, not about whichever project is on screen. */
-  starCount: ['workspace', 'star-count'] as const,
-  /** The opt-in telemetry answer via `GET /api/v1/telemetry/consent` — one per machine. */
-  telemetryConsent: ['workspace', 'telemetry-consent'] as const,
   /** One directory listing from `GET /api/fs/browse` (step 4.2's folder picker). Keyed by the
    *  browsed path — `null` is the browse root, whose absolute location only the server knows.
    *  Not scope-led: there is one filesystem behind the workspace, not one per project. */
@@ -1860,96 +1848,11 @@ export function useSaveAgentFallbackPolicy(projectId: string | null) {
   })
 }
 
-/** How old the count may get before the next re-read — matches the server's `STAR_CACHE_TTL_MS`. */
-export const STAR_COUNT_REFRESH_MS = 15 * 60_000
-
-/**
- * cezar's own star count, for the sidebar's ⭐ ask. No timer of its own: once the count is
- * fifteen minutes old, it is re-read only when some other query finishes a fetch, so a cockpit
- * making no requests asks for nothing. No retry: the server answers `{ available: false }` for
- * every failure, and the next piggybacked read is the retry.
- */
-export function useStarCount(enabled = true) {
-  const queryClient = useQueryClient()
-  useEffect(() => {
-    if (!enabled) return
-    return queryClient.getQueryCache().subscribe((event) => {
-      // A real fetch only — `setQueryData` (SSE patches) is `manual` and is not a request.
-      if (event.type !== 'updated' || event.action.type !== 'success' || event.action.manual) return
-      if (event.query.queryHash === starCountQueryHash) return
-      // Skips the request while the cached count is younger than `staleTime`.
-      void queryClient.prefetchQuery(starCountQueryOptions)
-    })
-  }, [enabled, queryClient])
-  return useQuery({ ...starCountQueryOptions, enabled, refetchOnMount: false })
-}
-
-const starCountQueryOptions = {
-  queryKey: workspaceQueryKeys.starCount,
-  queryFn: ({ signal }: { signal: AbortSignal }) => getStarCount({ signal }),
-  staleTime: STAR_COUNT_REFRESH_MS,
-  retry: false,
-} as const
-const starCountQueryHash = hashKey(workspaceQueryKeys.starCount)
-
-/** The opt-in telemetry answer. Read by the consent bar and Settings → Privacy; both write
- *  through `putTelemetryConsent` and set this cache from the answer. */
-export function useTelemetryConsent() {
-  return useQuery({
-    queryKey: workspaceQueryKeys.telemetryConsent,
-    queryFn: ({ signal }) => getTelemetryConsent({ signal }),
-    staleTime: Infinity,
-    retry: false,
-  })
-}
-
 export function useMeshyStatus() {
   return useQuery({
     queryKey: workspaceQueryKeys.meshy,
     queryFn: ({ signal }) => getMeshyStatus({ signal }),
   })
-}
-
-/** Idle reads a skills snapshot gets before its poll stands down — five minutes at the cadence
- *  below, enough to cover a check queued behind a handful of others. */
-const SKILLS_UPDATE_IDLE_READ_LIMIT = 6
-
-export function useSkillsUpdate(projectId: string, enabled = true) {
-  return useQuery({
-    queryKey: workspaceQueryKeys.skillsUpdate(projectId),
-    queryFn: ({ signal }) => getSkillsUpdate(projectId, { signal }),
-    enabled,
-    // GET deliberately answers the current snapshot and starts a stale check in the
-    // background. Retry only while that snapshot is transient so an initial `idle`
-    // response converges. Checks may legitimately take tens of seconds, so a one-minute cadence
-    // avoids repeatedly challenging authenticated remote sessions while still converging after
-    // a long-running operation. The initial mount remains the session's one automatic check.
-    // `idle` means no check has completed yet (`checkedAt` null), and the check the first GET
-    // started can queue behind another project's on the server, so a single follow-up read is not
-    // enough to catch it. Idle reads are capped rather than unbounded: after that the reconcile
-    // on reconnect and on tab return owns the update, so the poll cannot run all session.
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      if (status === undefined || status === 'checking' || status === 'updating') return 60_000
-      if (status !== 'idle') return false
-      return query.state.dataUpdateCount < SKILLS_UPDATE_IDLE_READ_LIMIT ? 60_000 : false
-    },
-  })
-}
-
-export function useCheckSkillsUpdate(projectId: string) {
-  const queryClient = useQueryClient()
-  const key = workspaceQueryKeys.skillsUpdate(projectId)
-  return useMutation({
-    mutationFn: () => checkSkillsUpdate(projectId),
-    onSuccess: (state) => queryClient.setQueryData(key, state),
-  })
-}
-
-export function useApplySkillsUpdate(projectId: string) {
-  const queryClient = useQueryClient()
-  const key = workspaceQueryKeys.skillsUpdate(projectId)
-  return useMutation({ mutationFn: () => applySkillsUpdate(projectId), onSuccess: (state) => queryClient.setQueryData(key, state) })
 }
 
 /** cezar's own update state (self-update PoC). Polls fast while an install job runs so the

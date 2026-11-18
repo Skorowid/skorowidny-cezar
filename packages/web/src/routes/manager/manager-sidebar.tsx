@@ -19,7 +19,6 @@ import {
   needsYouCount,
 } from '@/lib/managers'
 import { useNow } from '@/lib/use-now'
-import { noteManagerChatSource } from '@/lib/manager-telemetry'
 import { cn } from '@/lib/utils'
 import type { ManagerSummary } from '@open-mercato/cezar-api-client'
 
@@ -54,7 +53,6 @@ export const ManagerRow = memo(function ManagerRow({
       data-attention={attention ?? undefined}
       aria-current={active ? 'page' : undefined}
       onClick={() => {
-        noteManagerChatSource(source)
         onNavigate?.()
       }}
       className={cn(
@@ -112,7 +110,6 @@ export const ManagerRailItem = memo(function ManagerRailItem({ manager, active }
       aria-current={active ? 'page' : undefined}
       aria-label={attention ? `${manager.name}${MANAGER_ATTENTION_TEXT[attention]}` : manager.name}
       title={manager.name}
-      onClick={() => noteManagerChatSource('sidebar')}
       className={cn(
         'relative flex size-9 shrink-0 items-center justify-center rounded-md outline-none transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50',
         active && 'bg-muted ring-1 ring-border',
@@ -177,7 +174,6 @@ export const ManagerSidebarRow = memo(function ManagerSidebarRow({
       data-attention={attention ?? undefined}
       aria-current={active ? 'page' : undefined}
       onClick={() => {
-        noteManagerChatSource('sidebar')
         onNavigate?.()
       }}
       className={cn(
@@ -297,7 +293,6 @@ export function ManagerSidebar() {
               to={`/manager/${encodeURIComponent(firstWaiting.id)}`}
               data-slot="manager-sidebar-approvals"
               onClick={() => {
-                noteManagerChatSource('sidebar')
                 onNavigate?.()
               }}
               className={NAV_ROW_CLASS}

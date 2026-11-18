@@ -25,7 +25,7 @@ export type NavItem = {
   /** Path prefixes that light this item up. See `activeNavPath` for the longest-prefix rule. */
   match: string[]
   /** Optional trailing status affordance. Rendering/data stay with the shell. */
-  badge?: 'inbox-count' | 'skills-update' | 'tasks-unread' | 'needs-you'
+  badge?: 'inbox-count' | 'tasks-unread' | 'needs-you'
   /** Where the sidebar files the item: the active project's area list (default) or the
    *  Workspace group under it (redesign, Proposal 1). The ⌘K palette ignores the split. */
   group?: 'workspace'
@@ -65,7 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/assets', label: 'Assets', icon: LayersIcon, match: ['/assets'] },
   { to: '/terminal', label: 'Terminal', icon: TerminalIcon, match: ['/terminal'], terminal: true },
   { to: '/automations', label: 'Automations', icon: ZapIcon, match: ['/automations'], automations: true },
-  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'], badge: 'skills-update' },
+  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'] },
   { to: '/workflows', label: 'Workflows', icon: WorkflowIcon, match: ['/workflows'] },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, match: ['/settings'], group: 'workspace' },
 ]

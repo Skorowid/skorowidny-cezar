@@ -1,7 +1,6 @@
 import { BotIcon, FoldersIcon } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { noteManagerEntry } from '@/lib/manager-telemetry'
 import { MANAGER_ATTENTION_DOT, type ManagerAttention } from '@/lib/managers'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { cn } from '@/lib/utils'
@@ -66,7 +65,6 @@ export function ModeSwitch(props: ModeSwitchProps) {
         data-mode="manager"
         aria-current={manager.active ? 'page' : undefined}
         onClick={() => {
-          if (!managerMode) noteManagerEntry('sidebar')
           onNavigate?.()
         }}
         className={cn(SEGMENT, manager.active && SEGMENT_ACTIVE)}
@@ -115,7 +113,6 @@ export function ModeRailSwitch(props: ModeSwitchProps) {
           data-mode="manager"
           aria-label={`Manager${manager.dot ? manager.dotText : ''}`}
           aria-current={manager.active ? 'page' : undefined}
-          onClick={() => { if (!managerMode) noteManagerEntry('sidebar') }}
           className={cn(RAIL_ITEM, manager.active && 'bg-muted text-foreground')}
         >
           <BotIcon className="size-4" aria-hidden="true" />

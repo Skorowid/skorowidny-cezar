@@ -43,7 +43,6 @@ import {
 import { useKeyboardInsetVar, useKeyboardOpen } from '@/lib/keyboard-inset'
 import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
-import { trackManagerMessageSent, trackManagerQuestionAnswered, useManagerChatOpened } from '@/lib/manager-telemetry'
 import { isNearBottom } from '@/routes/task-thread/thread-scroll'
 import { managerAccessOf, type ManagerListResponse, type ManagerMessage, type ManagerSummary } from '@open-mercato/cezar-api-client'
 
@@ -423,7 +422,6 @@ function ManagerChat({ manager }: { manager: ManagerSummary }) {
   useChatRecovery(chat, id)
   useMarkRead(manager)
   useHideShellTopBar()
-  useManagerChatOpened(id)
   const queryClient = useQueryClient()
   // Coming back re-mounts every cached row: 2.4 s for 1,500. Older pages reload on scroll.
   useEffect(() => () => trimManagerChat(queryClient, id), [id, queryClient])
@@ -492,7 +490,7 @@ function ManagerChat({ manager }: { manager: ManagerSummary }) {
     void stopManager(id).catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), { tone: 'danger' }))
   }, [id])
 
-  const deliver = async (text: string, attachments: AttachmentEntry[], via: 'composer' | 'chip') => {
+  const deliver = async (text: string, attachments: AttachmentEntry[]) => {
     // A command takes no files, so a message that has them is a message.
     const command = attachments.length > 0 ? null : parseManagerCommand(text)
     scroll.jump()
@@ -503,18 +501,14 @@ function ManagerChat({ manager }: { manager: ManagerSummary }) {
       toast('Check started')
       return undefined
     }
-    const sent = await sendManagerMessage(id, command?.prompt ?? text, attachments)
-    trackManagerMessageSent(via, attachments.length > 0)
-    // The next message answers an open card, whatever it says (spec 2026-10-31-managers, Questions).
-    if (questionOpen) trackManagerQuestionAnswered('typed')
-    return sent
+    return sendManagerMessage(id, command?.prompt ?? text, attachments)
   }
-  const submit = (text: string, attachments: AttachmentEntry[]) => deliver(text, attachments, 'composer')
+  const submit = (text: string, attachments: AttachmentEntry[]) => deliver(text, attachments)
 
   // A chip stays drawn after a tap, so a double tap must not spend a second turn.
   const sendChip = (name: string) => {
     if (Date.now() - lastSent.current < STOP_AFTER_SEND_GUARD_MS) return
-    void deliver(`/${name}`, [], 'chip').catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), { tone: 'danger' }))
+    void deliver(`/${name}`, []).catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), { tone: 'danger' }))
   }
 
   return (

@@ -12,10 +12,9 @@ import {
 
 import { useHealth, useProjects, useProviderStatus, useWorkspaceUiState } from './api/queries'
 import { ProjectScopeProvider } from './api/project-scope-context'
-import { lazyRoute } from './lib/telemetry'
+import { lazyRoute } from './lib/lazy-route'
 import { bareRootLanding, locationToRestore, readStoredLastLocation } from './lib/last-location'
 import { isFirstLocation, isPhone, phoneLanding, rememberFirstLocation } from './lib/phone-app'
-import { noteManagerEntry } from './lib/manager-telemetry'
 import { Navigate as ScopedNavigate, pathnameProjectId, stripProjectPrefix } from './lib/project-router'
 import { ScreenLoading } from './components/loading-state'
 import { AutomationsLoading } from './routes/automations/automations-loading'
@@ -349,7 +348,6 @@ function PhoneFreshLoad() {
     uiStateFailed: uiState.isError,
   })
   if (landing === 'wait') return <ScopeResolving />
-  if (landing === 'manager') noteManagerEntry('phone_default')
   return landing === 'manager' ? <Navigate to="/manager" replace /> : <LegacyPathRedirect />
 }
 

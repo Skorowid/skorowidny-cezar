@@ -19,7 +19,6 @@ import { isManagerPathname, MANAGER_ATTENTION_DOT, type ManagerAttention } from 
 import { rememberTasksLocation, tasksHref } from '@/lib/manager-location'
 import { showsBottomBar } from '@/lib/phone-app'
 import { isSettingsPathname } from '@/lib/settings-path'
-import { CEZAR_REPO_URL, formatStarCount } from '@/lib/star-promo'
 import { AddProjectMenu } from '@/components/add-project-menu'
 import { BrandLockup, BrandMark } from '@/components/brand-mark'
 import { ModeRailSwitch, ModeSwitch, type ModeSwitchProps } from '@/components/mode-switch'
@@ -76,8 +75,6 @@ export type AppShellProps = {
   runningCount?: number | null
   /** The footer dot: `healthy`, `attention`, or null while health is unknown. */
   healthStatus?: SidebarHealth
-  /** A quiet, accessible marker on Skills when a checked update remains actionable. */
-  skillsUpdateAvailable?: boolean
   /** Nav items (`to`) whose feature shipped since the user started and is not opened yet. */
   newNavItems?: ReadonlySet<string>
   /** cezar version for the footer chip. Null until Step 3.1 reads it from `/api/health`. */
@@ -85,10 +82,6 @@ export type AppShellProps = {
   /** The npm registry's newer version, when the server's update check found one (#368). The
    *  chip grows a pulsing pending dot + tooltip; absent or equal to `version`, it stays plain. */
   latestVersion?: string | null
-  /** cezar's own GitHub star count for the footer's ⭐ ask. `null` — offline, rate-limited, or
-   *  promos silenced with `CEZ_NO_BANNER=1` — renders NO chip at all rather than an empty one:
-   *  a button asking to be clicked while admitting it cannot count is worse than no button. */
-  starCount?: number | null
   /** The active project's "Current tasks" (`CurrentTasksContainer`). */
   currentTasks?: ReactNode
   /** The project switcher control under the brand (`ProjectSwitcher`). Absent — the registry
@@ -231,11 +224,9 @@ export const AppShell = React.memo(function AppShell({
   nowCount = null,
   runningCount = null,
   healthStatus = null,
-  skillsUpdateAvailable = false,
   newNavItems = NO_NEW_NAV_ITEMS,
   version = null,
   latestVersion = null,
-  starCount = null,
   currentTasks,
   switcher,
   hostWidget,
@@ -352,11 +343,9 @@ export const AppShell = React.memo(function AppShell({
     nowCount,
     runningCount,
     healthStatus,
-    skillsUpdateAvailable,
     newNavItems,
     version,
     latestVersion,
-    starCount,
     currentTasks,
     switcher,
     hostWidget,
@@ -527,11 +516,9 @@ type NavProps = {
   nowCount: number | null
   runningCount: number | null
   healthStatus: SidebarHealth
-  skillsUpdateAvailable: boolean
   newNavItems: ReadonlySet<string>
   version: string | null
   latestVersion: string | null
-  starCount: number | null
   currentTasks?: ReactNode
   switcher?: ReactNode
   hostWidget?: ReactNode
@@ -667,7 +654,7 @@ function SidebarIconRail({
   autoFocus?: boolean
   desktop: 'macos' | 'windows' | 'linux' | null
 }) {
-  const { items, activeTo, inboxCount, unreadCount, nowCount, skillsUpdateAvailable, newNavItems, brandName, brandLogoUrl, managersAvailable, managerMode } = props
+  const { items, activeTo, inboxCount, unreadCount, nowCount, newNavItems, brandName, brandLogoUrl, managersAvailable, managerMode } = props
   return (
     <aside
       data-slot={slot}
@@ -705,7 +692,6 @@ function SidebarIconRail({
               const marked =
                 (item.badge === 'tasks-unread' && Boolean(unreadCount))
                 || (item.badge === 'needs-you' && Boolean(nowCount))
-                || (item.badge === 'skills-update' && skillsUpdateAvailable)
                 || newNavItems.has(item.to)
               return (
                 <Link
@@ -892,8 +878,8 @@ function SidebarContent({
   compactHeader?: boolean
 }) {
   const {
-    activeTo, globalTasks, items, repo, inboxCount, unreadCount, nowCount, runningCount, healthStatus, skillsUpdateAvailable,
-    newNavItems, version, latestVersion, starCount, currentTasks, switcher, hostWidget, whatsNew, whatsNewUnseen, healthReason,
+    activeTo, globalTasks, items, repo, inboxCount, unreadCount, nowCount, runningCount, healthStatus,
+    newNavItems, version, latestVersion, currentTasks, switcher, hostWidget, whatsNew, whatsNewUnseen, healthReason,
     offerAddProject, toolsMenu, brandName, brandLogoUrl, managersAvailable, managerMode, managerSidebar,
   } = props
   const areas = items.filter((item) => item.group !== 'workspace')
@@ -960,8 +946,8 @@ function SidebarContent({
                   count={item.badge === 'needs-you' ? nowCount : item.badge === 'tasks-unread' ? unreadCount : null}
                   countSlot={item.badge === 'needs-you' ? 'nav-needs-you-badge' : 'nav-unread-badge'}
                   countTitle={areaCountTitle(item, item.badge === 'needs-you' ? nowCount : unreadCount)}
-                  marker={item.badge === 'skills-update' && skillsUpdateAvailable ? 'Skills update available' : newNavItems.has(item.to) ? 'New' : null}
-                  markerSlot={item.badge === 'skills-update' && skillsUpdateAvailable ? 'nav-update-marker' : 'nav-new-marker'}
+                  marker={newNavItems.has(item.to) ? 'New' : null}
+                  markerSlot="nav-new-marker"
                 />
               ))}
             </nav>
@@ -997,7 +983,6 @@ function SidebarContent({
         brandName={brandName}
         version={version}
         latestVersion={latestVersion}
-        starCount={starCount}
         hostWidget={hostWidget}
         toolsMenu={toolsMenu}
         whatsNew={whatsNew}
@@ -1110,7 +1095,7 @@ function AllTasksLink({ active, onNavigate }: { active: boolean; onNavigate?: ()
 }
 
 /**
- * The footer's `v{version}` chip — exported, with `StarChip`, for the settings sidebar's footer,
+ * The footer's `v{version}` chip — exported for the settings sidebar's footer,
  * which mirrors this one (spec 2026-10-13-unified-settings). When the server's npm-registry check found something newer
  * (`latestVersion`, #368), the chip grows a pulsing pending-tone dot and names the version in
  * its tooltip — an affordance, not an alert: updating is optional, so the chrome stays quiet.
@@ -1144,40 +1129,6 @@ export function VersionChip({ version, latestVersion, brandName }: { version: st
       </button>
       {open ? <SelfUpdateDialog open={open} onOpenChange={setOpen} brandName={brandName} /> : null}
     </>
-  )
-}
-
-/**
- * The footer's ⭐ ask: a link to cezar's repository with its current star count.
- *
- * It is a request and only a request. Nothing about cezar behaves differently for someone who
- * never clicks it, there is no reward on the other side, and it cannot be "completed" — which is
- * also why it has no dismiss control: a chip the size of the version chip, sitting quietly in the
- * chrome, has nothing to dismiss.
- *
- * `shrink-0`, unlike `VersionChip`. That chip is the controls row's ONE elastic item on purpose
- * (#876: a long nightly version string has to come out of somewhere), and a second elastic
- * control would give the row two ways to lose — this one is at most six characters wide
- * (`⭐ 12.3k`), so it can afford to be rigid and let the version string keep the give.
- *
- * `rel="noreferrer"` alongside `noopener`: a local cockpit's URL is nobody's business, and the
- * whole point of the ask is that github.com learns nothing about the person making it.
- */
-export function StarChip({ count }: { count: number }) {
-  const formatted = formatStarCount(count)
-  return (
-    <a
-      data-slot="star-chip"
-      href={CEZAR_REPO_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`Star cezar on GitHub — ${count.toLocaleString()} stars`}
-      aria-label={`Star cezar on GitHub — ${count.toLocaleString()} stars`}
-      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 py-px font-mono text-micro font-medium text-soft-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-    >
-      <span aria-hidden="true">⭐</span>
-      <span>{formatted}</span>
-    </a>
   )
 }
 

@@ -76,7 +76,6 @@ export type SettingsSectionId =
   | 'webhooks'
   | 'workspace-secrets'
   | 'transfer'
-  | 'privacy'
   | 'meshy'
 
 /** Which settings area a section belongs to — and therefore which store it writes. */
@@ -256,7 +255,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'data-privacy',
     title: 'Data & privacy',
-    description: 'Secrets shared by every project, configuration transfer, and what cezar shares with its maintainers.',
+    description: 'Secrets shared by every project and configuration transfer.',
     icon: ShieldCheckIcon,
     component: DataPrivacySection,
     scope: 'global',
@@ -288,7 +287,6 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   redirected('global-instructions', 'Instructions', { to: 'agents', hash: 'global-instructions' }),
   redirected('workspace-secrets', 'Secrets', { to: 'data-privacy', hash: 'workspace-secrets' }),
   redirected('transfer', 'Transfer', { to: 'data-privacy', hash: 'transfer' }),
-  redirected('privacy', 'Privacy', { to: 'data-privacy', hash: 'privacy' }),
 ]
 
 /** The old id → new page map, for tests and for anything that links by id. */

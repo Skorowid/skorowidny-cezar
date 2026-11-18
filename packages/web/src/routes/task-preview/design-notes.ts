@@ -265,7 +265,7 @@ export function useDesignNotes(run: ApiRun): DesignNotes {
     [runId],
   )
   // Not a `message_sent`: the closed surface set has no Design Mode label.
-  const deliverPrompt = useDeliverPrompt(run, continueWith, { surface: null })
+  const deliverPrompt = useDeliverPrompt(run, continueWith)
   // The latest run's delivery, for `send`: a send outlives the render that started it.
   const deliverRef = useRef(deliverPrompt)
   deliverRef.current = deliverPrompt

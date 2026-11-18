@@ -5,7 +5,6 @@ import { useHealth, useProjects } from '@/api/queries'
 import { activeNavPath } from '@/components/nav-items'
 import { useKeyboardOpen } from '@/lib/keyboard-inset'
 import { locationToSave, readStoredLastLocation } from '@/lib/last-location'
-import { noteManagerEntry } from '@/lib/manager-telemetry'
 import { MANAGER_ATTENTION_DOT, MANAGER_ATTENTION_TEXT, type ManagerAttention } from '@/lib/managers'
 import { lastProjectIndex } from '@/lib/phone-app'
 import { stripProjectPrefix } from '@/lib/project-router'
@@ -65,7 +64,6 @@ export function PhoneBottomBar({
       <Link
         to={!manager ? managerTo : location.pathname === '/manager' ? `/manager${location.search}` : '/manager?all=1'}
         aria-current={manager ? 'page' : undefined}
-        onClick={() => { if (!manager) noteManagerEntry('bottom_bar') }}
         data-slot="bottom-bar-manager"
         className={cn(ITEM, manager && CURRENT)}
       >
