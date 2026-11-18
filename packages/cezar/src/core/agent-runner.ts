@@ -76,6 +76,9 @@ export interface AgentRunSpec {
   /** The project's private MCP servers (`.ai/cezar/mcp.local.json`), injected at launch through
    *  each backend's own channel — never written into `cwd` (spec 2026-10-07-private-project-mcp). */
   mcpServers?: PrivateMcpServer[];
+  /** The project's registry entry grants unsandboxed execution (fork, `codexFullAccess`).
+   *  Only the Codex runner reads it; the others have no sandbox of their own to lift. */
+  fullAccess?: boolean;
   model?: string;
   /**
    * Reasoning effort for this session (Codex `turn/start.effort`, Claude `--effort`). Omitted

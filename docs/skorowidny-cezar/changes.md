@@ -1,5 +1,16 @@
 # skorowidny-cezar changes
 
+## 2026-11-18 — Codex full access per project (`codexFullAccess`)
+
+Owner's decision (2026-11-18): Codex in `skorowidny-cezar` and `robocraftwars` runs without the sandbox, so it can run every test and write outside its worktree (`~/.cezar`, the repo's `.git`). Exception to the 2026-11-08 reviewed-execution policy below, granted per project:
+
+- `"codexFullAccess": true` in the project's entry in `~/.cezar/config.json` (per-user registry; a repository cannot grant it to itself). Anything but an explicit `true` keeps the sandbox.
+- A granted project's Codex task sessions (opening and Continue) get upstream's `danger-full-access` + `approvalPolicy: never`, with a `codex: full access …` note in the transcript. Read per launch, so a registry edit applies to the next session without a restart.
+- Unchanged: every other project, read-only runs, and Codex utility calls (task naming, planner, commit messages) keep `workspace-write` + `auto_review`. Other runners ignore the flag.
+- No UI or API to toggle it: edit the registry entry. Takes effect after deploying a release built from this.
+
+Verification: `npm run typecheck` PASS; `codex-app-server-runner.test.ts` + `codex-full-access-launch.test.ts` 44 PASS, the 3 grant cases fail against the code before the change.
+
 ## 2026-11-11 — Upstream 0.19.0 merged
 
 Merged `v0.19.0` from open-mercato/cezar. Fork priorities kept where the two meet:

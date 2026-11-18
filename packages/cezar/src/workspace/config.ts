@@ -67,10 +67,28 @@ const workspaceProjectSchema = z
       .max(PROJECT_TAGS_MAX)
       .optional()
       .catch(undefined),
+    /** Fork, owner-approved 2026-11-18: `true` runs this project's Codex sessions without the
+     *  sandbox (`danger-full-access` + `never`). Per-user only — a repository cannot grant it. */
+    codexFullAccess: z.boolean().optional().catch(undefined),
   })
   .passthrough();
 
 export type WorkspaceProject = z.infer<typeof workspaceProjectSchema>;
+
+/**
+ * Whether the registry entry for this project grants Codex full access (`codexFullAccess`),
+ * matched by id, else by root. Anything but an explicit `true` keeps the sandbox.
+ * Author: Skorowid
+ */
+export function projectGrantsCodexFullAccess(
+  config: Pick<WorkspaceConfig, 'projects'>,
+  project: { projectId?: string; root: string },
+): boolean {
+  const entry =
+    (project.projectId ? config.projects.find((p) => p.id === project.projectId) : undefined) ??
+    config.projects.find((p) => p.root === project.root);
+  return entry?.codexFullAccess === true;
+}
 
 /**
  * Zero-config cadence, in minutes, for re-checking a run parked with

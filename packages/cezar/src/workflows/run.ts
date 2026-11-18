@@ -169,7 +169,7 @@ import { limitLowText, rankByImportance, rampOrder, treeRole } from './limit-gua
 import { DEFAULT_IDLE_TIMEOUT_MINUTES } from '../workspace/config.ts';
 import { WorkspaceSemaphore, type AccountHolds } from '../workspace/semaphore.ts';
 import { SecretStore } from '../workspace/secrets.ts';
-import { loadWorkspaceConfig, PROJECT_ID_RE } from '../workspace/config.ts';
+import { loadWorkspaceConfig, PROJECT_ID_RE, projectGrantsCodexFullAccess } from '../workspace/config.ts';
 import type { ProviderId } from '../core/provider-auth.ts';
 import { prunePrHeadRefs } from '../automations/pr-head.ts';
 import { MIN_SECRET_LEN } from '../core/secret-redaction.ts';
@@ -1999,6 +1999,24 @@ export class RunManager {
     }
     onEvent({ type: 'note', message: `private MCP servers from .ai/cezar/${PRIVATE_MCP_FILE}: ${names.join(', ')}` });
     return servers;
+  }
+
+  /**
+   * Whether this launch runs Codex without its sandbox: the project's registry entry sets
+   * `codexFullAccess` (fork, owner-approved 2026-11-18). Read per launch, like the private MCP
+   * list, so a registry edit applies to the next session. A read-only run keeps the sandbox.
+   * Author: Skorowid
+   */
+  private async codexFullAccessForLaunch(
+    backend: RunnerId,
+    readOnly: boolean | undefined,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<boolean> {
+    if (backend !== 'codex' || readOnly) return false;
+    const workspace = await loadWorkspaceConfig().catch(() => undefined);
+    if (!workspace || !projectGrantsCodexFullAccess(workspace, { projectId: this.projectId, root: this.repoRoot })) return false;
+    onEvent({ type: 'note', message: 'codex: full access (codexFullAccess in ~/.cezar/config.json), no sandbox' });
+    return true;
   }
 
   /**
@@ -6330,6 +6348,7 @@ export class RunManager {
 
     const runner = createRunner(continueBackend);
     const continueMcp = await this.privateMcpForLaunch(continueBackend, onEvent);
+    const continueFullAccess = await this.codexFullAccessForLaunch(continueBackend, state.readOnly, onEvent);
     if (state.cancelled) return;
     state.currentStepId = stepId;
     this.beginUsageInvocation(runId, state, stepId);
@@ -6397,6 +6416,7 @@ export class RunManager {
           env: continueProfile.env,
           onUsageWindows: continueProfile.onUsageWindows,
           mcpServers: continueMcp,
+          ...(continueFullAccess ? { fullAccess: true } : {}),
           model: continueModel,
           reasoningEffort: continuationReasoningEffort,
           sessionId: launchSessionId,
@@ -8559,6 +8579,7 @@ export class RunManager {
 
     const runner = createRunner(stepBackend);
     const stepMcp = await this.privateMcpForLaunch(stepBackend, onEvent);
+    const stepFullAccess = await this.codexFullAccessForLaunch(stepBackend, state.readOnly, onEvent);
     let session: AgentSession;
     state.currentStepId = step.id;
     this.beginUsageInvocation(runId, state, step.id);
@@ -8595,6 +8616,7 @@ export class RunManager {
           env: stepProfile.env,
           onUsageWindows: stepProfile.onUsageWindows,
           mcpServers: stepMcp,
+          ...(stepFullAccess ? { fullAccess: true } : {}),
           model: backendModel,
           reasoningEffort,
           sessionId: launchSessionId,

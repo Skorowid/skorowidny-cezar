@@ -56,13 +56,20 @@ export interface CodexRunnerOptions {
  * as a hand patch since 2026-11-03. Commands run in the `workspace-write` sandbox; anything that
  * needs more asks, and Codex's own `auto_review` reviewer answers. Sandbox network is on;
  * `CEZ_CODEX_NETWORK=0` turns it off. Applied on thread/start AND thread/resume.
+ * Exception, owner-approved 2026-11-18: a project whose registry entry sets `codexFullAccess`
+ * (`spec.fullAccess`) runs upstream's `danger-full-access` + `never`.
  * Author: Skorowid
  */
-export function codexExecutionPolicy(env: NodeJS.ProcessEnv): {
-  sandbox: 'workspace-write';
-  approvalPolicy: 'on-request';
-  config: { approvals_reviewer: 'auto_review'; 'sandbox_workspace_write.network_access': boolean };
-} {
+export type CodexExecutionPolicy =
+  | {
+      sandbox: 'workspace-write';
+      approvalPolicy: 'on-request';
+      config: { approvals_reviewer: 'auto_review'; 'sandbox_workspace_write.network_access': boolean };
+    }
+  | { sandbox: 'danger-full-access'; approvalPolicy: 'never'; config: Record<string, never> };
+
+export function codexExecutionPolicy(env: NodeJS.ProcessEnv, fullAccess = false): CodexExecutionPolicy {
+  if (fullAccess) return { sandbox: 'danger-full-access', approvalPolicy: 'never', config: {} };
   return {
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
@@ -75,15 +82,16 @@ const RESUME_LOCK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000, 4_000, 
 
 /** The `thread/start` / `thread/resume` overrides. */
 export function codexThreadOverrides(
-  spec: Pick<AgentRunSpec, 'model' | 'cwd' | 'env'>,
+  spec: Pick<AgentRunSpec, 'model' | 'cwd' | 'env' | 'fullAccess'>,
   mcpConfig: Record<string, unknown> | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, unknown> {
   // Fork policy: reviewed execution in the workspace-write sandbox (`codexExecutionPolicy`), so the
   // run's artifacts directory is always a writable root, or a run could not publish
   // (spec 2026-10-22-html-artifacts-and-impact).
-  const policy = codexExecutionPolicy(env);
-  const artifacts = spec.env?.CEZ_ARTIFACTS_DIR;
+  const policy = codexExecutionPolicy(env, spec.fullAccess === true);
+  // Without a sandbox every path is writable already; a writable root would be noise.
+  const artifacts = policy.sandbox === 'workspace-write' ? spec.env?.CEZ_ARTIFACTS_DIR : undefined;
   // Private MCP servers (spec 2026-10-07-private-project-mcp) ride in as per-server dotted
   // config overrides, so the user's own [mcp_servers] table is extended, never replaced.
   return {
@@ -109,7 +117,7 @@ export function codexThreadOverrides(
  *
  * Auth = the host's logged-in ChatGPT/Codex session (or CODEX_API_KEY). Fork policy
  * (`codexExecutionPolicy`): reviewed execution in the `workspace-write` sandbox instead of
- * upstream's `danger-full-access` + `never`. Codex has no per-tool allowlist, so
+ * upstream's `danger-full-access` + `never`, unless the project grants `codexFullAccess`. Codex has no per-tool allowlist, so
  * `spec.allowedTools` is ignored.
  */
 export class CodexAppServerRunner implements AgentRunner {

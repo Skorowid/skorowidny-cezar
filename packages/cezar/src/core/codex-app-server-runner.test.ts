@@ -793,3 +793,26 @@ describe('codexExecutionPolicy (fork)', () => {
     expect(codexExecutionPolicy({ CEZ_CODEX_NETWORK: '1' }).config['sandbox_workspace_write.network_access']).toBe(true);
   });
 });
+
+describe('codexFullAccess (fork, owner-approved 2026-11-18)', () => {
+  it('lifts the sandbox: danger-full-access, never, no reviewer and no writable roots', () => {
+    expect(codexExecutionPolicy({ CEZ_CODEX_NETWORK: '0' }, true)).toEqual({ sandbox: 'danger-full-access', approvalPolicy: 'never', config: {} });
+    expect(
+      codexThreadOverrides({ cwd: '/wt', model: 'gpt-5', fullAccess: true, env: { CEZ_ARTIFACTS_DIR: '/data/artifacts/r1' } }, { 'mcp_servers.x.command': 'y' }, {}),
+    ).toEqual({ model: 'gpt-5', cwd: '/wt', sandbox: 'danger-full-access', approvalPolicy: 'never', config: { 'mcp_servers.x.command': 'y' } });
+  });
+
+  it('keeps the reviewed sandbox when the spec does not grant it', () => {
+    expect(codexThreadOverrides({ cwd: '/wt', fullAccess: false }, undefined, {}).sandbox).toBe('workspace-write');
+  });
+
+  it('sends the full-access policy on thread/start through the real transport', async () => {
+    const result = await new CodexAppServerRunner({ bin: MOCK_BIN, timeoutMs: 0 }).run({
+      userPrompt: 'check the working tree',
+      cwd: process.cwd(),
+      fullAccess: true,
+      env: { MOCK_CODEX_EXPECT_FULL_ACCESS: '1' },
+    });
+    expect(result.text).not.toBe('');
+  });
+});

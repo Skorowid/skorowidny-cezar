@@ -131,9 +131,16 @@ rl.on('line', (line) => {
   } else if (msg.method === 'thread/start' || msg.method === 'thread/resume' || msg.method === 'thread/fork') {
     // Fork policy (codexExecutionPolicy): reviewed execution in workspace-write, on every
     // thread/start, thread/resume and thread/fork; network follows CEZ_CODEX_NETWORK.
+    // MOCK_CODEX_EXPECT_FULL_ACCESS=1: the project grants codexFullAccess, so upstream's policy.
     const network = process.env.CEZ_CODEX_NETWORK !== '0';
     const config = msg.params?.config ?? {};
-    if (msg.params?.sandbox !== 'workspace-write' || msg.params?.approvalPolicy !== 'on-request'
+    if (process.env.MOCK_CODEX_EXPECT_FULL_ACCESS === '1') {
+      if (msg.params?.sandbox !== 'danger-full-access' || msg.params?.approvalPolicy !== 'never'
+        || 'approvals_reviewer' in config || 'sandbox_workspace_write.writable_roots' in config) {
+        emit({ id: msg.id, error: { code: -32602, message: 'expected danger-full-access execution' } });
+        return;
+      }
+    } else if (msg.params?.sandbox !== 'workspace-write' || msg.params?.approvalPolicy !== 'on-request'
       || config.approvals_reviewer !== 'auto_review' || config['sandbox_workspace_write.network_access'] !== network) {
       emit({ id: msg.id, error: { code: -32602, message: `expected reviewed workspace-write execution, network ${network}` } });
       return;
