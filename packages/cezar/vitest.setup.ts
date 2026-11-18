@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { afterAll, afterEach, beforeEach } from 'vitest'
 import { usageLimitMonitor } from './src/workspace/usage-limit-monitor.ts'
 
@@ -24,12 +24,21 @@ function insideGitWorkTree(dir: string): boolean {
   }
 }
 
-if (insideGitWorkTree(realpathSync(tmpdir()))) {
+// A cockpit also points an agent's TMPDIR into `~/.cezar/tmp/agent/…`; the sandbox home made
+// under it would sit inside the real home, and the write guard (`paths.ts`) refused every write.
+function insideRealCezarHome(dir: string): boolean {
+  const realHome = join(homedir(), '.cezar')
+  return dir === realHome || dir.startsWith(realHome + sep)
+}
+
+if (insideGitWorkTree(realpathSync(tmpdir())) || insideRealCezarHome(realpathSync(tmpdir()))) {
   const candidates =
     process.platform === 'win32'
       ? [join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Temp'), join(process.env.SystemRoot || 'C:\\Windows', 'Temp')]
       : ['/tmp', '/var/tmp']
-  const outside = candidates.find((dir) => existsSync(dir) && isWritable(dir) && !insideGitWorkTree(realpathSync(dir)))
+  const outside = candidates.find(
+    (dir) => existsSync(dir) && isWritable(dir) && !insideGitWorkTree(realpathSync(dir)) && !insideRealCezarHome(realpathSync(dir)),
+  )
   if (!outside) {
     throw new Error(`[cez] tmpdir ${tmpdir()} is inside a git work tree and no system temp outside one exists — refusing to run git fixtures in it`)
   }
@@ -65,17 +74,13 @@ process.env.GIT_CEILING_DIRECTORIES = [
   ...(process.env.GIT_CEILING_DIRECTORIES ? [process.env.GIT_CEILING_DIRECTORIES] : []),
 ].join(':')
 
-// The variables a cockpit sets for its own agents and check steps (.env.example). Run inside a
-// cezar task, the suite would inherit them — and the engine forwards CEZ_API_URL/CEZ_BIN to every
-// run it starts — so the env a case asserts would depend on where it ran. A case that needs one
-// sets it itself.
-for (const name of [
-  'CEZ_TASK_ID', 'CEZ_HANDOFF_FILE', 'CEZ_TODOS_FILE', 'CEZ_API_URL', 'CEZ_PROJECT_ID', 'CEZ_BIN',
-  'CEZ_TREE_DIR', 'CEZ_RUN_ID', 'CEZ_WORKTREE', 'CEZ_BRANCH', 'CEZ_BASE', 'CEZ_STEP_ID',
-  'CEZ_ATTEMPT', 'CEZ_SHARED_CACHE_DIR', 'CEZ_GITHUB_REPO', 'CEZ_GITHUB_NUMBER', 'CEZ_GITHUB_EVENT',
-  'CEZ_PR_HEAD_SHA', 'CEZ_PR_HEAD_REF', 'CEZ_PR_BASE_REF', 'CEZ_REMOTE',
-]) {
-  delete process.env[name]
+// Every CEZ_* the suite inherits belongs to another cezar: the cockpit that runs this as a task
+// sets its own (task id, API URL, bin, artifacts dir) and its server config (CEZ_HOME,
+// CEZ_CODEX_FULL_ACCESS_PROJECTS…) reaches agents through process.env. A hand-kept list missed
+// new ones, so the whole prefix goes; a case that needs one sets it itself. Real-CLI smoke
+// opt-ins (`CEZ_*SMOKE*`) are the operator's explicit choice and stay.
+for (const name of Object.keys(process.env)) {
+  if (name.startsWith('CEZ_') && !name.includes('SMOKE')) delete process.env[name]
 }
 
 // `gh`'s signed-in hosts decide which remotes count as GitHub Enterprise (`src/github-hosts.ts`);

@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-18 — Tests never inherit another cezar's CEZ_* variables
+
+Owner's decision (2026-11-18): every cezar keeps its own `CEZ_*` variables, so nothing leaks between instances. `packages/cezar/vitest.setup.ts` now removes EVERY inherited `CEZ_*` (the hand-kept list missed `CEZ_ARTIFACTS_DIR`, server config like `CEZ_CODEX_FULL_ACCESS_PROJECTS` reaching agents through `process.env`, …); only real-CLI smoke opt-ins (`CEZ_*SMOKE*`) stay. A `TMPDIR` inside `~/.cezar` (a cockpit's agent temp) is moved to `/tmp` like one inside a git work tree, so the sandbox home no longer trips the write guard.
+
+Verification, run as an agent of the live cockpit with its env as is: full `npm test` 80 → 26 failing files (10 workers); the 26 rerun on 3 workers: 15 fail with the change, 17 without (`agent-fallback-run`, `auto-resume` fixed), none new. The 15 left are this machine (git 2.30.2 has no `--path-format`, WSL interop, SIGTERM escalation, installed Junie). `typecheck`, `build` with `check:pack`, `test:unit` 50/50 PASS.
+
 ## 2026-11-18 — Telemetry, star count and skills auto-update removed; fork stays on 0.19
 
 Owner's decision (2026-11-18): the fork stays on the 0.19 line, and nothing in it may send data to Open Mercato or fetch and run code from them on its own. The code is removed, not switched off. Details, verification and the deploy hand-off: [telemetry-removal.md](telemetry-removal.md).
