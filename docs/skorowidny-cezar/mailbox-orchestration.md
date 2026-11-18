@@ -1,8 +1,7 @@
 # Mailbox orchestration — architektura do wbudowania w cezar (projekt)
 
-Autor: Skorowid. Architektura ogólna — dla każdego projektu z długą kolejką podobnych zadań (kod, treści, assety 2D/3D,
-dokumenty), nie tylko dla jednego repozytorium. Pierwsze wdrożenie: pętla katalogu gry 2026-11-14/15. Opis właściciela: „jeden proces główny
-budujący (pilnujący I/O, posiadający nadzorców Claude), nadzorcy zlecają zadania Claude'owi i Codexowi (dziś 70/30, decyzja właściciela 2026-11-15; pierwotnie 60/40 Codex/Claude), a czasem
+Autor: Skorowid. Źródło: pętla katalogu RobocraftWars 2026-11-14/15 (root 4051eb5b), opis właściciela: „jeden proces główny
+budujący (pilnujący I/O, posiadający nadzorców Claude), nadzorcy zlecają zadania Codexowi i Claude'owi w stosunku 60/40, a czasem
 obu to samo i zbierają lepsze; oddzielny proces jest ownerem gałęzi i pushuje zmiany, które przyjmuje w skrzynkach; wszystko
 wymieniane w skrzynkach jak pocztą”. Dziś działa jako skill (`ai-env-configs-tools/skills/mailbox-orchestration/SKILL.md`)
 i skrypty projektu. Ten dokument: co cezar ma, czego brakuje, propozycja wbudowania. Status: PROPOZYCJA do decyzji właściciela.
@@ -17,8 +16,8 @@ Dispatch (`cez task create`, 4 dzieci w locie), skrzynki `.ai/cezar/dispatch/<ro
 | # | mechanizm | dziś (ręcznie) | proponowane w cezarze |
 |---|---|---|---|
 | 1 | **Strażnik I/O** | root i nadzorcy czytają `/proc/pressure/io` przed dispatchem; skala dzieci 4/3/2/1/0 wg avg60 | engine odkłada start dziecka z `queueWaitReason: io-pressure`, gdy avg60 > próg; próg z `CEZ_IO_LIMIT` (domyślnie 80 na Linuksie z PSI, brak PSI = wyłączone); start dzieci rozłożony w czasie (worktree add jest najdroższy) |
-| 2 | **Role w drzewie** | konwencja w zleceniach (root / nadzorca / wykonawca / recenzent / recenzent grafiki) | `--role builder|supervisor|executor|reviewer|art-reviewer` (jeden `art-reviewer` na projekt, kolejka w jego skrzynce) w `cez task create`; prompt roli dokleja engine; widok drzewa grupuje po rolach |
-| 3 | **Mieszanie wykonawców** | nadzorca ręcznie 70% Claude / 30% Codex (decyzja właściciela 2026-11-15); „oba to samo” dla ważnych | `--runner mix` (proporcja z ustawień drzewa, domyślnie 70/30 Claude/Codex) i `--dual` (dwa przebiegi tego samego zlecenia, raport porównawczy, rodzic wybiera gałąź do scalenia) |
+| 2 | **Role w drzewie** | konwencja w zleceniach (root / nadzorca / wykonawca / recenzent) | `--role builder|supervisor|executor|reviewer` w `cez task create`; prompt roli dokleja engine; widok drzewa grupuje po rolach |
+| 3 | **Mieszanie wykonawców** | nadzorca ręcznie 60% Codex / 40% Claude; „oba to samo” dla ważnych | `--runner mix` (proporcja z ustawień drzewa, domyślnie 60/40) i `--dual` (dwa przebiegi tego samego zlecenia, raport porównawczy, rodzic wybiera gałąź do scalenia) |
 | 4 | **Właściciel gałęzi** | osobne zadanie (8618f165) przyjmuje partie z inbox, scala origin/main, testuje, pushuje, wdraża | rejestr „owner gałęzi” w projekcie; `cez task release --batch <commit> --note …` wysyła do inbox ownera; tylko owner może `push` gałęzi chronionej; blokada równoległych wydań (było nadpisanie dwóch uploadów) |
 | 5 | **Poczta** | pliki markdown z konwencją (temat, fakty, repro, prośba) | `cez mail send <id8|root|owner:<branch>> --subject … --file …`, wątki, odczyt w kokpicie, odpowiedź do nadawcy; między drzewami (`owner:` innego drzewa) |
 | 6 | **Rezerwacja kolejki** | plik kolejki w repo + listy `<sup>-units.txt` | opcjonalny „queue” drzewa: elementy, status, rezerwacja na zadanie, zwrot nierozpoczętych przy zakończeniu |
@@ -27,23 +26,6 @@ Dispatch (`cez task create`, 4 dzieci w locie), skrzynki `.ai/cezar/dispatch/<ro
 | 9 | **Lżejsze worktree** | brak (pełny checkout ~4 GB pack) | opcjonalny sparse-checkout z pliku `.ai/cezar/sparse` (wzorce do pominięcia, np. duże PNG/GLB), `worktree add --no-checkout` + `sparse-checkout set` |
 | 10 | **shortstat kokpitu** | `.gitattributes` binary w projekcie, przesunięty `main` | jeden `git diff --shortstat` naraz na worktree (single-flight) i baza = gałąź rodzica, nie stary base branch |
 | 11 | **Scratch w RAM** | pilotaż: tmpfs `/mnt/cezar-scratch` (`vm/tmpfs-setup.sh`, `vm/scratch-env.sh` w ai-env-configs-tools) jako TMPDIR dla 1/4 procesów (2026-11-15) | `CEZ_SCRATCH_SHM` — część zadań (proporcja) dostaje TMPDIR w `/dev/shm` z limitem; sprzątanie przy zakończeniu |
-
-## Priorytety (decyzja właściciela 2026-11-15)
-
-1. **Wymiana informacji między agentami (skrzynki) jest rdzeniem architektury** — ma pierwszeństwo przed pozostałymi
-   punktami tabeli. Każde przekazanie, pytanie, werdykt i wydanie zostawia plik w skrzynce adresata; szybkie kanały (wiadomość
-   do sesji) są tylko przyspieszeniem i też zostawiają plik.
-2. **Proporcja wykonawców: 70% Claude, 30% Codex**; dla trudnych i wizualnych elementów nadal „oba to samo, lepszy wygrywa”.
-3. **Recenzent grafiki: jeden agent Codex na cały projekt**, długożyjący. Wszystkie dostarczenia graficzne (sprite'y, tekstury,
-   rendery, modele 3D, UI, ikony) trafiają do jego skrzynki jako kolejka; przegląda je po kolei, od najstarszego, zgodnie ze
-   sztuką i standardem projektu (styl, paleta, skala i proporcje, czytelność sylwetki, topologia/UV i budżet poligonów, gęstość
-   tekseli, nazewnictwo, ustawienia eksportu) i odsyła werdykt PASS / UWAGI / FAIL z konkretnymi poprawkami do skrzynki
-   nadawcy. FAIL blokuje scalenie elementu. Nigdy dwóch recenzentów naraz; po jego awarii root startuje jednego nowego,
-   wskazując log przeglądów i nieodpowiedziane pliki.
-4. Architektura jest globalna: role, skrzynki i reguły nie zależą od projektu; nazwy plików kolejek i rozkazów to konwencje
-   ustalane per projekt w jego `docs/orders/`.
-
-Skill wykonawczy: `ai-env-configs-tools/skills/mailbox-orchestration/SKILL.md` (zaktualizowany tak samo).
 
 ## Zasady przy wdrażaniu (z AGENTS.md cezara)
 

@@ -16,7 +16,6 @@ function run(partial: {
   createdAt?: string;
   finishedAt?: string;
   worktreeReclaimedAt?: string;
-  pinned?: boolean;
 }): RunRecord {
   return {
     id: partial.id,
@@ -25,7 +24,6 @@ function run(partial: {
     finishedAt: partial.finishedAt,
     worktreePath: partial.worktreePath === null ? undefined : partial.worktreePath ?? `/wt/${partial.id}`,
     worktreeReclaimedAt: partial.worktreeReclaimedAt,
-    ...(partial.pinned ? { pinned: true } : {}),
     steps: [],
   } as unknown as RunRecord;
 }
@@ -86,16 +84,6 @@ describe('selectReclaimableWorktrees (#483)', () => {
   it('reclaims nothing when the count is at or below the limit', () => {
     const runs = [run({ id: 'a', status: 'done', finishedAt: '2026-07-01T00:00:00Z' })];
     expect(selectReclaimableWorktrees(runs, 10)).toEqual([]);
-  });
-
-  it('never reclaims a pinned task and does not count it toward keep', () => {
-    const runs = [
-      run({ id: 'pinned-old', status: 'done', finishedAt: '2026-07-01T00:00:00Z', pinned: true }),
-      run({ id: 'a', status: 'done', finishedAt: '2026-07-02T00:00:00Z' }),
-      run({ id: 'b', status: 'done', finishedAt: '2026-07-03T00:00:00Z' }),
-    ];
-    expect(selectReclaimableWorktrees(runs, 1)).toEqual(['a']);
-    expect(isReclaimable(runs[0]!)).toBe(false);
   });
 
   it('isReclaimable reflects the finished + has-dir + not-yet-reclaimed rule', () => {

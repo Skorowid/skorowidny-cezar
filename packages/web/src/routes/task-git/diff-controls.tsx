@@ -65,26 +65,18 @@ export function DiffViewToggles({
           </Tooltip>
         </TooltipProvider>
       ) : null}
-      <TooltipProvider delayDuration={300}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              data-slot="wrap-toggle"
-              aria-pressed={wrap}
-              aria-label="Wrap long lines"
-              className={cn(wrap && 'bg-muted text-foreground')}
-              onClick={() => onWrapChange(!wrap)}
-            >
-              <WrapTextIcon aria-hidden="true" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>
-            {wrap ? 'Keep long lines on one line' : 'Wrap long lines'}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        data-slot="wrap-toggle"
+        aria-pressed={wrap}
+        aria-label="Wrap long lines"
+        title="Wrap long lines"
+        className={cn(wrap && 'bg-muted text-foreground')}
+        onClick={() => onWrapChange(!wrap)}
+      >
+        <WrapTextIcon aria-hidden="true" />
+      </Button>
     </>
   )
 }

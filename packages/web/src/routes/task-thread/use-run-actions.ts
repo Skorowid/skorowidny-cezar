@@ -170,9 +170,8 @@ export function useRunActions(
         if (onScreen) void navigate(`/tasks/${run.id}`)
         return
       }
-      // Only the legacy endpoint's completed deletion means the page is gone; back to the table, not Now.
-
-      if (onScreen) void navigate('/tasks')
+      // Only the legacy endpoint's completed deletion means the page is gone.
+      if (onScreen) void navigate('/')
     },
     onError,
   })

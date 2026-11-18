@@ -17,7 +17,6 @@
  */
 
 import { useEffect, useState } from 'react'
-import { IconTooltip } from '@/components/ui/icon-tooltip'
 
 /** One formatter per shape, built once: hundreds of thread rows format on every paint. */
 const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -127,18 +126,15 @@ export function useNow(intervalMs = 1000): number {
 export function MessageTime({ ts }: { ts: string }) {
   const label = clockLabel(ts)
   if (label === undefined) return null
-  const exact = exactLabel(ts)
   return (
-    <IconTooltip label={exact ?? ''}>
-      <time
-        data-slot="message-time"
-        dateTime={ts}
-        data-exact={exact}
-        className="text-meta leading-none text-soft-foreground"
-      >
-        {label}
-      </time>
-    </IconTooltip>
+    <time
+      data-slot="message-time"
+      dateTime={ts}
+      title={exactLabel(ts)}
+      className="text-meta leading-none text-soft-foreground"
+    >
+      {label}
+    </time>
   )
 }
 
@@ -156,16 +152,10 @@ export function TurnTime({ startedAt, completedAt }: { startedAt?: string; compl
       data-slot="turn-time"
       className="flex items-center gap-1.5 px-0.5 text-meta leading-none text-soft-foreground"
     >
-      <IconTooltip label={exactLabel(completedAt) ?? ''}>
-        <time dateTime={completedAt} data-exact={exactLabel(completedAt)}>
-          {label}
-        </time>
-      </IconTooltip>
-      {duration !== undefined ? (
-        <IconTooltip label={`Replied in ${duration}`}>
-          <span>· {duration}</span>
-        </IconTooltip>
-      ) : null}
+      <time dateTime={completedAt} title={exactLabel(completedAt)}>
+        {label}
+      </time>
+      {duration !== undefined ? <span title={`Replied in ${duration}`}>· {duration}</span> : null}
     </div>
   )
 }
@@ -192,11 +182,9 @@ export function DaySeparator({ ts }: { ts: string }) {
       className="flex items-center gap-3 py-1 text-meta font-medium text-soft-foreground"
     >
       <span aria-hidden className="h-px flex-1 bg-border" />
-      <IconTooltip label={exact}>
-        <time dateTime={localDayKey(ts)} data-exact={exact}>
-          {label}
-        </time>
-      </IconTooltip>
+      <time dateTime={localDayKey(ts)} title={exact}>
+        {label}
+      </time>
       <span aria-hidden className="h-px flex-1 bg-border" />
     </div>
   )

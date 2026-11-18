@@ -5,10 +5,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { impactSubjectKey } from '@/api/client'
 import { queryKeys, useImpactForSubject, useRuns, useStartImpact } from '@/api/queries'
 import type { ApiRun, ImpactSubjectInput } from '@open-mercato/cezar-api-client'
-import { StatusDot } from '@/components/status-dot'
 import { Button } from '@/components/ui/button'
-import { IconTooltip } from '@/components/ui/icon-tooltip'
-import { deriveAttention } from '@/lib/attention'
 import { Link, useNavigate } from '@/lib/project-router'
 import { cn } from '@/lib/utils'
 
@@ -20,10 +17,6 @@ import { impactAssetsPath, impactState } from './impact-model'
  * prerequisite the host already knows is missing (no GitHub): the actions render disabled with that
  * reason as visible text, as does a refused `POST /impact`.
  */
-/** An assessment in flight is a running task: its dot is the violet pulse `deriveAttention`
- *  gives `running`; a stale one is parked work (amber, still) — never a hand-tinted pill. */
-const ASSESSING = deriveAttention({ status: 'running' })
-
 export function ImpactControl({
   subject,
   unavailable,
@@ -92,7 +85,7 @@ export function ImpactControl({
     <div
       data-slot="impact-control"
       data-state={state.kind === 'open' && state.stale ? 'stale' : state.kind}
-      className={cn('flex flex-wrap items-center gap-2 text-label', className)}
+      className={cn('flex flex-wrap items-center gap-2 text-xs', className)}
     >
       {state.kind === 'loading' ? (
         <span className="text-soft-foreground">Checking impact…</span>
@@ -102,11 +95,10 @@ export function ImpactControl({
         <>
           <span
             data-slot="impact-assessing"
-            data-tone={ASSESSING.tone}
             role="status"
-            className="inline-flex items-center gap-1.5 font-medium text-muted-foreground"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 font-medium"
           >
-            <StatusDot tone={ASSESSING.tone} pulse={ASSESSING.pulse} />
+            <LoaderCircleIcon aria-hidden="true" className="size-3 motion-safe:animate-spin" />
             Assessing…
           </span>
           <Button asChild size="sm" variant="outline">
@@ -118,17 +110,13 @@ export function ImpactControl({
       ) : state.kind === 'open' ? (
         <>
           {state.stale ? (
-            <IconTooltip label="The subject changed since this assessment">
-              <span
-                data-slot="impact-stale"
-                data-tone="pending"
-                tabIndex={0}
-                className="inline-flex items-center gap-1.5 rounded-sm font-medium text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              >
-                <StatusDot tone="pending" />
-                Stale
-              </span>
-            </IconTooltip>
+            <span
+              data-slot="impact-stale"
+              title="The subject changed since this assessment"
+              className="rounded-full border border-pending-strong/45 bg-pending-strong/10 px-2 py-0.5 font-medium text-pending-strong"
+            >
+              Stale
+            </span>
           ) : null}
           <Button
             type="button"

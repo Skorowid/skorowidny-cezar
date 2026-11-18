@@ -4,8 +4,6 @@ import { useCreateAgentProfile } from '@/api/queries'
 import type { FsBrowseDir, ProviderId } from '@open-mercato/cezar-api-client'
 import { FolderBrowser } from '@/components/folder-browser'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -106,29 +104,30 @@ export function AddAccountDialog({
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-ui">
             <span className="text-muted-foreground">Agent</span>
-            <Select value={provider} onValueChange={(value) => setProvider(value as ProviderId)}>
-              <SelectTrigger size="sm" aria-label="Agent" data-slot="add-account-provider" data-value={provider}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                {providers.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    {id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <select
+              aria-label="Agent"
+              data-slot="add-account-provider"
+              value={provider}
+              onChange={(event) => setProvider(event.target.value as ProviderId)}
+              className="rounded-md border border-input bg-card px-2 py-1 text-ui outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              {providers.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="flex min-w-0 flex-1 items-center gap-2 text-ui">
             <span className="shrink-0 text-muted-foreground">Name</span>
-            <Input
+            <input
               type="text"
               aria-label="Account name"
               data-slot="add-account-label"
               value={label}
               placeholder="Work"
               onChange={(event) => setLabel(event.target.value)}
-              className="h-8 flex-1 text-ui"
+              className="min-w-0 flex-1 rounded-md border border-input bg-card px-2 py-1 text-ui outline-none focus-visible:border-ring"
             />
           </label>
         </div>
@@ -136,7 +135,7 @@ export function AddAccountDialog({
         <div className="flex flex-col gap-1.5">
           <label className="flex min-w-0 items-center gap-2 text-ui">
             <span className="shrink-0 text-muted-foreground">Folder</span>
-            <Input
+            <input
               type="text"
               spellCheck={false}
               autoComplete="off"
@@ -149,7 +148,7 @@ export function AddAccountDialog({
                 setSelected(null)
                 create.reset()
               }}
-              className="h-8 flex-1 font-mono text-label"
+              className="min-w-0 flex-1 rounded-md border border-input bg-card px-2 py-1 font-mono text-label outline-none focus-visible:border-ring"
             />
             <Button
               type="button"

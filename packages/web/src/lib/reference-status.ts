@@ -9,9 +9,8 @@ import type { ReferenceStatus } from '@open-mercato/cezar-api-client'
  * table prevents.
  *
  * `tone` names a role, never a color — `danger` is what the token sheet paints red today. The
- * roles follow the attention grammar (`deriveAttention`, one meaning per hue): blue = waiting on
- * a person, green = the outcome, red = failed, amber = still moving, neutral = parked. Violet is
- * deliberately absent — it is the accent and the running pulse, never a chip at rest.
+ * five roles are the design system's own status vocabulary (see `StatusDot`), so a status can
+ * only ever look like something the cockpit already looks like.
  */
 export interface ReferenceStatusPresentation {
   /** The two or three words the tooltip leads with. Sentence case, never shouted. */
@@ -24,6 +23,7 @@ export interface ReferenceStatusPresentation {
 export type ReferenceStatusTone =
   | 'success'
   | 'danger'
+  | 'violet'
   | 'neutral'
   | 'pending'
   | 'info'
@@ -40,8 +40,9 @@ export const REFERENCE_STATUS: Record<ReferenceStatus, ReferenceStatusPresentati
   'review-required': {
     label: 'Waiting for review',
     hint: 'checks are fine, no one has reviewed it yet',
-    // Waiting on a person — the attention model paints that blue (`deriveAttention`), never
-    // violet, which is the running pulse.
+    // NOT violet, which is where `merged` and `completed` live: this one is waiting on a person
+    // and that is the opposite of finished. Blue is the only hue the cockpit does not otherwise
+    // use, so it reads as its own thing at a glance rather than as a shade of done.
     tone: 'info',
   },
   'changes-requested': {
@@ -61,15 +62,13 @@ export const REFERENCE_STATUS: Record<ReferenceStatus, ReferenceStatusPresentati
   },
   ready: {
     label: 'Ready to merge',
-    hint: 'open, checks pass, nothing is waiting on a reviewer — your move',
-    // Blue, not green: green is the outcome, and this one still waits on a person (you).
-    tone: 'info',
+    hint: 'open, checks pass, nothing is waiting on a reviewer',
+    tone: 'success',
   },
   merged: {
     label: 'Merged',
     hint: 'this landed on its base branch',
-    // The outcome tone, same as a `done` task.
-    tone: 'success',
+    tone: 'violet',
   },
   closed: {
     label: 'Closed',
@@ -80,13 +79,12 @@ export const REFERENCE_STATUS: Record<ReferenceStatus, ReferenceStatusPresentati
   open: {
     label: 'Open',
     hint: 'still open on the tracker',
-    // An open issue is a fact, not an outcome: quiet.
-    tone: 'neutral',
+    tone: 'success',
   },
   completed: {
     label: 'Closed as completed',
     hint: 'the issue was resolved',
-    tone: 'success',
+    tone: 'violet',
   },
   'not-planned': {
     label: 'Closed as not planned',

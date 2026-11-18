@@ -6,7 +6,6 @@ import { onWorkspaceEvent } from '@/api/global-events'
 import { useCheckoutProject, useProjects } from '@/api/queries'
 import type { CheckoutProgressEvent } from '@open-mercato/cezar-api-client'
 import { Button } from '@/components/ui/button'
-import { IconTooltip } from '@/components/ui/icon-tooltip'
 import {
   Dialog,
   DialogContent,
@@ -210,22 +209,22 @@ export function CloneProjectDialog({
                 size="icon-sm"
                 className="size-7"
                 aria-label="Edit checkout root"
+                title="Edit checkout root"
                 disabled
               >
                 <SettingsIcon className="size-3.5" aria-hidden="true" />
               </Button>
             ) : (
-              <IconTooltip label="Edit checkout root">
-                <Button asChild variant="ghost" size="icon-sm" className="size-7">
-                  <RouterLink
-                    to="/settings/global/projects"
-                    data-slot="clone-root-settings"
-                    aria-label="Edit checkout root"
-                  >
-                    <SettingsIcon className="size-3.5" aria-hidden="true" />
-                  </RouterLink>
-                </Button>
-              </IconTooltip>
+              <Button asChild variant="ghost" size="icon-sm" className="size-7">
+                <RouterLink
+                  to="/settings/global/projects"
+                  data-slot="clone-root-settings"
+                  aria-label="Edit checkout root"
+                  title="Edit checkout root"
+                >
+                  <SettingsIcon className="size-3.5" aria-hidden="true" />
+                </RouterLink>
+              </Button>
             )}
           </div>
         </div>

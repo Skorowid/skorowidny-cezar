@@ -144,20 +144,6 @@ export const automationTaskSchema = createRunInputBaseSchema
   });
 export type AutomationTask = z.infer<typeof automationTaskSchema>;
 
-/**
- * Where a run's outcome is posted (spec 2026-10-31-managers § Automation reports): the manager's
- * chat, by the server, with no model turn. `post-result` posts every finished run's last message,
- * `notify-on-failure` only failures, `none` keeps the link but posts nothing.
- */
-export const AUTOMATION_REPORT_MODES = ['post-result', 'notify-on-failure', 'none'] as const;
-export const automationReportModeSchema = z.enum(AUTOMATION_REPORT_MODES);
-export type AutomationReportMode = z.infer<typeof automationReportModeSchema>;
-export const automationReportSchema = z.object({
-  managerId: z.string().min(1).max(100),
-  mode: automationReportModeSchema,
-});
-export type AutomationReport = z.infer<typeof automationReportSchema>;
-
 /** One stored automation, as every route that answers a single definition serves it. */
 export const automationDefinitionSchema = z.object({
   id: z.string(),
@@ -183,8 +169,6 @@ export const automationDefinitionSchema = z.object({
     dispatch: z.object({ ...dispatchIntentSchema.shape, ...automationDispatchSchema.shape }).optional(),
   }),
   deferredStart: deferredStartStateSchema.optional(),
-  /** Absent = reports nowhere, as before. Edited only by `PUT /automations/:id/report`. */
-  report: automationReportSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -503,17 +487,12 @@ export type CreateAutomationInput = z.input<typeof createAutomationInputSchema>;
  * silently pause a running automation, so the caller restates it.
  */
 export const updateAutomationInputSchema = createAutomationInputSchema
-  .omit({ enable: true, report: true })
+  .omit({ enable: true })
   .extend({
     enabled: z.boolean().optional(),
     expectedRevision: z.number(),
   });
 export type UpdateAutomationInput = z.input<typeof updateAutomationInputSchema>;
-
-/** `PUT /automations/:id/report` — link to a manager, change the mode, or `null` to unlink. Bumps no
- *  revision: an open editor's next save must not conflict with it. */
-export const setAutomationReportInputSchema = z.object({ report: automationReportSchema.nullable() });
-export type SetAutomationReportInput = z.input<typeof setAutomationReportInputSchema>;
 
 /** `POST /automations/:id/check` — which of the two manual checks to run. */
 export const automationCheckInputSchema = z.object({

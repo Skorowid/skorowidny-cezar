@@ -1,23 +1,10 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createQueryClient } from '@/api/query-client'
 import { Trends } from './trends'
 import type { DashboardCosts, DashboardCostSeriesPoint } from '@open-mercato/cezar-api-client'
-
-/** Radix Select in jsdom: open from the keyboard, then click the option (there is no real pointer). */
-async function pick(trigger: HTMLElement, option: string) {
-  fireEvent.keyDown(trigger, { key: 'ArrowDown' })
-  fireEvent.click(await screen.findByRole('option', { name: option }))
-}
-
-beforeEach(() => {
-  Element.prototype.scrollIntoView = vi.fn()
-  Element.prototype.hasPointerCapture = vi.fn(() => false)
-  Element.prototype.releasePointerCapture = vi.fn()
-  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
-})
 const at = '2026-09-19T00:00:00.000Z'
 function point(
   date: string,
@@ -120,7 +107,7 @@ it('requests only 7d/30d and refetches on period change', async () => {
   const { calls } = setup()
   await screen.findByText('Completed tasks')
   expect(calls.every((u) => u.searchParams.get('period') !== 'all')).toBe(true)
-  await pick(screen.getByLabelText('Period'), 'Last 30 days')
+  fireEvent.change(screen.getByLabelText('Period'), { target: { value: '30d' } })
   await waitFor(() =>
     expect(calls.some((u) => u.searchParams.get('period') === '30d')).toBe(true),
   )
@@ -176,7 +163,7 @@ it('replaces empty daily charts with a compact state without exporting hidden da
   expect(screen.queryByRole('table')).toBeNull()
   const rows = JSON.parse(container.querySelector<HTMLElement>('[data-dashboard-export]')!.dataset.dashboardExport!)
   expect(rows).toEqual([])
-  expect(screen.getByRole('combobox', { name: 'Period' }).textContent).toContain('Last 7 days')
+  expect(screen.getByRole('combobox', { name: 'Period' })).toHaveProperty('value', '7d')
 })
 it('shows throughput for completed tasks created before the selected period', async () => {
   const older = fixture()

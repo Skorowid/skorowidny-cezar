@@ -48,13 +48,14 @@ async function putDefaults(autonomous: boolean | null, worktree: boolean | null)
   if (!response.ok) throw new Error(`workspace config update failed: ${response.status}`)
 }
 
-/** Pick an option in a shadcn Select: open the trigger, then click the option by its text. A
- *  programmatic `.click()` is the item's non-mouse path, which selects on click. */
-function choose(trigger: string, optionText: string): void {
-  browser.click(trigger)
-  browser.waitForFunction(`[...document.querySelectorAll('[role="option"]')].some((el) => el.textContent?.trim() === ${JSON.stringify(optionText)})`)
-  browser.evaluate(`[...document.querySelectorAll('[role="option"]')].find((el) => el.textContent?.trim() === ${JSON.stringify(optionText)}).click()`)
-  browser.waitForFunction(`document.querySelector('[role="listbox"]') === null`)
+function choose(selector: string, value: string): void {
+  browser.evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)})
+    if (!(element instanceof HTMLSelectElement)) throw new Error('select not found')
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+    setter?.call(element, ${JSON.stringify(value)})
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
 }
 
 beforeAll(async () => {
@@ -105,43 +106,46 @@ describe('configurable composer run defaults', () => {
       expect(browser.evaluate(
         `document.querySelector('[data-slot="source-pill"]')?.dataset.sourceKind`,
       )).toBe('none')
-      // Isolation and Mode are value pills behind Options (design Proposal 5).
-      browser.click('[data-slot="composer-options-trigger"]')
-      browser.waitForFunction(`document.querySelector('[data-slot="composer-options"]') !== null`)
-      expect(browser.text('[data-slot="isolation-pill"]')).toBe('worktree')
-      expect(browser.text('[data-slot="mode-pill"]')).toBe('supervised')
+      expect(browser.evaluate(
+        `document.querySelector('[data-slot="worktree-toggle"]')?.getAttribute('aria-checked')`,
+      )).toBe('true')
+      expect(browser.evaluate(
+        `document.querySelector('[data-slot="autonomous-toggle"]')?.getAttribute('aria-checked')`,
+      )).toBe('false')
 
       browser.click('[data-slot="source-pill"]')
       browser.waitForFunction(`document.querySelector('[data-slot="source-menu"]') !== null`)
       browser.click('[data-slot="source-option"][data-source-ref="interactive-review"]')
-      browser.waitForFunction(`document.querySelector('[data-slot="source-menu"]') === null`)
-      // Clicking the row's source pill dismissed the Options panel; the recommendation and the
-      // pills it speaks about live inside it.
-      browser.click('[data-slot="composer-options-trigger"]')
       browser.waitForFunction(
         `document.querySelector('[data-slot="interactive-skill-hint"]') !== null`,
       )
-      for (const [slot, was, pick] of [['isolation-pill', 'in place', 'worktree'], ['mode-pill', 'supervised', 'autonomous']] as const) {
-        expect(browser.text(`[data-slot="${slot}"]`)).toBe(was)
-        expect(browser.evaluate(`document.querySelector('[data-slot="${slot}"]')?.disabled`)).toBe(false)
+      // The popover is dismissed by the pick, but its exit animation still covers the chip row
+      // for a frame or two — and the toggles below are exactly what this spec clicks next.
+      browser.waitForFunction(`document.querySelector('[data-slot="source-menu"]') === null`)
+      for (const slot of ['worktree-toggle', 'autonomous-toggle']) {
+        expect(browser.evaluate(
+          `document.querySelector('[data-slot="${slot}"]')?.getAttribute('aria-checked')`,
+        )).toBe('false')
+        expect(browser.evaluate(
+          `document.querySelector('[data-slot="${slot}"]')?.disabled`,
+        )).toBe(false)
         browser.click(`[data-slot="${slot}"]`)
-        browser.waitForFunction(`document.querySelector('[data-testid="${slot}-menu"]') !== null`)
-        browser.click(`[data-testid="${slot}-menu"] [role="menuitemradio"][data-state="unchecked"]`)
-        browser.waitForFunction(`document.querySelector('[data-testid="${slot}-menu"]') === null`)
-        expect(browser.text(`[data-slot="${slot}"]`)).toBe(pick)
+        expect(browser.evaluate(
+          `document.querySelector('[data-slot="${slot}"]')?.getAttribute('aria-checked')`,
+        )).toBe('true')
       }
 
       browser.goto(`${baseUrl}/settings/global/resources`)
       browser.waitForFunction(
         `document.querySelector('[data-slot="resources-composer-defaults"]') !== null`,
       )
-      choose('[aria-label="Autonomous by default"]', 'On')
+      choose('[aria-label="Autonomous by default"]', 'on')
       browser.waitForFunction(
-        `document.querySelector('[aria-label="Autonomous by default"]')?.getAttribute('data-value') === 'on'`,
+        `document.querySelector('[aria-label="Autonomous by default"]')?.value === 'on'`,
       )
-      browser.goto(`${baseUrl}/settings/global/behaviour`)
+      browser.goto(`${baseUrl}/settings/global/resources`)
       browser.waitForFunction(
-        `document.querySelector('[aria-label="Autonomous by default"]')?.getAttribute('data-value') === 'on'`,
+        `document.querySelector('[aria-label="Autonomous by default"]')?.value === 'on'`,
       )
       const config = (await (await fetch(`${baseUrl}/api/v1/workspace/config`)).json()) as {
         composerDefaults: { autonomous: boolean | null }

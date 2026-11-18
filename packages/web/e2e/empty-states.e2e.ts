@@ -125,9 +125,6 @@ describe('the 404 route', () => {
   it('walks back to the tasks overview through the action', () => {
     browser.click(`[data-route="not-found"] a[href="${scoped('/')}"]`)
     browser.waitForFunction(`location.pathname === '${scoped('/')}'`)
-    // The URL flips a frame before the overview replaces its loading state.
-    // The project root is Now (spec: attention-first cockpit, 2026-11-11).
-    browser.waitForFunction(`document.querySelector('[data-route="now"]') !== null`)
-    expect(browser.count('[data-route="now"]')).toBe(1)
+    expect(browser.count('[data-route="tasks"]')).toBe(1)
   })
 })

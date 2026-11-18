@@ -52,13 +52,12 @@ describe('Markdown Mermaid previews', { timeout: 40_000 }, () => {
     // The role can appear before the render call settles; a late call would leak into the next case.
     await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(1), SLOW)
 
-    // `ThemeToggle` is a Segmented System / Dark / Light — pick each in turn.
-    fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: light. Switch to dark.' }))
     expect(renderDiagram).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByRole('button', { name: 'System' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: dark. Switch to system.' }))
     expect(renderDiagram).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Light' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: system. Switch to light.' }))
     expect(renderDiagram).toHaveBeenCalledTimes(1)
   })
 

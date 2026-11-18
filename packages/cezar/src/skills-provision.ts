@@ -136,9 +136,7 @@ export async function provisionSkills(
   catalog: readonly Skill[],
 ): Promise<string[]> {
   const installed: string[] = [];
-  // Commands are delivered inline: a link would point the task at the main checkout's file.
-  const skills = (list: readonly Skill[]) => list.filter((skill) => skill.kind !== 'command');
-  for (const skill of skillClosure(skills(roots), skills(catalog))) {
+  for (const skill of skillClosure(roots, catalog)) {
     let any = false;
     for (const dir of PROVISION_SKILL_DIRS) {
       const ok = await provisionOne(cwd, dir, skill).catch((err: unknown) => {

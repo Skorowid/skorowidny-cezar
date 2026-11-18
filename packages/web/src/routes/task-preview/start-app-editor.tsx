@@ -197,7 +197,7 @@ export function StartAppEditor({
           </label>
 
           {error ? (
-            <p role="alert" className="text-label text-danger">
+            <p role="alert" className="text-xs text-danger">
               {error}
             </p>
           ) : null}

@@ -40,10 +40,7 @@ it('names a scheduled launch with the namer model under the bound account (#1340
   const spy = vi.spyOn(seam, 'agentEnvForStep');
   await seam.autoNameRun(run.id, undefined, 't');
   expect(spy).toHaveBeenCalledOnce();
-  // The namer resolves its own cheap model for that runner (#2012) — never the task's `opus`.
-  const execution = vi.mocked(generateRunName).mock.calls[0]?.[2];
-  expect(execution).toMatchObject({ runner: 'claude' });
-  expect(execution).not.toHaveProperty('model');
+  expect(vi.mocked(generateRunName).mock.calls[0]?.[2]).toMatchObject({ runner: 'claude', model: 'haiku' });
 });
 
 it('a live title refresh neither re-resolves the binding nor uses the task model (#1340)', async () => {

@@ -65,9 +65,6 @@ While an account is low **with a known reset**, `pump()` admits only the kept ta
   (cockpit label "Parked while this account's usage is low · resets HH:MM UTC"). A usage-limit hold's
   own reason wins over it.
 - A low state without a known reset is advisory only (warned, never parks): nothing could lift it.
-- An **exhausted** account is never parked and never warned: its tasks cannot run a save turn, and
-  the auto-resume / fallback holds already own it (parking it would hold the resume that reopens the
-  window). Warnings go only to live sessions (`running`/`waiting`) and are never queued for later.
 - The queue watchdog treats a pending reset as a reason to sit still.
 - *Executor decision:* the kept set is per project manager (each project ranks its own tasks).
   Live sessions are not interrupted; they were told to save and stop. Monitoring wake-ups of

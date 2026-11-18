@@ -11,10 +11,8 @@ import { cn } from "@/lib/utils"
  * focus starts on the cancel action, and `role="alertdialog"` for screen readers. Native
  * `confirm()` is banned by the design guardian — this is its replacement.
  *
- * Action styling maps to the app's own button vocabulary: `contrast` to confirm, and
- * `variant="destructive"` (the filled red, white ink) when the confirmation deletes something —
- * the UI strategy's one sanctioned home for that variant. The footer keeps DOM order on desktop
- * (`sm:flex-row`), so render Cancel FIRST: Cancel sits left of the primary.
+ * Action styling maps to the app's own button vocabulary (`contrast` to confirm,
+ * `danger-ghost` via className for destructive confirms), not stock shadcn's.
  */
 
 function AlertDialog({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
@@ -118,17 +116,12 @@ function AlertDialogDescription({
 
 function AlertDialogAction({
   className,
-  variant = "contrast",
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action> & {
-  /** `destructive` for a confirmation that deletes — say what is deleted and that it cannot be undone. */
-  variant?: "contrast" | "primary" | "destructive"
-}) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
   return (
     <AlertDialogPrimitive.Action
       data-slot="alert-dialog-action"
-      data-variant={variant}
-      className={cn(buttonVariants({ variant }), className)}
+      className={cn(buttonVariants({ variant: "contrast" }), className)}
       {...props}
     />
   )

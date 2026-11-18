@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HealthResponse } from '@open-mercato/cezar-api-client'
 import { AppShell } from './app-shell'
 import { ThemeProvider } from './theme-provider'
-import { ToolsMenu, ToolsMenuItems, diskNote, forgeNote, toolsBlocker, toolsTooltip } from './tools-menu'
+import { ToolsMenu, diskNote, forgeNote, toolsBlocker, toolsTooltip } from './tools-menu'
 
 afterEach(cleanup)
 
@@ -299,7 +299,7 @@ describe('ToolsMenu in the app shell', () => {
     return render(
       <ThemeProvider>
         <MemoryRouter initialEntries={['/']}>
-          <AppShell toolsMenu={<ToolsMenuItems health={HEALTH} forge={HEALTH.forge} />}>
+          <AppShell toolsMenu={<ToolsMenu health={HEALTH} forge={HEALTH.forge} />}>
             <p>route content</p>
           </AppShell>
         </MemoryRouter>
@@ -307,13 +307,12 @@ describe('ToolsMenu in the app shell', () => {
     )
   }
 
-  it('sits under the desktop sidebar footer\u2019s ⋯ menu, as a submenu', () => {
+  it('sits in the desktop sidebar footer', () => {
     renderShell()
     const footer = document.querySelector(
       '[data-slot="sidebar"] [data-slot="sidebar-footer"]'
     ) as HTMLElement
-    fireEvent.pointerDown(within(footer).getByRole('button', { name: 'More' }), { button: 0, ctrlKey: false })
-    expect(screen.getByRole('menu').querySelector('[data-slot="tools-menu"]')?.textContent).toBe('Tools')
+    expect(footer.querySelector('[data-slot="tools-menu-trigger"]')).not.toBeNull()
   })
 
   it('comes along into the mobile drawer — same component, both framings', async () => {
@@ -321,8 +320,7 @@ describe('ToolsMenu in the app shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
 
     const drawer = await screen.findByRole('dialog', { name: 'Navigation' })
-    fireEvent.pointerDown(within(drawer).getByRole('button', { name: 'More' }), { button: 0, ctrlKey: false })
-    expect(screen.getByRole('menu').querySelector('[data-slot="tools-menu"]')).not.toBeNull()
+    expect(drawer.querySelector('[data-slot="tools-menu-trigger"]')).not.toBeNull()
   })
 })
 

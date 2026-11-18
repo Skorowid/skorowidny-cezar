@@ -5,7 +5,6 @@ import type { AutomationsResponse } from '@open-mercato/cezar-api-client'
 import { GithubIcon } from '@/components/icons'
 import { ChoiceTile, GuideDialog, OnboardingPage, PreviewWindow, previewLine, quietLink, type GuidePage } from '@/components/onboarding-kit'
 import { Button } from '@/components/ui/button'
-import { deriveAttention, type AttentionTone } from '@/lib/attention'
 import { Link, useNavigate } from '@/lib/project-router'
 import { cn } from '@/lib/utils'
 
@@ -99,8 +98,21 @@ const HOW_IT_WORKS = [
   },
 ] as const
 
-/** The list's way into the same story (its ⋯ menu), for whoever already has automations. */
-export function AutomationsGuide({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+/** The header's way into the same story, for whoever already has automations and wants the picture. */
+export function AutomationsGuideButton() {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <>
+      <Button variant="ghost" size="sm" data-slot="automations-guide" aria-label="How automations work" className="text-muted-foreground" onClick={() => setOpen(true)}>
+        <CircleHelpIcon aria-hidden="true" className="size-3.5" />
+        <span className="max-md:hidden">How it works</span>
+      </Button>
+      {open ? <AutomationsGuide onOpenChange={setOpen} /> : null}
+    </>
+  )
+}
+
+function AutomationsGuide({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
   const pages: GuidePage[] = [
     {
@@ -212,7 +224,7 @@ function PausedPicture() {
     <PreviewWindow>
       <div className={cn(row, 'justify-between text-foreground')}>
         <span>Triage new issues</span>
-        <span className="flex items-center gap-2 text-micro text-soft-foreground">
+        <span className="flex items-center gap-2 text-[9.5px] text-soft-foreground">
           paused
           <Toggle on={false} />
         </span>
@@ -222,7 +234,7 @@ function PausedPicture() {
       </div>
       <div style={{ '--i': 5 } as React.CSSProperties} className={cn(row, 'tip-rise mt-2 justify-between text-foreground')}>
         <span>Triage new issues</span>
-        <span className="flex items-center gap-2 text-micro text-success">
+        <span className="flex items-center gap-2 text-[9.5px] text-violet">
           enabled
           <Toggle />
         </span>
@@ -231,33 +243,19 @@ function PausedPicture() {
   )
 }
 
-/** The picture's status words wear the attention grammar's ink, not a hand-picked colour. */
-const INK: Record<AttentionTone, string> = {
-  info: 'text-info',
-  violet: 'text-violet',
-  success: 'text-success',
-  danger: 'text-danger',
-  pending: 'text-pending-strong',
-  idle: 'text-conflict',
-  neutral: 'text-muted-foreground',
-}
-
 function RunsPicture() {
   return (
     <PreviewWindow bar={<span className="ml-3 text-micro text-soft-foreground">Tasks</span>}>
       {[
-        ['review', 'Triage issue 412: missing repro'],
-        ['running', 'Nightly dependency bump'],
-        ['done', 'Weekly changelog draft'],
-      ].map(([status, title], at) => {
-        const attention = deriveAttention({ status: status as 'review' | 'running' | 'done' })
-        return (
-          <div key={title} style={{ '--i': at } as React.CSSProperties} className={cn(row, 'tip-rise text-foreground')}>
-            <span data-slot="picture-status" data-tone={attention.tone} className={cn('w-16 shrink-0 text-micro', INK[attention.tone])}>{attention.label}</span>
-            <span className="truncate">{title}</span>
-          </div>
-        )
-      })}
+        ['needs review', 'Triage issue 412: missing repro', 'text-violet'],
+        ['running', 'Nightly dependency bump', 'text-success'],
+        ['done', 'Weekly changelog draft', 'text-muted-foreground'],
+      ].map(([status, title, tone], at) => (
+        <div key={title} style={{ '--i': at } as React.CSSProperties} className={cn(row, 'tip-rise text-foreground')}>
+          <span className={cn('w-16 shrink-0 text-[9.5px]', tone)}>{status}</span>
+          <span className="truncate">{title}</span>
+        </div>
+      ))}
     </PreviewWindow>
   )
 }

@@ -149,7 +149,7 @@ export function TerminalPane({
       const themeWatch = new MutationObserver(() => {
         term.options.theme = terminalTheme()
       })
-      themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+      themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-accent'] })
       themeWatchRef.current = themeWatch
       const fit = new FitAddon()
       term.loadAddon(fit)

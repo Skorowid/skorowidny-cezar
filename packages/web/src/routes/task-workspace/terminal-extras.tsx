@@ -1,9 +1,8 @@
-import { ChevronDownIcon, ExternalLinkIcon, PanelRightIcon, PlayIcon } from 'lucide-react'
+import { ChevronDownIcon, CircleIcon, ExternalLinkIcon, PanelRightIcon, PlayIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { getRunTerminalUrls } from '@/api/client'
+import { getRunTerminalCommands, getRunTerminalUrls } from '@/api/client'
 import type { DetectedUrlEntry, DiscoveredCommandEntry } from '@open-mercato/cezar-api-client'
-import { StatusDot } from '@/components/status-dot'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,8 +14,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-
-import type { TerminalScope } from './terminal-scope'
 
 /**
  * The two strips the terminal drawer wears above its tabs (spec
@@ -68,7 +65,7 @@ export function DetectedUrlsStrip({
       data-slot="detected-urls"
       className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 px-3 py-1.5"
     >
-      <span className="text-label text-muted-foreground">Detected addresses</span>
+      <span className="text-xs text-muted-foreground">Detected addresses</span>
       {urls.map((entry) => (
         <span
           key={entry.url}
@@ -77,12 +74,17 @@ export function DetectedUrlsStrip({
           className="flex items-center gap-1.5 rounded-sm bg-muted/60 py-0.5 pr-0.5 pl-2 text-xs"
         >
           {/* Three states, not two: `null` is "not probed yet", which is not the same claim as
-              "nothing is listening". The design system's dot: green = the check passed. */}
-          <StatusDot
+              "nothing is listening". */}
+          <CircleIcon
             aria-hidden="true"
-            data-probe={entry.running === true ? 'running' : entry.running === false ? 'down' : 'unknown'}
-            tone={entry.running === true ? 'success' : 'neutral'}
-            className={cn(entry.running === null && 'opacity-50')}
+            className={cn(
+              'size-2',
+              entry.running === true
+                ? 'fill-success text-success'
+                : entry.running === false
+                  ? 'fill-muted text-muted-foreground'
+                  : 'text-soft-foreground',
+            )}
           />
           <span className="font-mono">{entry.url}</span>
           <span className="text-soft-foreground">
@@ -124,11 +126,10 @@ export function DetectedUrlsStrip({
 }
 
 export function CommandPicker({
-  scope,
+  runId,
   onRun,
 }: {
-  /** Whose commands: a task's worktree or the project root. */
-  scope: Pick<TerminalScope, 'commands'>
+  runId: string
   /** Runs the command in a NEW terminal tab (spec §6) — never in the one you are looking at. */
   onRun: (command: string) => void
 }) {
@@ -136,10 +137,10 @@ export function CommandPicker({
   const [manual, setManual] = useState('')
 
   const load = useCallback(() => {
-    void scope.commands()
+    void getRunTerminalCommands(runId)
       .then((state) => setCommands(state.commands))
       .catch(() => {})
-  }, [scope])
+  }, [runId])
 
   return (
     <DropdownMenu onOpenChange={(open) => open && load()}>
@@ -153,7 +154,7 @@ export function CommandPicker({
       <DropdownMenuContent align="end" className="max-h-80 w-80 overflow-y-auto">
         <DropdownMenuLabel>Project commands</DropdownMenuLabel>
         {commands.length === 0 ? (
-          <p className="px-2 py-1.5 text-label text-muted-foreground">
+          <p className="px-2 py-1.5 text-xs text-soft-foreground">
             No commands found in package.json or a Makefile. Type your own below.
           </p>
         ) : (

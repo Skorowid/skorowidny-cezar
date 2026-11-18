@@ -91,13 +91,10 @@ export function GitToolbar({
 export function GitActions({
   action,
   pending = null,
-  variant = 'outline',
   onAction,
 }: {
   action: GitAction | null
   pending?: GitActionId | null
-  /** `primary` when the step is the header's one contextual action. */
-  variant?: 'primary' | 'outline'
   onAction: (id: GitActionId) => void
 }) {
   if (!action) return null
@@ -110,7 +107,7 @@ export function GitActions({
       <ActionButton
         action={action}
         busyAs={busy ? pending : null}
-        variant={variant}
+        variant="outline"
         onAction={onAction}
         className={alternatives.length > 0 ? 'rounded-r-none' : undefined}
       />
@@ -120,7 +117,7 @@ export function GitActions({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              variant={variant}
+              variant="outline"
               size="sm"
               disabled={busy}
               aria-label={`More ways to ${action.label.toLowerCase()}`}
@@ -135,17 +132,11 @@ export function GitActions({
                 key={alternative.id}
                 data-action={alternative.id}
                 disabled={!alternative.enabled}
+                title={alternative.reason}
                 onSelect={() => onAction(alternative.id)}
-                className={cn(alternative.reason && 'flex-wrap')}
               >
                 {GIT_ACTION_ICONS[alternative.id]}
                 {alternative.label}
-                {/* The reason a way is closed sits in the row (a disabled item shows no tooltip). */}
-                {alternative.reason ? (
-                  <span data-slot="git-alternative-reason" className="basis-full pl-6 text-label text-muted-foreground">
-                    {alternative.reason}
-                  </span>
-                ) : null}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

@@ -3,7 +3,6 @@ import { ChevronRightIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { queryKeys, useRunDiff } from '@/api/queries'
-import { DiffStatLabel } from '@/components/diff-stat'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { highlight, highlightSync, type SynToken } from '@/lib/highlighter'
@@ -41,16 +40,16 @@ export function RunDiff({ runId }: { runId: string }) {
   const [showAllFiles, setShowAllFiles] = useState(false)
 
   if (diff.isPending) {
-    return <p className="px-1 text-label text-soft-foreground">Loading diff…</p>
+    return <p className="px-1 text-xs text-soft-foreground">Loading diff…</p>
   }
   if (diff.isError) {
-    return <p className="px-1 text-label text-danger">{diff.error.message}</p>
+    return <p className="px-1 text-xs text-danger">{diff.error.message}</p>
   }
   if (files.length === 0) {
     // Not a diff: the server's own sentence ("(no worktree — …)", "(diff failed …)") or an
     // empty answer. Show its words — they were written for the reader.
     return (
-      <p data-slot="run-diff-empty" className="px-1 font-mono text-label text-muted-foreground">
+      <p data-slot="run-diff-empty" className="px-1 font-mono text-xs text-soft-foreground">
         {diff.data.trim() || '(no changes)'}
       </p>
     )
@@ -60,11 +59,14 @@ export function RunDiff({ runId }: { runId: string }) {
   const shown = showAllFiles ? files : files.slice(0, FILE_CAP)
   return (
     <div data-slot="run-diff" className="flex min-w-0 flex-col gap-2">
-      <p className="flex items-center gap-2 px-1 text-label text-muted-foreground">
+      <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <span>
           {totals.files} {totals.files === 1 ? 'file' : 'files'} changed
         </span>
-        <DiffStatLabel stat={{ adds: totals.additions, dels: totals.deletions, files: totals.files }} />
+        <span className="font-mono font-semibold tabular-nums">
+          <span className="text-success">+{totals.additions}</span>{' '}
+          <span className="text-danger">−{totals.deletions}</span>
+        </span>
       </p>
       {shown.map((file) => (
         <DiffFileSection key={`${file.oldPath ?? ''}→${file.path}`} file={file} />
@@ -120,14 +122,17 @@ function DiffFileSection({ file }: { file: DiffFile }) {
             binary
           </span>
         ) : null}
-        <DiffStatLabel stat={{ adds: file.additions, dels: file.deletions, files: 1 }} className="ml-auto shrink-0 text-meta" />
+        <span className="ml-auto shrink-0 font-mono text-meta font-semibold tabular-nums">
+          <span className="text-success">+{file.additions}</span>{' '}
+          <span className="text-danger">−{file.deletions}</span>
+        </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t border-border/50">
           {file.binary ? (
-            <p className="px-4 py-2.5 text-label text-muted-foreground">Binary file — no text diff.</p>
+            <p className="px-4 py-2.5 text-xs text-soft-foreground">Binary file — no text diff.</p>
           ) : file.lines.length === 0 ? (
-            <p className="px-4 py-2.5 text-label text-muted-foreground">No content changes (metadata only).</p>
+            <p className="px-4 py-2.5 text-xs text-soft-foreground">No content changes (metadata only).</p>
           ) : (
             <DiffFileBody lines={file.lines} />
           )}

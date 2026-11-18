@@ -46,7 +46,9 @@ export function RunConfirmDialog({
                 {lifecycleDelete
                   ? 'Cleanup runs before the task, transcript, worktree, and branch are removed. If cleanup needs attention, the task and worktree are retained for your decision.'
                   : 'This removes the run, its transcript, its worktree and its branch. There is no undo.'}
-                <span className="mt-1 block break-words font-medium text-foreground">{runTitle(run)}</span>
+                <span className="mt-1 block truncate font-medium text-foreground" title={runTitle(run)}>
+                  {runTitle(run)}
+                </span>
               </>
             ) : run.status === 'queued' ? (
               // Nothing has started yet, so there is no agent to stop — say what actually happens.
@@ -59,7 +61,7 @@ export function RunConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Keep it</AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            className="bg-danger text-danger-foreground hover:brightness-[0.96]"
             onClick={() => {
               if (confirming) onConfirm(confirming)
               onOpenChange(false)

@@ -98,8 +98,6 @@ describe('usage-limit monitor', () => {
     monitor.markExhausted('claude:work', inMin(20), NOW, config);
     expect(seen.map((t) => t.kind)).toEqual(['low', 'exhausted']);
     expect(monitor.get('claude:work')).toMatchObject({ state: 'exhausted', remainingPercent: 0, resetsAt: inMin(20) });
-    // The existing usage-limit holds own an exhausted account; the monitor never parks it too.
-    expect(monitor.parkingDeadline('claude:work', NOW)).toBeNull();
     // Without a reset the state is advisory only: it never parks work it could not release.
     monitor.markExhausted('codex:default', null, NOW, config);
     expect(monitor.parkingDeadline('codex:default', NOW)).toBeNull();

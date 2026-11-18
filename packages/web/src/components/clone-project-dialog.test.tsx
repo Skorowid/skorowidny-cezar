@@ -110,8 +110,7 @@ describe('CloneProjectDialog', () => {
     expect(rootSettingsControl().tagName).toBe('A')
     expect(rootSettingsControl().getAttribute('href')).toBe('/settings/global/projects')
     expect(rootSettingsControl().getAttribute('aria-label')).toBe('Edit checkout root')
-    // The tooltip replaced the native title (tooltip contract) — the name carries the label.
-    expect(rootSettingsControl().getAttribute('title')).toBeNull()
+    expect(rootSettingsControl().getAttribute('title')).toBe('Edit checkout root')
 
     fireEvent.click(cloneButton())
     await waitFor(() => expect(posted).toHaveLength(1))

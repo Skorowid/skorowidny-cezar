@@ -242,24 +242,20 @@ async function reverseEventsUntil(
   fileHighWater: number;
   reachedStart: boolean;
   bytesRead: number;
-  endOffsets: Map<number, number>;
   canonical?: CanonicalItem[];
 }> {
   let fileSize = 0;
   try {
     fileSize = (await stat(filePath)).size;
   } catch {
-    return { events: [], fileSize: 0, fileHighWater: 0, reachedStart: true, bytesRead: 0, endOffsets: new Map() };
+    return { events: [], fileSize: 0, fileHighWater: 0, reachedStart: true, bytesRead: 0 };
   }
-  if (fileSize === 0) {
-    return { events: [], fileSize, fileHighWater: 0, reachedStart: true, bytesRead: 0, endOffsets: new Map() };
-  }
+  if (fileSize === 0) return { events: [], fileSize, fileHighWater: 0, reachedStart: true, bytesRead: 0 };
 
   const handle = await open(filePath, 'r');
   let position = fileSize;
   let suffix: Buffer[] = [];
   const reversed: RunHistoryEvent[] = [];
-  const endOffsets = new Map<number, number>();
   let reachedStart = false;
   let totalBytesRead = 0;
   let fileHighWater = 0;
@@ -274,16 +270,11 @@ async function reverseEventsUntil(
       const split = completeReverseLines(buffer.subarray(0, bytesRead), suffix);
       suffix = split.prefix;
       const { lines } = split;
-      let lineEnd = position + suffix.length + 1;
-      const lineEnds = lines.map((line) => (lineEnd += Buffer.byteLength(line, 'utf8') + 1));
       for (let index = lines.length - 1; index >= 0; index -= 1) {
         const event = parseLine(lines[index]!);
         if (event) {
           fileHighWater = Math.max(fileHighWater, event.seq);
-          if (event.seq < beforeSeq) {
-            reversed.push(event);
-            endOffsets.set(event.seq, lineEnds[index]!);
-          }
+          if (event.seq < beforeSeq) reversed.push(event);
         }
       }
       const chronological = [...reversed].reverse();
@@ -302,7 +293,6 @@ async function reverseEventsUntil(
         fileHighWater = Math.max(fileHighWater, event.seq);
         if (event.seq < beforeSeq) {
           reversed.push(event);
-          endOffsets.set(event.seq, suffix.length + 1);
           canonical = undefined;
         }
       }
@@ -316,7 +306,6 @@ async function reverseEventsUntil(
     fileHighWater,
     reachedStart,
     bytesRead: totalBytesRead,
-    endOffsets,
     ...(canonical === undefined ? {} : { canonical }),
   };
 }
@@ -362,16 +351,8 @@ async function forwardEventsUntil(
   filePath: string,
   afterSeq: number,
   wantedItems: number,
-): Promise<{
-  events: RunHistoryEvent[];
-  reachedEnd: boolean;
-  bytesRead: number;
-  endOffsets: Map<number, number>;
-  canonical?: CanonicalItem[];
-}> {
+): Promise<{ events: RunHistoryEvent[]; reachedEnd: boolean; bytesRead: number; canonical?: CanonicalItem[] }> {
   const events: RunHistoryEvent[] = [];
-  const endOffsets = new Map<number, number>();
-  let offset = 0;
   let canonical: CanonicalItem[] | undefined;
   let previousBoundary: RunHistoryEvent | undefined;
   let reachedEnd = true;
@@ -380,7 +361,6 @@ async function forwardEventsUntil(
     input = createReadStream(filePath, { encoding: 'utf8' });
     const lines = createInterface({ input, crlfDelay: Infinity });
     for await (const line of lines) {
-      offset += Buffer.byteLength(line, 'utf8') + 1;
       const event = parseLine(line);
       if (!event) continue;
       if (event.seq <= afterSeq) {
@@ -389,7 +369,6 @@ async function forwardEventsUntil(
       }
       if (events.length === 0 && previousBoundary) events.push(previousBoundary);
       events.push(event);
-      endOffsets.set(event.seq, offset);
       canonical = canonicalSessionItems(events);
       if (canonical.length >= wantedItems + 1) {
         reachedEnd = false;
@@ -397,17 +376,11 @@ async function forwardEventsUntil(
       }
     }
   } catch {
-    return { events: [], reachedEnd: true, bytesRead: 0, endOffsets: new Map() };
+    return { events: [], reachedEnd: true, bytesRead: 0 };
   } finally {
     input?.destroy();
   }
-  return {
-    events,
-    reachedEnd,
-    bytesRead: input?.bytesRead ?? 0,
-    endOffsets,
-    ...(canonical === undefined ? {} : { canonical }),
-  };
+  return { events, reachedEnd, bytesRead: input?.bytesRead ?? 0, ...(canonical === undefined ? {} : { canonical }) };
 }
 
 function pageEventSlice(events: RunHistoryEvent[], selected: CanonicalItem[]): RunHistoryEvent[] {
@@ -476,17 +449,9 @@ export async function readRunHistoryPage(
   const events = forward
     ? forwardPageEventSlice(scannedEvents, selected)
     : pageEventSlice(scannedEvents, selected);
+  const asOfSeq = highWaterRead.fileHighWater;
   const oldest = selected[0];
   const newest = selected.at(-1);
-  // A page with newer pages after it covers only up to its last event (#2018): claiming the file
-  // high-water let a client resume the live stream past events it never loaded.
-  const pageEnd = hasNewer && newest ? events.at(-1) : undefined;
-  const pageEndOffset = pageEnd === undefined
-    ? undefined
-    : (forward?.endOffsets ?? reverse?.endOffsets)?.get(pageEnd.seq);
-  const bounded = pageEnd !== undefined && pageEndOffset !== undefined;
-  const asOfSeq = bounded ? pageEnd.seq : highWaterRead.fileHighWater;
-  const liveOffset = bounded ? Math.min(pageEndOffset, highWaterRead.fileSize) : highWaterRead.fileSize;
   onRead?.({
     fileSize: highWaterRead.fileSize,
     bytesRead: (reverse?.bytesRead ?? forward?.bytesRead ?? 0) + highWaterRead.bytesRead,
@@ -517,7 +482,7 @@ export async function readRunHistoryPage(
           }),
         }
       : {}),
-    liveCursor: encodeCursor({ v: 1, kind: 'live', offset: liveOffset, boundarySeq: asOfSeq }),
+    liveCursor: encodeCursor({ v: 1, kind: 'live', offset: highWaterRead.fileSize, boundarySeq: asOfSeq }),
     asOfSeq,
     hasOlder,
   };

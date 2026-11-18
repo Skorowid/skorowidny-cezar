@@ -6,7 +6,6 @@ import { diskFloorRefusal } from './disk-space.ts';
 import { resolveTaskDiffBase } from './git-diff-base.ts';
 import { isSafeGitRef } from './git-refs.ts';
 import { resolveTaskRemotes, splitRemoteRef, type TaskRemotes } from './git-remotes.ts';
-import { worktreeInUse } from './worktree-in-use.ts';
 
 /**
  * Git worktree per task (spec 006). Each run gets its own branch
@@ -432,14 +431,12 @@ export function worktreeSizeBytes(path: string): Promise<number | null> {
   });
 }
 
-/** Remove a task worktree and its branch. Best effort — never throws. A worktree a running cezar
- *  or node process uses is left alone (`worktree-in-use.ts`); callers already check the dir is gone. */
+/** Remove a task worktree and its branch. Best effort — never throws. */
 export async function removeWorktree(
   repoRoot: string,
   worktreePath: string,
   branch?: string,
 ): Promise<void> {
-  if (existsSync(worktreePath) && await worktreeInUse(worktreePath).catch(() => null)) return;
   await git(repoRoot, ['worktree', 'remove', '--force', worktreePath]);
   await rm(worktreePath, { recursive: true, force: true }).catch(() => undefined);
   await git(repoRoot, ['worktree', 'prune']);
@@ -923,7 +920,7 @@ export async function pruneOrphans(
     const checkedOut = registered.find((item) => canonicalPath(item.path) === canonicalPath(path))?.branch;
     const branch = checkedOut?.startsWith('refs/heads/') ? checkedOut.slice('refs/heads/'.length) : branchFor(entry.name);
     await removeWorktree(repoRoot, path, branch);
-    if (!existsSync(path)) removed.push(entry.name); // a worktree in use stays (worktree-in-use.ts)
+    removed.push(entry.name);
   }
   return removed;
 }

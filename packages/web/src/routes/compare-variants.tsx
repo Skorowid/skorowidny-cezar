@@ -12,7 +12,6 @@ import { CenteredState } from '@/components/centered-state'
 import { DirectionalUsage } from '@/components/directional-usage'
 import { Pill } from '@/components/pill'
 import { RunDiff } from '@/components/run-diff'
-import { StatusDot } from '@/components/status-dot'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,11 +22,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { toast } from '@/components/ui/toaster'
-import { deriveAttention, isIdleClosed } from '@/lib/attention'
+import { deriveAttention } from '@/lib/attention'
 import { groupTitle } from '@/lib/task-groups'
 import { TERMINAL_STATUSES, formatCost } from '@/lib/tasks-table'
 import { usageMetricVisibility } from '@/lib/token-metrics'
@@ -88,7 +86,7 @@ export function CompareVariantsRoute() {
           }
           actions={
             <Button asChild variant="outline">
-              <Link to="/tasks">Back to tasks</Link>
+              <Link to="/">Back to tasks</Link>
             </Button>
           }
         />
@@ -146,7 +144,6 @@ function CompareView({
           <span className="min-w-0 truncate" title={title}>
             {title}
           </span>
-
         </h1>
         <p className="text-ui text-muted-foreground">
           {variants.length} variants of the same task, each in its own worktree — pick the diff you
@@ -193,10 +190,8 @@ function CompareView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep comparing</AlertDialogCancel>
-            {/* Filled red: the losers' worktrees and branches are deleted with no undo. */}
             <AlertDialogAction
               data-slot="confirm-pick"
-              className={buttonVariants({ variant: 'destructive' })}
               onClick={() => {
                 if (confirming) pick.mutate(confirming.id)
                 setConfirming(null)
@@ -230,9 +225,6 @@ function VariantColumn({
   showCost: boolean
 }) {
   const attention = deriveAttention(variant)
-  // Calm when done (redesign 2026-11): a finished, cancelled or idle-closed variant shows its
-  // dot and no pill — the same quiet rule the Tasks tables apply.
-  const quiet = variant.status === 'done' || variant.status === 'cancelled' || isIdleClosed(variant)
   const cost = formatCost(variant.costUsd)
   const hasDirectionalUsage = variant.inputTokens !== undefined || variant.outputTokens !== undefined
   return (
@@ -249,16 +241,9 @@ function VariantColumn({
         >
           {variant.variant}
         </span>
-        {quiet ? (
-          <span data-slot="status-quiet" className="inline-flex h-5 items-center gap-1.5 text-label text-muted-foreground">
-            <StatusDot tone={attention.tone} pulse={attention.pulse} aria-label={attention.label} role="img" />
-            {attention.label}
-          </span>
-        ) : (
-          <Pill dot={attention.tone} pulse={attention.pulse}>
-            {attention.label}
-          </Pill>
-        )}
+        <Pill dot={attention.tone} pulse={attention.pulse}>
+          {attention.label}
+        </Pill>
         {(showTokens && hasDirectionalUsage) || (showCost && cost) ? (
           <span
             data-slot="variant-token-metrics"
@@ -304,32 +289,25 @@ function VariantColumn({
             <Markdown>{variant.handoffExcerpt}</Markdown>
           </div>
         ) : (
-          <p data-slot="variant-progress" className="text-label text-muted-foreground">
+          <p data-slot="variant-progress" className="text-xs text-soft-foreground">
             (no progress notes)
           </p>
         )}
       </div>
 
-      {/* A disabled button cannot carry a tooltip, so the gate's reason is a visible line; the
-          enabled button's consequence rides the Radix tooltip instead of a native title. */}
-      {allTerminal ? (
-        <IconTooltip label={`Keep variant ${variant.variant}'s changes and archive the others`}>
-          <Button data-slot="variant-pick" disabled={pickPending} onClick={onPick}>
-            <CheckIcon aria-hidden="true" />
-            Pick this one
-          </Button>
-        </IconTooltip>
-      ) : (
-        <>
-          <Button data-slot="variant-pick" disabled onClick={onPick}>
-            <CheckIcon aria-hidden="true" />
-            Pick this one
-          </Button>
-          <p data-slot="variant-pick-gate" className="-mt-1.5 text-label text-muted-foreground">
-            Every variant must finish before you can pick.
-          </p>
-        </>
-      )}
+      <Button
+        data-slot="variant-pick"
+        title={
+          allTerminal
+            ? `Keep variant ${variant.variant}'s changes and archive the others`
+            : 'Every variant must finish before you can pick'
+        }
+        disabled={!allTerminal || pickPending}
+        onClick={onPick}
+      >
+        <CheckIcon aria-hidden="true" />
+        Pick this one
+      </Button>
     </article>
   )
 }

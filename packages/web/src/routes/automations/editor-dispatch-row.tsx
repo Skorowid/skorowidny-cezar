@@ -34,6 +34,7 @@ export function EditorDispatchRow({
     <div
       data-slot="editor-dispatch"
       data-enabled={enabled ? 'true' : undefined}
+      title="Let this run start its own subtasks with cez task create — each in a worktree forked off its branch, reporting back into the parent session."
       className="flex flex-wrap items-center gap-2.5 border-t border-border pt-3 text-ui text-muted-foreground"
     >
       <Label className="text-ui font-medium text-foreground">
@@ -69,9 +70,6 @@ export function EditorDispatchRow({
           </span>
         </>
       ) : null}
-      <p data-slot="editor-dispatch-why" className="m-0 basis-full text-label text-muted-foreground">
-        Lets the run start its own subtasks with <code className="text-label">cez task create</code>, each in a worktree forked off its branch, reporting back into the parent session.
-      </p>
     </div>
   )
 }
