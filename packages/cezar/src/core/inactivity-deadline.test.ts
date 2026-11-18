@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { failureKind } from '../runs/failure-kind.ts';
 import { armInactivityDeadline, inactivityTimeoutMessage } from './inactivity-deadline.ts';
 
 afterEach(() => {
@@ -51,11 +50,9 @@ describe('armInactivityDeadline (cf2191f1)', () => {
 
   it('says which bound fired', () => {
     expect(inactivityTimeoutMessage('claude CLI', 30 * 60_000, 'ceiling')).toMatch(/^claude CLI timed out after 4h and was killed/);
-    expect(failureKind(inactivityTimeoutMessage('claude CLI', 30 * 60_000, 'ceiling'))).toBe('timeout');
   });
 
   it('still classifies as a timeout', () => {
     expect(inactivityTimeoutMessage('claude CLI', 30 * 60_000)).toMatch(/^claude CLI timed out after 30m without any output/);
-    expect(failureKind(inactivityTimeoutMessage('codex app-server', 30 * 60_000))).toBe('timeout');
   });
 });

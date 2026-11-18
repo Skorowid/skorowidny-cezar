@@ -37,9 +37,8 @@ export interface AgentSetupDeps {
   /** Makes output reach the cockpit: the same cursor-only topic a task's terminal has. */
   registerTopic: (sessionId: string) => void;
   topic: (sessionId: string) => string;
-  /** A login terminal opened: the same telemetry and status watch `POST /providers/connect` has. */
-  onLoginOpened: (provider: AgentSetupProvider, status: 'disconnected' | 'unknown', sid: string | undefined) => void;
-  deviceSid: (header: string | undefined) => string | undefined;
+  /** A login terminal opened: the same status watch `POST /providers/connect` has. */
+  onLoginOpened: (provider: AgentSetupProvider) => void;
   probeEnv?: () => Promise<InstallEnv>;
 }
 
@@ -133,7 +132,7 @@ export function agentSetupRoutes(deps: AgentSetupDeps) {
         current = { id: created.session.id, provider, action, command };
         deps.registerTopic(created.session.id);
         if (action === 'login' && row) {
-          deps.onLoginOpened(provider, row.status === 'unknown' ? 'unknown' : 'disconnected', deps.deviceSid(c.req.header('x-cezar-sid')));
+          deps.onLoginOpened(provider);
         }
         return c.json(agentSetupSessionSchema.parse(describe(created.session)), 201);
       } finally {

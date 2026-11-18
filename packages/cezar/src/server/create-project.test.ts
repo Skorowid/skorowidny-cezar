@@ -5,17 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../telemetry.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../telemetry.ts')>();
-  return { ...actual, track: vi.fn() };
-});
 import { RunStore } from '../runs/store.ts';
 import type { RunManager } from '../workflows/run.ts';
 import { mergeWriteWorkspaceConfig } from '../workspace/config.ts';
 import { clearProjectProbeCache } from '../workspace/projects.ts';
 import { createProject, listGithubOwners, type CommandRunner } from './create-project.ts';
 import { apiRequest } from './loopback-request.testkit.ts';
-import { track } from '../telemetry.ts';
 import { WorkspaceEventBus, createApp, type RegisterProjectResponse, type ServerDeps } from './server.ts';
 
 /**
@@ -308,26 +303,6 @@ describe('POST /api/v1/projects/create', () => {
     expect(create?.args).toContain('--private');
     expect(create?.args).not.toContain('--public');
     expect(create?.args).not.toContain('--internal');
-  });
-
-  it('counts a created project as project_added new_<kind>, and a failure by its stage only', async () => {
-    vi.mocked(track).mockClear();
-    expect((await post({ name: 'loc' })).status).toBe(200);
-    const tpl = recordingRunner((c) => (c.args[0] === 'api' ? { ok: true, stdout: '1\n' } : undefined));
-    expect((await post({ name: 'tpl', github: { owner: 'acme', template: 'acme/starter' } }, { projectCommandRunner: tpl.run })).status).toBe(200);
-    expect(vi.mocked(track).mock.calls.map(([event, extra]) => [event, extra?.label])).toEqual([
-      ['project_added', 'new_local'],
-      ['project_added', 'new_template'],
-    ]);
-
-    vi.mocked(track).mockClear();
-    expect((await post({ name: 'loc' })).status).toBe(409);
-    const ghDown = recordingRunner((c) => (c.cmd === 'gh' ? { ok: false, error: 'HTTP 502 for acme/secret-name' } : undefined));
-    expect((await post({ name: 'gh-fail', github: { owner: 'acme' } }, { projectCommandRunner: ghDown.run })).status).toBe(500);
-    expect(vi.mocked(track).mock.calls).toEqual([
-      ['project_create_failed', { label: 'folder_exists' }, { sid: undefined }],
-      ['project_create_failed', { label: 'github_create' }, { sid: undefined }],
-    ]);
   });
 
   it('a dry-run GitHub project is a real repo with an HTTPS origin and the gh credential helper (#968)', async () => {

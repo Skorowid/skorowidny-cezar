@@ -194,7 +194,6 @@ describe('/api/v1/providers/setup', () => {
       registerTopic: () => {},
       topic: (id) => id,
       onLoginOpened: () => {},
-      deviceSid: () => undefined,
     });
     expect(await (await routes.request('/providers/setup')).json()).toEqual({ available: false, reason: 'no pty here' });
     const started = await routes.request('/providers/setup/sessions', { method: 'POST', body: JSON.stringify({ provider: 'codex', action: 'install' }), headers: { 'content-type': 'application/json' } });

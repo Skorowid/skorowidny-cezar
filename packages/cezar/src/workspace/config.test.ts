@@ -45,7 +45,6 @@ import {
   atomicTmpPath,
   atomicWriteJsonSync,
   defaultWorkspaceConfig,
-  effectiveSkillsAutoUpdate,
   effectiveComposerDefault,
   loadWorkspaceConfig,
   mergeWriteWorkspaceConfig,
@@ -65,7 +64,6 @@ describe('workspace config', () => {
   const originalHome = process.env.CEZ_HOME;
   const originalBrowseRoot = process.env.CEZ_BROWSE_ROOT;
   const originalProjectsDir = process.env.CEZ_PROJECTS_DIR;
-  const originalSkillsAutoUpdate = process.env.CEZ_SKILLS_AUTO_UPDATE;
   let home: string;
 
   beforeEach(() => {
@@ -73,7 +71,6 @@ describe('workspace config', () => {
     process.env.CEZ_HOME = home; // paths.ts sends all workspace paths here
     delete process.env.CEZ_BROWSE_ROOT;
     delete process.env.CEZ_PROJECTS_DIR;
-    delete process.env.CEZ_SKILLS_AUTO_UPDATE;
   });
 
   afterEach(() => {
@@ -83,8 +80,6 @@ describe('workspace config', () => {
     else process.env.CEZ_BROWSE_ROOT = originalBrowseRoot;
     if (originalProjectsDir === undefined) delete process.env.CEZ_PROJECTS_DIR;
     else process.env.CEZ_PROJECTS_DIR = originalProjectsDir;
-    if (originalSkillsAutoUpdate === undefined) delete process.env.CEZ_SKILLS_AUTO_UPDATE;
-    else process.env.CEZ_SKILLS_AUTO_UPDATE = originalSkillsAutoUpdate;
     rmSync(home, { recursive: true, force: true });
     vi.restoreAllMocks();
     fsTestState.events.length = 0;
@@ -160,15 +155,6 @@ describe('workspace config', () => {
     });
   });
 
-  it('resolves skills auto-update as explicit setting, then 0/1 env, then true', () => {
-    expect(effectiveSkillsAutoUpdate({}, {})).toBe(true);
-    expect(effectiveSkillsAutoUpdate({}, { CEZ_SKILLS_AUTO_UPDATE: '0' })).toBe(false);
-    expect(effectiveSkillsAutoUpdate({}, { CEZ_SKILLS_AUTO_UPDATE: '1' })).toBe(true);
-    expect(effectiveSkillsAutoUpdate({}, { CEZ_SKILLS_AUTO_UPDATE: 'invalid' })).toBe(true);
-    expect(effectiveSkillsAutoUpdate({ skillsAutoUpdate: false }, { CEZ_SKILLS_AUTO_UPDATE: '1' })).toBe(false);
-    expect(effectiveSkillsAutoUpdate({ skillsAutoUpdate: true }, { CEZ_SKILLS_AUTO_UPDATE: '0' })).toBe(true);
-  });
-
   it('resolves composer defaults as stored value, exact 0/1 env, then fallback', () => {
     expect(effectiveComposerDefault(undefined, undefined, true)).toBe(true);
     expect(effectiveComposerDefault(undefined, '0', true)).toBe(false);
@@ -181,17 +167,6 @@ describe('workspace config', () => {
   it('degrades invalid composer defaults per key and preserves unknown nested keys', async () => {
     write({ composerDefaults: { autonomous: 'yes', worktree: false, future: 42 } });
     expect((await loadWorkspaceConfig()).composerDefaults).toEqual({ worktree: false, future: 42 });
-  });
-
-  it('degrades a bad stored preference per-key and preserves raw absence on unrelated writes', async () => {
-    write({ skillsAutoUpdate: 'no', futureKey: true });
-    expect((await loadWorkspaceConfig()).skillsAutoUpdate).toBeUndefined();
-    await mergeWriteWorkspaceConfig((config) => {
-      config.resources.maxParallel = 3;
-    });
-    const raw = JSON.parse(readFileSync(workspaceConfigPath(), 'utf8')) as Record<string, unknown>;
-    expect(raw.skillsAutoUpdate).toBeUndefined();
-    expect(raw.futureKey).toBe(true);
   });
 
   it('round-trips a merge-written config, with the file at mode 0600', async () => {

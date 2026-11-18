@@ -34,7 +34,7 @@ import {
   unavailableProviderMessage,
   withSelectedAccounts,
 } from './server/provider-action-gate.ts';
-import { printSkillsBanner, printStarBanner } from './skills-banner.ts';
+import { printSkillsBanner } from './skills-banner.ts';
 import { SelfUpdateService } from './self-update/service.ts';
 import { runsFromCheckout } from './self-update/layout.ts';
 import { devVersion } from './self-update/semver.ts';
@@ -45,15 +45,11 @@ import { initServeWorkspace, initWorkspace } from './workspace/boot.ts';
 import { loadWorkspaceConfig } from './workspace/config.ts';
 import { runProjectsCommand } from './workspace/projects-cli.ts';
 import { WorkspaceSemaphore } from './workspace/semaphore.ts';
-import { flushTelemetry, initTelemetry, installCrashReporter, registerDailyInventory, registerTelemetryContext, startDailyPing, track } from './telemetry.ts';
-import { collectFeatureInventory } from './feature-telemetry.ts';
 import { runTaskCommand } from './dispatch/task-cli.ts';
 import { runAutomationCommand } from './automations/automation-cli.ts';
 import { runHandoffCommand } from './handoff-cli.ts';
 import { apiOrigin } from './api-origin.ts';
 import { pickStartupPort } from './startup-port.ts';
-import { runTelemetryCommand } from './telemetry-cli.ts';
-import { reportInconclusiveProbe } from './server/provider-telemetry.ts';
 import { runRunsCommand } from './runs/runs-cli.ts';
 import { runImpactCommand } from './impact/impact-cli.ts';
 
@@ -92,7 +88,6 @@ Usage:
   cezar tracker-connections <list|remove ID>  inspect or delete local project credentials
   cezar secrets <list|set NAME|unset NAME>  this project's secrets (--workspace: the user's)
                             (set reads the value from stdin; agents never receive them)
-  cezar telemetry [status|enable|disable|inspect]  opt-in usage data (off until you enable it)
   cezar server-install      interactive wizard to host cezar on a server
   cezar server-deploy       redeploy a new version (reload the service) + verify
   cezar server-uninstall    reverse a server-install
@@ -164,11 +159,6 @@ async function main(): Promise<void> {
   // `cez handoff …`: an agent's own handoff file (CEZ_HANDOFF_FILE), no server involved.
   if (process.argv[2] === 'handoff') {
     process.exitCode = await runHandoffCommand(process.argv.slice(3));
-    return;
-  }
-  // Opt-in telemetry's terminal switch (docs/telemetry.md): no server, no repo needed.
-  if (process.argv[2] === 'telemetry') {
-    process.exitCode = await runTelemetryCommand(process.argv.slice(3));
     return;
   }
   // `cez runs …` (#1080): the read-only twin for a person at a shell, same addressing.
@@ -248,9 +238,7 @@ async function main(): Promise<void> {
       const bootProjectId = process.env.CEZ_SINGLE_PROJECT === '1' && isList
         ? await initWorkspace(repoRoot)
         : undefined;
-      await initTelemetry({ version: readOwnVersion() });
       process.exitCode = await runProjectsCommand(projectArgs, { defaultRoot: repoRoot, bootProjectId });
-      await flushTelemetry(); // `projects add` reports a new project
       return;
     case 'server-install':
       await serverCommand('install', repoRoot, values.platform, {
@@ -391,9 +379,9 @@ async function serveCommand(
   const manager = new RunManager(store, repoRoot, { semaphore, projectId: bootProjectId });
   let httpServer: ReturnType<typeof startServer> | null = null;
   let stopping = false;
-  // Owned lifecycle scripts drain first; then the store and telemetry flush as before.
+  // Owned lifecycle scripts drain first; then the store flushes as before.
   const shutdown = (reason: 'signal' | 'supervisor_gone') => {
-    if (stopping) process.exit(0); // a second Ctrl-C never waits on scripts or telemetry
+    if (stopping) process.exit(0); // a second Ctrl-C never waits on scripts
     stopping = true;
     store.flush({ pretty: true }); // before the drain too: a second Ctrl-C must not lose run state
     void (httpServer?.shutdownLifecycle() ?? manager.lifecycle.shutdown())
@@ -403,27 +391,18 @@ async function serveCommand(
       })
       .then(() => {
         store.flush({ pretty: true });
-        track('app_stop', { label: reason });
-        return flushTelemetry(reason === 'signal' ? undefined : 1_000);
       })
       .finally(() => void releaseRuntime().finally(() => process.exit(process.exitCode ?? 0)));
   };
   process.on('SIGINT', () => shutdown('signal'));
   process.on('SIGTERM', () => shutdown('signal'));
-  const providerAuth = new ProviderAuthService({ cwd: repoRoot, onInconclusive: (probe) => void reportInconclusiveProbe(probe) });
+  const providerAuth = new ProviderAuthService({ cwd: repoRoot });
   const workspaceEvents = new WorkspaceEventBus();
   const providerRuntimeAuth = new ProviderRuntimeAuthObserver(providerAuth, (status) => {
     workspaceEvents.emit('provider-status', status);
   });
   // Shown on health and the banner; update checks compare the raw version.
   const version = shownVersion();
-  // Opt-in telemetry: every send below is a no-op until the user agreed (docs/telemetry.md).
-  // It gets the raw version (`build.version_full`) and derives `-dev` itself.
-  await initTelemetry({ version: readOwnVersion() });
-  installCrashReporter();
-  track('app_start');
-  registerDailyInventory(collectFeatureInventory);
-  startDailyPing();
 
   const checks = await detectEnvironment();
   const repo = await getRepoInfo(repoRoot);
@@ -484,11 +463,9 @@ async function serveCommand(
     restart: () => {
       void (httpServer?.shutdownLifecycle() ?? manager.lifecycle.shutdown()).then(() => {
         store.flush({ pretty: true });
-        // The old process stops here, so it reports its own stop before handing over (bounded).
-        track('app_stop', { label: 'restart' });
-        void flushTelemetry(1_000).finally(() => void releaseRuntime().finally(() =>
+        void releaseRuntime().finally(() =>
           restartProcess({ server: httpServer, args: process.argv.slice(2), port, supervised: isSupervised() }),
-        ));
+        );
       }).catch((error: unknown) => {
         console.error('cezar: lifecycle shutdown failed before restart', error);
         process.exit(1);
@@ -500,18 +477,6 @@ async function serveCommand(
     update.latest = latest;
     const how = selfUpdate.installKind === 'managed' ? 'update from the cockpit or: cezar update' : `restart with: npx ${pkgName}@latest`;
     console.log(`\n  ⬆ cezar ${latest} is available (running ${version}) — ${how}\n`);
-  });
-  // What the process is doing, on every error report (a wide event, not a bare message).
-  registerTelemetryContext(() => {
-    const runs = store.listRuns();
-    const count = (status: string) => runs.filter((r) => r.status === status).length;
-    return {
-      'app.install_kind': selfUpdate.installKind,
-      'runs.running': count('running'),
-      'runs.waiting': count('waiting'),
-      'runs.queued': count('queued'),
-      'runs.total': runs.length,
-    };
   });
   const port = await pickStartupPort(preferredPort, process.env.CEZ_REMOTE === '1', bindHost);
   webhookPort = port;
@@ -573,8 +538,6 @@ async function serveCommand(
   console.log(`\n  cockpit → ${launchUrl}\n`);
   // Silenced by CEZ_NO_BANNER=1 or by dismissing the cockpit's banner (#391).
   await printSkillsBanner(repoRoot);
-  // The star ask's terminal line — same block, same two off switches.
-  await printStarBanner(repoRoot);
 
   // Under the desktop shell a managed install may exist without launchers (the shell installs
   // cezar itself on first launch, spec 2026-09-25-desktop-distribution): write them so
@@ -673,7 +636,7 @@ async function runCommand(
     return;
   }
 
-  const providerAuth = new ProviderAuthService({ cwd: repoRoot, onInconclusive: (probe) => void reportInconclusiveProbe(probe) });
+  const providerAuth = new ProviderAuthService({ cwd: repoRoot });
   const requiredProviders = providersRequiredByWorkflow(
     workflow,
     (await loadConfig(repoRoot)).defaultRunner,
@@ -750,10 +713,7 @@ async function runCommand(
     }
   });
 
-  await initTelemetry({ version: readOwnVersion() });
-  const run = manager.startRun(workflow, { task, model, reasoningEffort, origin: 'cli' });
-  // No cockpit device here: the CLI's message counts under the installation's own id.
-  track('message_sent', { label: 'cli' });
+  const run = manager.startRun(workflow, { task, model, reasoningEffort });
   // `review` is terminal here too (spec 009) — headless runs must not hang on
   // the GUI's review gate; the diff waits on the task branch/cockpit instead.
   const final = await new Promise<string>((resolveStatus) => {
@@ -776,7 +736,6 @@ async function runCommand(
   process.off('SIGINT', interrupt);
   process.off('SIGTERM', terminate);
   process.exitCode = final === 'done' || final === 'review' ? 0 : 1;
-  await flushTelemetry();
 }
 
 // ---- server-install / server-uninstall --------------------------------------

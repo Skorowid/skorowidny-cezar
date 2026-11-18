@@ -7,7 +7,6 @@ import { RunStore } from '../runs/store.ts';
 import { MISSING_SESSION_NOTE } from './resume-fallback.ts';
 import { RunManager } from './run.ts';
 
-vi.mock('../telemetry.ts', async (importOriginal) => ({ ...(await importOriginal<object>()), track: vi.fn() }));
 
 type Failure = 'claude' | 'codex' | 'opencode' | 'auth' | 'opencode-model' | 'cancel';
 

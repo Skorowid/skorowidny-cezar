@@ -18,7 +18,7 @@ it.each(['0', '1'])('production single-project resolver rejects hidden webhook s
   vi.stubEnv('CEZ_HOME', join(dir, 'home'));
   vi.stubEnv('CEZ_DRY_RUN', '1'); vi.stubEnv('CEZ_WEBHOOKS', '1');
   vi.stubEnv('CEZ_SINGLE_PROJECT', '1'); vi.stubEnv('CEZ_REMOTE', remote);
-  vi.stubEnv('CEZ_AUTOMATIONS', '0'); vi.stubEnv('CEZ_SKILLS_AUTO_UPDATE', '0'); vi.stubEnv('CEZ_NO_BANNER', '1');
+  vi.stubEnv('CEZ_AUTOMATIONS', '0'); vi.stubEnv('CEZ_NO_BANNER', '1');
   const boot = await registerProject(root), hidden = await registerProject(otherRoot);
   const store = RunStore.open(join(root, '.ai/cezar'));
   const webhooks = new WebhookCoordinator({ mode: () => remote === '1' ? 'hosted' : 'local', ports: () => [], projects: async () => [], dryRun: true });

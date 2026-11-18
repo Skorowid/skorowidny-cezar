@@ -32,10 +32,7 @@ import {
   turnEndMarkerText,
 } from './run.ts';
 import type { WorkflowDef } from './types.ts';
-import { track } from '../telemetry.ts';
 
-// A spy, inert like the real `track` without consent — lets skill provisioning assert its signal.
-vi.mock('../telemetry.ts', async (importOriginal) => ({ ...(await importOriginal<object>()), track: vi.fn() }));
 
 type UsageAccountingHarness = {
   beginUsageInvocation(runId: string, state: Record<string, unknown>, stepId: string): void;
@@ -4033,7 +4030,6 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
       '---\nname: demo-review\ndescription: Review a diff.\n---\n\nRun the `demo-engine` skill verbatim.\n',
     );
     writeFileSync(join(repoRoot, '.ai/cezar/skills/demo-engine.md'), '---\nname: demo-engine\n---\n\nEngine.\n');
-    vi.mocked(track).mockClear();
     const record = manager.startRun(SINGLE_STEP, { task: '/demo-review 12', worktree: true });
     runId = record.id;
     await waitFor(() => eventsOf(record.id).some((e) => e.stepId === 'task' && e.type === 'text'));
@@ -4042,22 +4038,7 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
       expect(readFileSync(join(wt, dir, 'demo-review/SKILL.md'), 'utf8')).toContain('demo-engine');
       expect(readFileSync(join(wt, dir, 'demo-engine/SKILL.md'), 'utf8')).toContain('Engine.');
     }
-    expect(vi.mocked(track)).toHaveBeenCalledWith('skills_provisioned', { label: 'installed', value: 2 });
-    // The selected skill counts once, under its source: a repo skill's own name stays local.
-    const used = vi.mocked(track).mock.calls.filter(([event]) => event === 'skill_used');
-    expect(used).toEqual([['skill_used', { label: 'repo' }]]);
   }, 40_000);
-
-  it('reports where a task came from and which workflow it ran, never a custom name', () => {
-    vi.mocked(track).mockClear();
-    const sid = '0192f0e0-0000-7000-8000-000000000000';
-    manager.cancel(manager.startRun(SINGLE_STEP, { task: 'from the cockpit', worktree: false, deviceSid: sid }).id);
-    expect(vi.mocked(track)).toHaveBeenCalledWith('task_origin', { label: 'cockpit' }, { sid });
-    expect(vi.mocked(track)).toHaveBeenCalledWith('workflow_used', { label: 'quick-task' }, { sid });
-    runId = manager.startRun({ ...SINGLE_STEP, name: 'acme-secret-flow', source: 'file' }, { task: 'mine', worktree: false }).id;
-    expect(vi.mocked(track)).toHaveBeenCalledWith('task_origin', { label: 'api' }, { sid: undefined });
-    expect(vi.mocked(track)).toHaveBeenCalledWith('workflow_used', { label: 'custom' }, { sid: undefined });
-  });
 
   it("writes no skill copies into the user's own checkout on an in-place run", async () => {
     // In place the cwd IS the checkout, whose skill dirs `discoverSkills` reads ahead of the
@@ -4071,8 +4052,6 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
       for (const dir of ['.claude/skills', '.agents/skills']) {
         expect(existsSync(join(repoRoot, dir, 'create-cezar-automation'))).toBe(false);
       }
-      // cezar's own skill is public, so it is counted by name.
-      expect(vi.mocked(track)).toHaveBeenCalledWith('skill_used', { label: 'create-cezar-automation' });
     } finally {
       if (savedApiUrl === undefined) delete process.env.CEZ_API_URL;
       else process.env.CEZ_API_URL = savedApiUrl;
@@ -4080,7 +4059,6 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
   }, 40_000);
 
   it('leaves an unknown slash command untouched so backend-native commands still work', async () => {
-    vi.mocked(track).mockClear();
     const record = manager.startRun(SINGLE_STEP, { task: '/compact please', worktree: false });
     runId = record.id;
     await waitFor(() =>
@@ -4092,8 +4070,5 @@ describe("registry /skill expansion on a fresh run's opening prompt (#278)", () 
       (e) => e.stepId === 'task' && e.type === 'text' && e.text?.includes('looking into'),
     );
     expect(echoed?.text).toContain('/compact please');
-    // A backend's own command is not a missing skill.
-    expect(vi.mocked(track)).not.toHaveBeenCalledWith('skills_provisioned', expect.anything());
-    expect(vi.mocked(track)).not.toHaveBeenCalledWith('skill_used', expect.anything());
   }, 40_000);
 });

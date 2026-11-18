@@ -34,10 +34,6 @@ sources:
     path: docs/reference.md
     line: 520
     commit: 0355f9c9e46373c342dcb8a4d466df48e3f90d3e
-  - label: "Telemetry consent"
-    path: packages/cezar/src/telemetry.ts
-    line: 66
-    commit: 0355f9c9e46373c342dcb8a4d466df48e3f90d3e
 ---
 ## Which machine runs the agent
 
@@ -65,7 +61,7 @@ By default, an agent process receives a limited set of variables: required tool 
 
 Settings → Secrets stores values in `~/.cezar/`secrets/ using AES-256-GCM encryption. The key lives in the system keychain or a .key file with permissions 0600. Secrets go to the recipients specified by audience, such as check steps. This store is separate from the agent environment and does not automatically pass secrets to agent sessions.
 
-Cezar redacts recognized confidential data from saved transcripts by default. It detects only known patterns and registered values, so logs can still contain private code or data. Telemetry requires consent. Model backends, GitHub, and skill updates have their own network connections.
+Cezar redacts recognized confidential data from saved transcripts by default. It detects only known patterns and registered values, so logs can still contain private code or data. Model backends and GitHub have their own network connections.
 
 ## Preparing a backup
 
