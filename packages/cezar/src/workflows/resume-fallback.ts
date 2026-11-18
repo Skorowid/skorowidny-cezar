@@ -2,7 +2,6 @@ import type { AgentBackend, AgentEvent, AgentSession, ContentBlock } from '../co
 import { isClaudeMissingSessionError } from '../core/claude-cli-runner.ts';
 import { isOpencodeMissingSessionError } from '../core/opencode-server-runner.ts';
 import type { UiEvent } from '../core/ui-events.ts';
-import { track } from '../telemetry.ts';
 
 /** v2 bookkeeping a dead resume still emits; any other v2 event is the session doing work. */
 const HELD_UI_EVENTS = new Set<UiEvent['type']>([
@@ -145,23 +144,3 @@ export function interruptAfterGrace(session: AgentSession | undefined): void {
 export const MISSING_SESSION_NOTE =
   "the agent no longer has this conversation (its session was removed) — continuing in a fresh session with this task's saved context";
 
-/**
- * Awaits the fresh session that replaced a pruned resume and sends `session_resume_fallback` with
- * how it ended (#1438). Shared by both resume sites so their outcomes cannot drift.
- */
-export async function trackFallbackOutcome<T>(
-  /** Launches the fresh session and returns its result — inside, so a launch that throws still counts. */
-  fresh: () => Promise<T>,
-  ended: { cancelled: () => boolean; sessionError: () => string | undefined },
-): Promise<T> {
-  let threw = false;
-  try {
-    return await fresh();
-  } catch (err) {
-    threw = true;
-    throw err;
-  } finally {
-    const label = ended.cancelled() ? 'cancelled' : threw || ended.sessionError() !== undefined ? 'fresh_failed' : 'recovered';
-    track('session_resume_fallback', { label });
-  }
-}

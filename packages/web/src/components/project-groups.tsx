@@ -133,7 +133,6 @@ export function ProjectGroups({
   inboxAvailable = false,
   automationsAvailable = false,
   inboxCount = null,
-  skillsUpdateAvailable = false,
   newNavItems = NO_NEW_NAV_ITEMS,
 }: {
   projects: ProjectListEntry[]
@@ -145,7 +144,6 @@ export function ProjectGroups({
    *  the opt-in is one env var on the one server that serves every group. */
   automationsAvailable?: boolean
   inboxCount?: number | null
-  skillsUpdateAvailable?: boolean
   /** Nav items (`to`) whose feature shipped since the user started — the active group's dot. */
   newNavItems?: ReadonlySet<string>
 }) {
@@ -295,7 +293,6 @@ export function ProjectGroups({
       inboxAvailable={inboxAvailable}
       automationsAvailable={automationsAvailable}
       inboxCount={inboxCount}
-      skillsUpdateAvailable={skillsUpdateAvailable}
       newNavItems={newNavItems}
       showTokens={metricVisibility.tokens}
       showCost={metricVisibility.cost}
@@ -503,7 +500,6 @@ function ProjectGroup({
   inboxAvailable,
   automationsAvailable,
   inboxCount,
-  skillsUpdateAvailable,
   newNavItems,
   showTokens,
   showCost,
@@ -529,7 +525,6 @@ function ProjectGroup({
   inboxAvailable: boolean
   automationsAvailable: boolean
   inboxCount: number | null
-  skillsUpdateAvailable: boolean
   newNavItems: ReadonlySet<string>
   showTokens: boolean
   showCost: boolean
@@ -586,7 +581,7 @@ function ProjectGroup({
   // Pinning (#935) from a group that may not be the scoped project: the request is addressed to
   // THIS project, and the cache invalidated is the one `useProjectRuns` above writes — which is
   // `'default'` for the boot project, whose list mounts unscoped.
-  const pinMutation = usePinRun('sidebar', project.id, boot ? 'default' : project.id)
+  const pinMutation = usePinRun(project.id, boot ? 'default' : project.id)
   const onTogglePin = React.useCallback(
     (run: RunRecord, pinned: boolean) =>
       pinMutation.mutate(
@@ -595,7 +590,7 @@ function ProjectGroup({
       ),
     [pinMutation.mutate],
   )
-  const archiveMutation = useArchiveRun('sidebar', project.id, boot ? 'default' : project.id)
+  const archiveMutation = useArchiveRun(project.id, boot ? 'default' : project.id)
   const onToggleArchive = React.useCallback(
     (run: RunRecord, archived: boolean) =>
       archiveMutation.mutate(
@@ -844,12 +839,6 @@ function ProjectGroup({
                       className="ml-auto rounded-full bg-violet px-1.5 py-px text-micro font-semibold text-violet-foreground"
                     >
                       {inboxCount}
-                    </span>
-                  ) : null}
-                  {item.badge === 'skills-update' && active && skillsUpdateAvailable ? (
-                    <span data-slot="nav-update-marker" className="ml-auto flex items-center">
-                      <span className="size-1.5 rounded-full bg-violet" aria-hidden="true" />
-                      <span className="sr-only">Skills update available</span>
                     </span>
                   ) : null}
                   {active && newNavItems.has(item.to) ? (

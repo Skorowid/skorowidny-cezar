@@ -6,7 +6,7 @@ import { MAX_SAVED_WORKSPACE_LAYOUTS, savedWorkspaceLayoutSchema } from './works
 /**
  * The workspace + settings families: `~/.cezar/config.json`'s settings slice, both GUI-pref bags
  * (per-repo and workspace), the per-repo agent knobs, provider auth status, the host model
- * catalog, the skills-update state, and the "Open in…" targets.
+ * catalog and the "Open in…" targets.
  *
  * Node-free by construction (see README rule 1) — `zod` and the sibling contract modules only.
  */
@@ -36,9 +36,6 @@ export const workspaceConfigResponseSchema = z.object({
   browseRoot: z.string(),
   /** Checkout root for GUI-cloned projects — stored as written (`~` kept). */
   projectsDir: z.string(),
-  /** Stored override; `null` means inherit `CEZ_SKILLS_AUTO_UPDATE`, then true. */
-  skillsAutoUpdate: z.boolean().nullable(),
-  effectiveSkillsAutoUpdate: z.boolean(),
   /** Skills repos added in Global settings; every project loads them as team skills. */
   orgSkillsRepos: z.array(z.object({ repo: z.string(), ref: z.string() })),
   /** Global instructions for every task in every project; `null` = none. A project's own system
@@ -89,7 +86,6 @@ export const setWorkspaceConfigInputSchema = z.object({
   }).optional(),
   browseRoot: z.string().trim().min(1).max(4096).optional(),
   projectsDir: z.string().trim().min(1).max(4096).optional(),
-  skillsAutoUpdate: z.boolean().nullable().optional(),
   /** Replaces the whole list; entries keep unknown keys (a newer cezar's metadata). The server
    *  rejects an unsafe `repo`/`ref` with a 400. */
   orgSkillsRepos: z
@@ -510,45 +506,6 @@ export const setConfigInputSchema = z.object({
   teamSkills: z.boolean().optional(),
 });
 export type SetConfigInput = z.infer<typeof setConfigInputSchema>;
-
-// ---- skills updates (`/api/v1/workspace/skills-update`) --------------------------------------
-
-export const skillsUpdateStatusSchema = z.enum([
-  'idle',
-  'checking',
-  'available',
-  'updating',
-  'current',
-  'unavailable',
-  'error',
-]);
-export type SkillsUpdateStatus = z.infer<typeof skillsUpdateStatusSchema>;
-
-export const skillsUpdateScopeStateSchema = z.object({
-  scope: z.enum(['project', 'global']),
-  status: skillsUpdateStatusSchema,
-  available: z.boolean(),
-  skills: z.array(z.string()),
-  checkedAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-  reason: z.string().optional(),
-});
-export type SkillsUpdateScopeState = z.infer<typeof skillsUpdateScopeStateSchema>;
-
-/** `GET /api/v1/workspace/skills-update` (and the check/apply POSTs) — the merged project+global
- *  skills-update state. `autoUpdateEnabled`/`inherited` are re-stamped from the workspace config
- *  on the way out (`skillsUpdateResponse`, src/server/server.ts:1818). */
-export const skillsUpdateStateSchema = z.object({
-  status: skillsUpdateStatusSchema,
-  available: z.boolean(),
-  autoUpdateEnabled: z.boolean(),
-  inherited: z.boolean(),
-  checkedAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-  scopes: z.array(skillsUpdateScopeStateSchema),
-  needsUpgradeNotes: z.boolean(),
-});
-export type SkillsUpdateState = z.infer<typeof skillsUpdateStateSchema>;
 
 // ---- provider auth (`/api/v1/providers/*`) ---------------------------------------------------
 

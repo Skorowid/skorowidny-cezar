@@ -19,7 +19,8 @@ describe('bounded webhook transport', () => {
     const actual = await new Promise(resolve => wire.options.connect.lookup('example.com', {}, (_: unknown, address: string) => resolve(address)));
     expect(actual).toBe('8.8.8.8');
     const options = wire.request.mock.calls[0]![1];
-    expect(options.maxRedirections).toBe(0);
+    expect(options).not.toHaveProperty('maxRedirections');
+    expect(wire.options).not.toHaveProperty('maxRedirections');
     expect(verifyWebhook('evt_test', 1700000000, input().body, options.headers['webhook-signature'], input().secrets, 1700000000)).toBe(true);
   });
   it('discards private response bodies and limit-reaching public diagnostics', async () => {

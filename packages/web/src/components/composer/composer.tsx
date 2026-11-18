@@ -28,7 +28,6 @@ import { isEditableTarget } from '@/lib/use-command-shortcut'
 import { bumpSkillUsage, filterSkills, fuzzyMatch, isProjectSkill } from '@/lib/skills'
 import { useNow } from '@/lib/use-now'
 import { isSubmitShortcut } from '@/lib/use-submit-shortcut'
-import { reportDictationFailed, trackAttachmentsSent } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 
 import {
@@ -239,7 +238,6 @@ export function Composer({
   const uiState = useUiState()
   const queryClient = useQueryClient()
   const dictation = useDictation(({ message, failure }) => {
-    if (failure) reportDictationFailed(failure)
     toast(message, failure ? { tone: 'danger', reported: true } : {})
   })
 
@@ -437,7 +435,6 @@ export function Composer({
           meta ? onSubmit(body, attachments, meta) : onSubmit(body, attachments),
         )
         releaseStaged(messageImages)
-        trackAttachmentsSent(messageImages.length)
       } catch (error) {
         toast(error instanceof Error ? error.message : String(error), { tone: 'danger' })
         if (restoreOnError) {

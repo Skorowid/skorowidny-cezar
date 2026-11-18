@@ -9,7 +9,7 @@ execFileSync('git', ['init', '-q'], { cwd: root })
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('CEZ_')))
 Object.assign(env, {
   CEZ_DRY_RUN: '1', CEZ_HOME: join(root, '.cez-home'), CEZ_WEBHOOKS: '1',
-  CEZ_NO_BANNER: '1', CEZ_SKILLS_AUTO_UPDATE: '0', CEZ_AUTOMATIONS: '0', CEZ_TELEMETRY: '0',
+  CEZ_NO_BANNER: '1', CEZ_AUTOMATIONS: '0',
 })
 const child = spawn(process.execPath, ['--import', 'tsx', join(repository, 'packages/cezar/src/index.ts'),
   'serve', '--repo', root, '--port', process.env.PORT, '--no-open'], { cwd: repository, env, stdio: 'inherit' })

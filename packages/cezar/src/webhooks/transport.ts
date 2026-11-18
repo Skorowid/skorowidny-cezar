@@ -111,8 +111,10 @@ export async function sendWebhook(input: WebhookSend, dependencies: { lookup?: L
     });
     const timestamp = Math.floor((dependencies.now ?? Date.now)() / 1000);
     const result = await request(target.url, {
+      // No `maxRedirections`: undici 6 defaults it to 0 and undici 7 removed the option (it follows
+      // redirects only through an interceptor this dispatcher never installs) — never follow either way.
       dispatcher, method: 'POST', body: input.body, signal: controller.signal,
-      maxRedirections: 0, headersTimeout: 10_000, bodyTimeout: 10_000,
+      headersTimeout: 10_000, bodyTimeout: 10_000,
       headers: {
         'content-type': 'application/json', 'user-agent': 'cezar-webhooks/1',
         ...(input.format === undefined || input.format === 'cezar.json.v1' ? {

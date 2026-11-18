@@ -14,7 +14,7 @@ import {
 } from '@/api/queries'
 import type { OpenInChoice } from '@/components/open-in-menu'
 import { lifecycleQueryKeys } from '@/api/worktree-lifecycle'
-import type { ApiRun, TaskActionSurface } from '@open-mercato/cezar-api-client'
+import type { ApiRun } from '@open-mercato/cezar-api-client'
 import { queryScope } from '@open-mercato/cezar-api-client'
 import { toast } from '@/components/ui/toaster'
 import { useNavigate } from '@/lib/project-router'
@@ -39,11 +39,9 @@ export function useRunActions(
   run: ApiRun,
   {
     onMarkedUnread,
-    surface = 'task_view',
     onScreen = true,
   }: {
     onMarkedUnread?: () => void
-    surface?: TaskActionSurface
     /** The run is the page's own. A deletion moves the page only then — the palette may delete a
      *  task picked from elsewhere. */
     onScreen?: boolean
@@ -79,17 +77,17 @@ export function useRunActions(
   // must be ONE implementation, not two buttons that happen to agree today.
   const finish = useFinishRun(run.id)
   const archive = useMutation({
-    mutationFn: (via?: TaskActionSurface) => archiveRun(run.id, !run.archived, via ?? surface),
+    mutationFn: () => archiveRun(run.id, !run.archived),
     onSuccess: invalidate,
     onError,
   })
   // Pin/unpin (#935) — the shared hook rather than a local mutation, because the sidebar and the
   // Tasks table drive the same action and the cache rule belongs in one place. Toggling off the
   // record, exactly like archive above.
-  const pinMutation = usePinRun(surface)
+  const pinMutation = usePinRun()
   const pin = {
     isPending: pinMutation.isPending,
-    mutate: (via?: TaskActionSurface) => pinMutation.mutate({ id: run.id, pinned: !run.pinned, surface: via }, { onError }),
+    mutate: () => pinMutation.mutate({ id: run.id, pinned: !run.pinned }, { onError }),
   }
   // Mark unread (#775) drives the shared optimistic hook rather than a local mutation: the
   // cache choreography (clear `seenAt`, guarded rollback) belongs next to its read twin in

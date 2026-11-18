@@ -5,15 +5,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_TRANSIENT_RETRIES } from '../core/agent-failure-class.ts';
-import { reportAgentError } from '../runs/agent-error-telemetry.ts';
 import { RunStore } from '../runs/store.ts';
 import { RunManager } from './run.ts';
 import { QUICK_TASK_WORKFLOW } from './types.ts';
-
-vi.mock('../runs/agent-error-telemetry.ts', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  reportAgentError: vi.fn(),
-}));
 
 const run = promisify(execFile);
 const GIT_ID = ['-c', 'user.name=test', '-c', 'user.email=test@local'];
@@ -41,16 +35,11 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     clearTimeout(scheduler.autoResumeTimers.get(runId));
     scheduler.fireAutoResume(runId);
   }
-  /** The deferred reports run.ts makes — the store's event-time calls are filtered inside the real one. */
-  function deferredReports(): unknown[] {
-    return vi.mocked(reportAgentError).mock.calls.map((call) => call[2]).filter((opts) => opts !== undefined);
-  }
   function messages(runId: string): string[] {
     return store.readEventsSync(runId).map((event) => String(event.message ?? ''));
   }
 
   beforeEach(async () => {
-    vi.mocked(reportAgentError).mockClear();
     process.env.CEZ_DRY_RUN = '1';
     repoRoot = mkdtempSync(join(tmpdir(), 'cez-transient-retry-'));
     await run('git', ['init', '-q', '-b', 'main'], { cwd: repoRoot });
@@ -90,7 +79,6 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     const holds = manager.accountHolds();
     expect(holds.deadline.size + holds.inFlight.size).toBe(0);
     // Deferred until cezar knows whether the retry worked.
-    expect(deferredReports()).toEqual([]);
 
     const session = failed.steps.find((step) => step.sessionId)?.sessionId;
     store.updateRun(record.id, { task: 'mock:done ship it' });
@@ -101,10 +89,9 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     expect(resumed.autoResumeAt).toBeUndefined();
     expect(resumed.autoResumeAttempts).toBeUndefined();
     expect(messages(record.id)).toContain(`retrying after a temporary provider failure (1/${MAX_TRANSIENT_RETRIES})`);
-    expect(deferredReports()).toEqual([]);
   }, 60_000);
 
-  it(`gives up after ${MAX_TRANSIENT_RETRIES} retries, fails as before, and reports the error then`, async () => {
+  it(`gives up after ${MAX_TRANSIENT_RETRIES} retries, and fails as before`, async () => {
     manager = new RunManager(store, repoRoot);
     const record = manager.startRun(QUICK_TASK_WORKFLOW, { task: 'mock:overloaded ship it', worktree: false });
     await settle(record.id);
@@ -121,7 +108,6 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     expect(messages(record.id)).toContain(
       `the provider is still failing after ${MAX_TRANSIENT_RETRIES} automatic retries — continue this task manually`,
     );
-    expect(deferredReports()).toEqual([{ transientOutcome: 'retries_exhausted' }]);
   }, 90_000);
 
   it('the OAuth refresh race waits 60–105 s, retries 3 times, then fails with a clear cause (#1480)', async () => {
@@ -148,7 +134,6 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     expect(messages(record.id)).toContain(
       "Claude Code's login refresh kept colliding with another Claude Code process after 3 automatic retries — continue this task manually",
     );
-    expect(deferredReports()).toEqual([{ transientOutcome: 'retries_exhausted' }]);
   }, 120_000);
 
   it('Cancel during the refresh-race wait retires the booked retry (#1480)', async () => {
@@ -203,14 +188,13 @@ describe('a run stopped by a transient provider failure retries itself', () => {
     await expect.poll(() => store.getRun(record.id)?.status, { timeout: 20_000 }).toMatch(/^(done|review)$/);
   }, 40_000);
 
-  it('the switch that turns auto-resume off also turns the retry off — and the error is reported', async () => {
+  it('the switch that turns auto-resume off also turns the retry off', async () => {
     manager = new RunManager(store, repoRoot);
     vi.spyOn((manager as unknown as { semaphore: { autoResumeOnUsageLimit(): boolean } }).semaphore, 'autoResumeOnUsageLimit')
       .mockReturnValue(false);
     const record = manager.startRun(QUICK_TASK_WORKFLOW, { task: 'mock:overloaded ship it', worktree: false });
     await settle(record.id);
     expect(store.getRun(record.id)?.autoResumeAt).toBeUndefined();
-    expect(deferredReports()).toEqual([{ transientOutcome: 'not_retried' }]);
   }, 30_000);
 
   it('an account-state failure is explained, not retried', async () => {

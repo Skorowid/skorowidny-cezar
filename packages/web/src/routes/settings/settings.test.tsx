@@ -575,7 +575,7 @@ describe('the settings shell', () => {
     expect(up?.textContent).toBe('‹ General settings')
   })
 
-  it('keeps the ⌘K launcher, the version and star chips and the theme toggle in the sidebar footer, and the launcher opens the palette', () => {
+  it('keeps the ⌘K launcher, the version chip and the theme toggle in the sidebar footer, and the launcher opens the palette', () => {
     const client = gateSeededClient(false, REGISTRY)
     client.setQueryData(queryKeys.health, {
       bootProject: 'boot',
@@ -583,7 +583,6 @@ describe('the settings shell', () => {
       latestVersion: '0.15.0',
       capabilities: { localHandoff: true, followups: true, singleProject: false },
     })
-    client.setQueryData(workspaceQueryKeys.starCount, { available: true, count: 335 })
     render(
       <QueryClientProvider client={client}>
         <ThemeProvider>
@@ -602,7 +601,6 @@ describe('the settings shell', () => {
     // The app footer's chips, from the same cached data.
     expect(footer.querySelector('[data-slot="version-chip"]')?.textContent).toBe('v0.14.0')
     expect(footer.querySelector('[data-slot="version-chip"]')?.getAttribute('data-update-available')).toBe('true')
-    expect(footer.querySelector('[data-slot="star-chip"]')?.textContent).toContain('335')
     const opened = vi.fn()
     window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, opened)
     fireEvent.click(hint)

@@ -468,8 +468,6 @@ async function reconcile(queryClient: QueryClient): Promise<void> {
     // this reconcile, so the Machine card must be in the list — the local cockpit ignores it
     // because its frames arrive over the `host` topic.
     workspaceQueryKeys.hostUsage,
-    // Its poll stops once a check settles, and no stream carries skills news.
-    workspaceQueryKeys.skillsUpdateAll,
     ['run-history', activeScope] as const,
     ['run-history-context', activeScope] as const,
   ] as const

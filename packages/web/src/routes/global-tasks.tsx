@@ -151,7 +151,7 @@ const ARCHIVABLE_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'can
 function useArchiveIndexedRun() {
   return useIndexedRunMutation({
     request: ({ task, archived }: { task: GlobalTask; archived: boolean }) =>
-      archiveProjectRun(task.run.projectId, task.run.id, archived, 'all_tasks'),
+      archiveProjectRun(task.run.projectId, task.run.id, archived),
     patch: ({ archived }) => (run) => ({ ...run, archived }),
   })
 }

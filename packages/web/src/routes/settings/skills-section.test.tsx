@@ -17,8 +17,6 @@ function serve(overrides: Partial<WorkspaceConfigResponse> = {}) {
     branding: { name: 'cezar', logoUrl: null },
     browseRoot: '~/',
     projectsDir: '~/cezar/projects',
-    skillsAutoUpdate: null,
-    effectiveSkillsAutoUpdate: true,
     orgSkillsRepos: [],
     systemPrompt: null,
     composerDefaults: {
@@ -53,10 +51,6 @@ function serve(overrides: Partial<WorkspaceConfigResponse> = {}) {
       requests.push({ method, url, body })
       if (url === '/api/v1/workspace/config' && method === 'GET') return json(config)
       if (url === '/api/v1/workspace/config' && method === 'PUT') {
-        if (body && 'skillsAutoUpdate' in body) {
-          config.skillsAutoUpdate = body.skillsAutoUpdate as boolean | null
-          config.effectiveSkillsAutoUpdate = config.skillsAutoUpdate ?? true
-        }
         if (body && 'orgSkillsRepos' in body) config.orgSkillsRepos = body.orgSkillsRepos as typeof config.orgSkillsRepos
         return json(config)
       }
@@ -91,32 +85,6 @@ afterEach(() => {
 const puts = () => requests.filter((request) => request.method === 'PUT')
 
 describe('Global settings → Skills', () => {
-  it('renders the inherited default and quiet no-installation state', async () => {
-    serve()
-    renderSkills()
-    const toggle = await screen.findByRole('switch', {
-      name: 'Update Open Mercato skills automatically',
-    })
-    expect(toggle.getAttribute('aria-checked')).toBe('true')
-    expect(screen.getByText('On (default)')).toBeTruthy()
-    expect(screen.getByText(/CEZ_SKILLS_AUTO_UPDATE supplies/)).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Use default' }) as HTMLButtonElement).disabled).toBe(true)
-  })
-
-  it('writes an explicit boolean, then can clear it back to the inherited default', async () => {
-    serve()
-    renderSkills()
-    const toggle = await screen.findByRole('switch', {
-      name: 'Update Open Mercato skills automatically',
-    })
-    fireEvent.click(toggle)
-    await waitFor(() => expect(puts().at(-1)?.body).toEqual({ skillsAutoUpdate: false }))
-    const reset = screen.getByRole('button', { name: 'Use default' })
-    await waitFor(() => expect((reset as HTMLButtonElement).disabled).toBe(false))
-    fireEvent.click(reset)
-    await waitFor(() => expect(puts().at(-1)?.body).toEqual({ skillsAutoUpdate: null }))
-  })
-
   it('adds and removes an organisation skills repository', async () => {
     serve()
     renderSkills()

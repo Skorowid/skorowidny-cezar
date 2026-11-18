@@ -7,8 +7,6 @@ const api = vi.hoisted(() => ({
   deleteStagedUpload: vi.fn(),
 }))
 vi.mock('@/api/client', () => api)
-const telemetry = vi.hoisted(() => ({ reportAttachmentStagingFailed: vi.fn(), trackAttachmentsRestaged: vi.fn() }))
-vi.mock('@/lib/telemetry', () => telemetry)
 
 import { releaseStaged, resetStaging, sendWithStaged, stageAttachment, toWireAttachment } from './attachment-staging'
 import type { PendingAttachment } from './composer-attachments'
@@ -21,7 +19,7 @@ const attachment = (data: string, originalName?: string): PendingAttachment => (
   isImage: true,
 })
 
-describe('attachment staging (telemetry 7054e5f2)', () => {
+describe('attachment staging', () => {
   let next = 0
   beforeEach(() => {
     resetStaging()
@@ -32,8 +30,6 @@ describe('attachment staging (telemetry 7054e5f2)', () => {
       bytes: 3,
     }))
     api.deleteStagedUpload.mockReset().mockResolvedValue({ deleted: true })
-    telemetry.reportAttachmentStagingFailed.mockReset()
-    telemetry.trackAttachmentsRestaged.mockReset()
   })
   afterEach(() => resetStaging())
 
@@ -58,8 +54,6 @@ describe('attachment staging (telemetry 7054e5f2)', () => {
     api.stageUpload.mockRejectedValueOnce(failure)
     const a = attachment('BBBB')
     expect(await toWireAttachment(a)).toEqual({ mediaType: 'image/png', data: 'BBBB' })
-    // The fallback hides the failure from the user, so it must not hide it from telemetry.
-    expect(telemetry.reportAttachmentStagingFailed).toHaveBeenCalledWith(failure)
     await Promise.resolve()
     expect(await toWireAttachment(a)).toEqual({ uploadId: 'id1' })
   })
@@ -72,20 +66,17 @@ describe('attachment staging (telemetry 7054e5f2)', () => {
       .mockResolvedValueOnce('sent')
     await expect(sendWithStaged([a], send)).resolves.toBe('sent')
     expect(send.mock.calls.map(([wire]) => wire)).toEqual([[{ uploadId: 'id1' }], [{ uploadId: 'id2' }]])
-    expect(telemetry.trackAttachmentsRestaged).toHaveBeenCalledWith('recovered')
   })
 
-  it('counts a re-stage whose resend still fails', async () => {
+  it('surfaces the error of a re-stage whose resend still fails', async () => {
     const send = vi.fn().mockRejectedValueOnce(new Error(ATTACHMENT_UPLOAD_MISSING)).mockRejectedValueOnce(new Error('session closed'))
     await expect(sendWithStaged([attachment('FFFF')], send)).rejects.toThrow('session closed')
-    expect(telemetry.trackAttachmentsRestaged).toHaveBeenCalledWith('failed')
   })
 
   it('does not retry any other failure', async () => {
     const send = vi.fn().mockRejectedValue(new Error('session closed'))
     await expect(sendWithStaged([attachment('DDDD')], send)).rejects.toThrow('session closed')
     expect(send).toHaveBeenCalledTimes(1)
-    expect(telemetry.trackAttachmentsRestaged).not.toHaveBeenCalled()
   })
 
   it('deletes the server copy on release', async () => {

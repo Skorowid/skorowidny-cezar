@@ -3,9 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RunStore } from './store.ts';
-import { track } from '../telemetry.ts';
 
-vi.mock('../telemetry.ts', async (importOriginal) => ({ ...(await importOriginal<object>()), track: vi.fn() }));
 
 /** `idleClosedAt` (spec 2026-11-04-idle-closed-attention-state): same failed-only invariant as
  *  `awaitingAnswerSince`, but an ordinary finished outcome — and never a counted failure. */
@@ -16,7 +14,6 @@ describe('RunStore — idleClosedAt', () => {
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'cez-store-idle-'));
-    vi.mocked(track).mockClear();
   });
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 
@@ -67,16 +64,5 @@ describe('RunStore — idleClosedAt', () => {
     expect(reopened.getRun(bad)?.idleClosedAt).toBeUndefined();
     expect(reopened.getRun(done.id)?.status).toBe('done');
     expect(reopened.getRun(done.id)?.idleClosedAt).toBeUndefined();
-  });
-
-  it('is not counted as task_failed, while the same message without the marker still is', () => {
-    const store = RunStore.open(dataDir);
-    idleClosed(store);
-    expect(vi.mocked(track)).not.toHaveBeenCalledWith('task_failed', expect.anything());
-
-    const plain = store.createRun({ title: 'p', workflow: 'quick-task', task: 'p', steps: [] });
-    store.updateRun(plain.id, { status: 'running' });
-    store.updateRun(plain.id, { status: 'failed', error: IDLE, finishedAt: AT });
-    expect(vi.mocked(track)).toHaveBeenCalledWith('task_failed', expect.objectContaining({ label: expect.stringMatching(/:timeout$/) }));
   });
 });

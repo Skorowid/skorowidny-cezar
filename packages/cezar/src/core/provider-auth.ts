@@ -877,7 +877,7 @@ export type InconclusiveProbeReason =
   | 'unrecognized_output';
 
 /**
- * What an inconclusive probe can tell telemetry without its output: the shape of what came back
+ * What an inconclusive probe can tell an observer without its output: the shape of what came back
  * and how the binary was found. Never stdout/stderr text or a path — the CLI's output can carry an
  * account email or a token.
  */

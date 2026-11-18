@@ -12,7 +12,7 @@ import {
   trackerCredentialsSchema, trackerItemParamsSchema, trackerAssociationInputSchema, type TrackerChangedEvent,
   trackerContextSchema, trackerOperationInputSchema, trackerOperationResultSchema,
   secretParamsSchema, secretValueInputSchema, type SecretsList, type SecretValueInput,
-  e2eSetupInputSchema, type E2eStatus, taskActionSurfaceSchema,
+  e2eSetupInputSchema, type E2eStatus,
 } from '@open-mercato/cezar-contract';
 import { SecretStore, SecretsError, type SecretScopeRef } from '../workspace/secrets.ts';
 import { E2E_SETUP_TASK, e2eCredentialsAmong, e2eSetupWorkflow, latestE2eSetupRun, readE2eStatus, setupInFlight } from '../e2e-setup.ts';
@@ -88,7 +88,6 @@ import {
   type PickVariantResponse,
   type RunIndexEntry,
   type RunsIndexResponse,
-  type StarCountPayload,
   designProxyRequestSchema,
   type WorkspaceConfigResponse,
   workspaceBrandingLogoResponseSchema,
@@ -143,14 +142,7 @@ import {
   type ProviderStatusResponse,
 } from '../core/provider-auth.ts';
 import { applyProviderEnablement } from '../core/provider-availability.ts';
-import {
-  LOGIN_WATCH_OFFSETS_MS,
-  reportInconclusiveProbe,
-  trackLoginNotOpened,
-  trackLoginOpened,
-  trackUpdateOpened,
-  watchLogin,
-} from './provider-telemetry.ts';
+import { LOGIN_WATCH_OFFSETS_MS, watchLogin } from './login-watch.ts';
 import { RunnerModelCatalog } from '../core/runner-model-catalog.ts';
 import { currentUsage, currentTimedUsage, onUsage } from '../core/process-usage.ts';
 import { DashboardReader } from '../workspace/dashboard.ts';
@@ -175,10 +167,8 @@ import {
 } from '../workflows/types.ts';
 import { planChain, slugify } from '../planner.ts';
 import { discoverSkills } from '../skills.ts';
-import { SkillsUpdateConflictError, SkillsUpdateCoordinator, SkillsUpdateService, type SkillsUpdateState } from '../skills-update.ts';
 import { selfUpdateApplyRequestSchema, selfUpdateChannelRequestSchema, selfUpdateDevelopmentQuerySchema } from '@open-mercato/cezar-contract';
 import { SelfUpdateBusyError, SelfUpdateService } from '../self-update/service.ts';
-import { StarCountReader } from './star-count.ts';
 import { DesignProxies } from './preview/design-proxy.ts';
 import { getTeamSkillsCached, isSafeRef, refreshTeamSkills, safeRemoteFor, waitForTeamSkills } from '../skills-remote.ts';
 import { appendHandoffHeartbeat, handoffProgressExcerpt, readHandoff } from '../handoff.ts';
@@ -277,7 +267,6 @@ import { readAccountIdentity } from '../agent-config/account-identity.ts';
 import {
   PROJECT_ID_RE,
   defaultWorkspaceConfig,
-  effectiveSkillsAutoUpdate,
   loadWorkspaceConfig,
   mergeWriteWorkspaceConfig,
   effectiveComposerDefault,
@@ -360,22 +349,6 @@ import {
 import { createDraftPr, type DraftPrOutcome } from './pr.ts';
 import { findBranchPr, peekPrHeadSha, resolvePrTarget } from './forge/github.ts';
 import {
-  DEFAULT_TELEMETRY_URL,
-  TELEMETRY_POLICY_VERSION,
-  deviceSid,
-  loadTelemetryConsent,
-  reportError,
-  setTelemetryConsent,
-  telemetryBlockedBy,
-  track,
-} from '../telemetry.ts';
-import { automationLabel } from '../feature-telemetry.ts';
-import {
-  setTelemetryConsentInputSchema,
-  telemetryErrorInputSchema,
-  telemetryEventInputSchema,
-  telemetryPageInputSchema,
-  type TelemetryConsentPayload,
 } from '@open-mercato/cezar-contract';
 import { ProviderRuntimeAuthObserver } from './provider-auth-runtime.ts';
 import { MessageReceipts } from './message-receipts.ts';
@@ -488,9 +461,6 @@ export interface ServerDeps {
   /** Hand the device-flow page to the default browser. Injected so the route is testable without
    *  opening a window on the developer's machine. */
   openUrl?: typeof openFileInDefaultApp;
-  /** Process-wide Open Mercato skills update detector. Injected in tests and
-   * shared by every workspace route/project; createApp owns the default. */
-  skillsUpdate?: SkillsUpdateService;
   /** Home whose Meshy install the settings read (fork; tests point it at a sandbox). */
   meshyHome?: string;
   /** The project/workspace secret store (spec 2026-10-10-project-secrets-vault-options). Tests
@@ -500,10 +470,6 @@ export interface ServerDeps {
    *  the CLI, which knows the entry file, the port and how to restart; absent in tests and for
    *  bare `createApp` callers, where the family answers a read-only "not available" status. */
   selfUpdate?: SelfUpdateService;
-  /** cezar's own GitHub star count behind `GET /api/v1/star-count` (the cockpit's ⭐ ask).
-   *  Defaults to a reader that asks github.com at most once per ten seconds, paced to GitHub's rate limit, and caches the answer
-   *  under `~/.cache/cez/`; tests inject their own so no suite ever reaches the network. */
-  starCount?: { read(): Promise<StarCountPayload> };
   /** The Design Mode proxies behind `POST /api/v1/preview/design-proxy` (src/server/preview/).
    *  Injected by tests that need to close the listeners they opened. */
   designProxies?: DesignProxies;
@@ -1062,7 +1028,6 @@ type TodoStartEnv = ProjectApiEnv & { Variables: { todo: TodoItem } };
 // un-archives. A tiny schema so the route follows the safeParse convention.
 const archiveSchema = z.object({
   archived: z.boolean().optional(),
-  surface: taskActionSurfaceSchema.optional(),
 });
 
 // `POST /api/v1/runs/:id/pin` (#935) — no body pins; `{pinned:false}` unpins. The archive
@@ -1073,7 +1038,6 @@ const INITIAL_REPLAY_MAX_BYTES = 1_500_000;
 
 const pinSchema = z.object({
   pinned: z.boolean().optional(),
-  surface: taskActionSurfaceSchema.optional(),
 });
 
 // Request-body size guards (#429). A generous global cap keeps a single
@@ -1340,7 +1304,7 @@ export function createApp(deps: ServerDeps) {
     },
   });
   const providerAuth = deps.providerAuth
-    ?? new ProviderAuthService({ cwd: bootRoot, onInconclusive: (probe) => void reportInconclusiveProbe(probe) });
+    ?? new ProviderAuthService({ cwd: bootRoot });
   const workspaceConfig = deps.workspaceConfig ?? {
     load: loadWorkspaceConfig,
     mergeWrite: mergeWriteWorkspaceConfig,
@@ -1405,7 +1369,6 @@ export function createApp(deps: ServerDeps) {
   const openApp = deps.openApp ?? openInApp;
   const githubLogin = deps.githubLogin ?? (process.env.CEZ_DRY_RUN === '1' ? createDryRunGithubLogin() : createGithubLogin());
   const openUrl = deps.openUrl ?? openFileInDefaultApp;
-  const skillsUpdate = deps.skillsUpdate ?? new SkillsUpdateService();
   // No injected updater (tests, embedded callers): a READ-ONLY service over the running entry.
   // It has no way to restart the process, so it must not install either — an install that
   // flips `current` under a process that keeps running the old code is the worst of both.
@@ -1419,7 +1382,6 @@ export function createApp(deps: ServerDeps) {
       readOnly: true,
       trimPaths: () => !capabilities().localHandoff,
     });
-  const starCount = deps.starCount ?? new StarCountReader();
 
   // ---- workspace boot-project identity (multi-project spec) ----------------
   // The serve boot flow (`initServeWorkspace` in src/index.ts) registers the boot repo
@@ -1603,16 +1565,10 @@ export function createApp(deps: ServerDeps) {
 
   const app = new Hono();
 
-  // Hono's default 500, plus an error report (a no-op until the user opted in).
+  // Hono's default 500; the error stays in the local log.
   app.onError((err, c) => {
     if (err instanceof HTTPException) return err.getResponse();
     console.error(err);
-    reportError(err, {
-      source: 'server',
-      'http.method': c.req.method,
-      'http.route': c.req.routePath,
-      'http.project_scoped': c.req.path.startsWith('/api/v1/p/'),
-    }, { code: 'http_handler_failed', sid: deviceSid(c.req.header('x-cezar-sid')) });
     return c.text('Internal Server Error', 500);
   });
 
@@ -2136,7 +2092,7 @@ export function createApp(deps: ServerDeps) {
   // ---- chained family: agent providers (workspace-level) ----
   // One watch per account: a second Connect restarts its schedule instead of doubling it.
   const loginWatches = new Map<string, () => void>();
-  const watchOpenedLogin = (provider: ProviderId, profile: { id: string; isDefault: boolean; path: string | null }, sid?: string) => {
+  const watchOpenedLogin = (provider: ProviderId, profile: { id: string; isDefault: boolean; path: string | null }) => {
     const key = `${provider}\u0000${profile.id}`;
     loginWatches.get(key)?.();
     const check = async (): Promise<boolean> => {
@@ -2151,7 +2107,6 @@ export function createApp(deps: ServerDeps) {
     };
     const cancel = watchLogin(check, () => {
       loginWatches.delete(key);
-      track('provider_connected', { label: provider }, { sid });
     }, deps.loginWatchOffsetsMs ?? LOGIN_WATCH_OFFSETS_MS);
     loginWatches.set(key, cancel);
   };
@@ -2213,7 +2168,6 @@ export function createApp(deps: ServerDeps) {
 
     .post('/providers/connect', jsonZodValidator(providerConnectSchema, { message: `provider must be one of ${RUNNER_IDS.join(', ')}` }), async (c) => {
       const body = { data: c.req.valid('json') };
-      const sid = deviceSid(c.req.header('x-cezar-sid'));
 
       const provider = body.data.provider as ProviderId;
       // A NAMED account is refused in hosted mode unless the operator opted in. This happens
@@ -2240,7 +2194,6 @@ export function createApp(deps: ServerDeps) {
       // safe degradation. Running the bare command would sign the user into a DIFFERENT account
       // than the one they clicked, and nothing in the terminal would say so.
       if (command === null) {
-        trackLoginNotOpened(provider, 'invalid_folder', sid);
         return c.json({ error: `This account's folder cannot be used in a terminal command: ${profile.configDir}` }, 409);
       }
       // BOTH branches must mean "is this account signed in NOW". The default branch refreshes; the
@@ -2260,18 +2213,15 @@ export function createApp(deps: ServerDeps) {
       }
 
       if (row.status === 'connected') {
-        trackLoginNotOpened(provider, 'already_connected', sid);
         return c.json({ opened: false, connected: true, command });
       }
       if (row.status === 'not-installed') {
-        trackLoginNotOpened(provider, 'not_installed', sid);
         return c.json({ error: row.hint ?? providerAuth.installHint(provider), command }, 409);
       }
       // `unknown` (inconclusive output, timeout, unexpected exit) falls through to the login like
       // `disconnected`: the CLI is installed, and its own login is the one surface that can say
       // what is wrong. Refusing here left Connect a dead end that "Try again" re-probed into.
       if (!capabilities().localHandoff) {
-        trackLoginNotOpened(provider, 'hosted', sid);
         return c.json({ error: 'Run this command on the machine hosting cezar.', command }, 409);
       }
       let opened = false;
@@ -2284,11 +2234,9 @@ export function createApp(deps: ServerDeps) {
         // Terminal handoff is best-effort; the exact command remains the safe fallback.
       }
       if (!opened) {
-        trackLoginNotOpened(provider, 'no_terminal', sid);
         return c.json({ error: 'No terminal emulator could be opened. Run this command manually.', command }, 409);
       }
-      trackLoginOpened(provider, row.status === 'unknown' ? 'unknown' : 'disconnected', sid);
-      watchOpenedLogin(provider, { id: profile.id, isDefault: profile.isDefault, path: profile.isDefault ? null : profile.path }, sid);
+      watchOpenedLogin(provider, { id: profile.id, isDefault: profile.isDefault, path: profile.isDefault ? null : profile.path });
       return c.json({ opened: true, command });
     })
 
@@ -2299,14 +2247,11 @@ export function createApp(deps: ServerDeps) {
       paramZodValidator(z.object({ provider: providerParamSchema }), { message: 'unknown provider' }),
       async (c) => {
         const provider = c.req.valid('param').provider as ProviderId;
-        const sid = deviceSid(c.req.header('x-cezar-sid'));
         const command = providerAuth.updateCommand(provider);
         if (command === null) {
-          trackUpdateOpened(provider, 'unsupported', sid);
           return c.json({ error: 'This agent has no update command of its own. Update it the way you installed it.' }, 409);
         }
         if (!capabilities().localHandoff) {
-          trackUpdateOpened(provider, 'hosted', sid);
           return c.json({ error: 'Run this command on the machine hosting cezar.', command }, 409);
         }
         let opened = false;
@@ -2316,10 +2261,8 @@ export function createApp(deps: ServerDeps) {
           // Best-effort, as for Connect: the command is the fallback.
         }
         if (!opened) {
-          trackUpdateOpened(provider, 'no_terminal', sid);
           return c.json({ error: 'No terminal emulator could be opened. Run this command manually.', command }, 409);
         }
-        trackUpdateOpened(provider, 'opened', sid);
         return c.json({ opened: true as const, command });
       },
     );
@@ -2984,7 +2927,6 @@ export function createApp(deps: ServerDeps) {
       });
       if (registered.status !== 200) return c.json(registered.body, registered.status);
       // Only a genuinely new project: a re-add answers 409 above and is not an event.
-      track('project_added', { label: 'local' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json(registered.body, 200);
     })
 
@@ -3218,7 +3160,6 @@ export function createApp(deps: ServerDeps) {
         return c.json({ error: `${error} (the clone is at ${result.target})` }, registered.status);
       }
       // The checkout dialog only clones GitHub repositories (`checkoutSchema`).
-      track('project_added', { label: 'github' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json(registered.body, 200);
     })
 
@@ -3244,10 +3185,8 @@ export function createApp(deps: ServerDeps) {
         signal: c.req.raw.signal,
         ...(deps.projectCommandRunner ? { run: deps.projectCommandRunner } : {}),
       });
-      const sid = deviceSid(c.req.header('x-cezar-sid'));
       if (!result.ok) {
         // The stage, never the error text: that can carry paths and repository names.
-        track('project_create_failed', { label: result.stage }, { sid });
         return c.json(
           'reason' in result ? { error: result.error, reason: result.reason } : { error: result.error },
           result.status,
@@ -3259,11 +3198,9 @@ export function createApp(deps: ServerDeps) {
       if (registered.status !== 200) {
         const { body } = registered;
         const error = 'error' in body && body.error ? body.error : 'could not register the new project';
-        track('project_create_failed', { label: 'register' }, { sid });
         return c.json({ error: `${error} (the project is at ${result.target})` }, registered.status);
       }
       // `new_local` / `new_github` / `new_template`, beside the folder and clone flows' labels.
-      track('project_added', { label: `new_${result.kind}` }, { sid });
       return c.json(registered.body, 200);
     });
 
@@ -3438,60 +3375,6 @@ export function createApp(deps: ServerDeps) {
     return ctx.store.listRuns().filter((run) => ACTIVE_RUN_STATUSES.has(run.status)).length;
   };
 
-  // Workspace-level by design: update state spans project and global installs,
-  // but the selected registered project supplies the safe, server-owned cwd.
-  const skillsUpdateInputSchema = z.object({ projectId: projectIdSchema }).strict();
-  const resolveSkillsUpdateRoot = async (raw: string): Promise<
-    { root: string } | { status: 404 | 409; error: string }
-  > => {
-    if (!projectIdSchema.safeParse(raw).success) return { status: 404, error: `unknown project: ${raw}` };
-    const bootId = await resolveBootProject();
-    if (raw === 'default' || raw === bootId) return { root: bootRoot };
-    const project = (await loadWorkspaceConfig()).projects.find((entry) => entry.id === raw);
-    if (!project) return { status: 404, error: `unknown project: ${raw}` };
-    if ((await probeProjectStatus(project.root)).status === 'missing') {
-      return { status: 409, error: `project folder not found: ${raw}` };
-    }
-    return { root: project.root };
-  };
-
-  const skillsUpdateResponse = async (state: SkillsUpdateState): Promise<SkillsUpdateState> => {
-    const config = await loadWorkspaceConfig();
-    return { ...state, autoUpdateEnabled: effectiveSkillsAutoUpdate(config), inherited: config.skillsAutoUpdate === undefined };
-  };
-
-  // ---- chained family: skills updates (workspace-level) ----
-  const skillsUpdateRoutes = new Hono<ProjectApiEnv>()
-    .get('/workspace/skills-update', queryZodValidator(skillsUpdateInputSchema, { message: 'projectId is required' }), async (c) => {
-      const parsed = { data: c.req.valid('query') };
-      const resolved = await resolveSkillsUpdateRoot(parsed.data.projectId);
-      if ('error' in resolved) return c.json({ error: resolved.error }, resolved.status);
-      const state: SkillsUpdateState = skillsUpdate.snapshot(resolved.root);
-      void skillsUpdate.check(resolved.root).catch(() => {});
-      return c.json(await skillsUpdateResponse(state));
-    })
-
-    .post('/workspace/skills-update/check', jsonZodValidator(skillsUpdateInputSchema, { message: 'body must contain only projectId' }), async (c) => {
-      const parsed = { data: c.req.valid('json') };
-      const resolved = await resolveSkillsUpdateRoot(parsed.data.projectId);
-      if ('error' in resolved) return c.json({ error: resolved.error }, resolved.status);
-      return c.json(await skillsUpdateResponse(await skillsUpdate.check(resolved.root, true)));
-    })
-
-    .post('/workspace/skills-update/apply', jsonZodValidator(skillsUpdateInputSchema, { message: 'body must contain only projectId' }), async (c) => {
-      const parsed = { data: c.req.valid('json') };
-      const resolved = await resolveSkillsUpdateRoot(parsed.data.projectId);
-      if ('error' in resolved) return c.json({ error: resolved.error }, resolved.status);
-      try {
-        return c.json(await skillsUpdateResponse(await skillsUpdate.update(resolved.root, true)));
-      } catch (error) {
-        if (error instanceof SkillsUpdateConflictError) {
-          return c.json({ error: 'another skills update operation is running', state: await skillsUpdateResponse(skillsUpdate.snapshot(resolved.root)) }, 409);
-        }
-        throw error;
-      }
-    });
-
   // ---- chained family: Meshy AI (workspace-level; fork, docs/skorowidny-cezar/meshy-integration.md) ----
   // Reads the Python tool's install state and toggles one project's private `meshy` MCP entry.
   // The key never crosses the API. Writes are a local-machine capability, like agent config:
@@ -3557,7 +3440,6 @@ export function createApp(deps: ServerDeps) {
   // `/health`: it says nothing about any project, and there is nothing for a project scope to
   // change about it. Never fails — `{ available: false }` is the ordinary offline answer, so the
   // cockpit's chip simply is not there rather than showing an error nobody asked for.
-  const starCountRoutes = new Hono().get('/star-count', async (c) => c.json(await starCount.read()));
 
   // ---- chained family: Design Mode (workspace-level) -----------------------
   // Spec `.ai/specs/2026-10-09-design-mode.md`. Single-mount: the proxy mirrors a loopback dev
@@ -3654,8 +3536,6 @@ export function createApp(deps: ServerDeps) {
     },
     browseRoot: config.browseRoot,
     projectsDir: config.projectsDir,
-    skillsAutoUpdate: config.skillsAutoUpdate ?? null,
-    effectiveSkillsAutoUpdate: effectiveSkillsAutoUpdate(config),
     orgSkillsRepos: config.orgSkillsRepos ?? [],
     systemPrompt: config.systemPrompt ?? null,
     composerDefaults: {
@@ -3712,7 +3592,7 @@ export function createApp(deps: ServerDeps) {
 
     .put('/workspace/config', jsonZodValidator(() => setWorkspaceConfigInputSchema), async (c) => {
       const parsed = { data: c.req.valid('json') };
-      const { browseRoot, projectsDir, skillsAutoUpdate, orgSkillsRepos, systemPrompt, composerDefaults, resources, agentDefaults, branding } = parsed.data;
+      const { browseRoot, projectsDir, orgSkillsRepos, systemPrompt, composerDefaults, resources, agentDefaults, branding } = parsed.data;
       for (const src of orgSkillsRepos ?? []) {
         if (safeRemoteFor(src.repo) === null || !isSafeRef(src.ref)) {
           return c.json({ error: `unsafe skills repo: ${src.repo}@${src.ref}` }, 400);
@@ -3758,8 +3638,6 @@ export function createApp(deps: ServerDeps) {
           // Roots are stored as written (`~` kept); only the probe expands them.
           if (browseRoot !== undefined) config.browseRoot = browseRoot;
           if (projectsDir !== undefined) config.projectsDir = projectsDir;
-          if (skillsAutoUpdate === null) delete config.skillsAutoUpdate;
-          else if (skillsAutoUpdate !== undefined) config.skillsAutoUpdate = skillsAutoUpdate;
           if (orgSkillsRepos !== undefined) {
             if (orgSkillsRepos.length === 0) delete config.orgSkillsRepos;
             else config.orgSkillsRepos = orgSkillsRepos;
@@ -4088,7 +3966,6 @@ export function createApp(deps: ServerDeps) {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ error: message }, 500);
       }
-      track('workflow_saved', { label: parsed.data.overwrite ? 'chain_updated' : 'chain_created' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ path, name: parsed.data.name }, 201);
     })
 
@@ -4113,7 +3990,6 @@ export function createApp(deps: ServerDeps) {
       } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
-      track('workflow_saved', { label: 'deleted' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ ok: true, path: target });
     })
 
@@ -4149,7 +4025,6 @@ export function createApp(deps: ServerDeps) {
         }
         return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
-      track('workflow_saved', { label: body.overwrite ? 'graph_updated' : 'graph_created' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ path, name: body.name }, 201);
     })
 
@@ -4524,7 +4399,6 @@ export function createApp(deps: ServerDeps) {
         );
         emitAutomationChange(c.get('project'), automation.id, automation.revision);
         automationsChanged();
-        track('automation_created', { label: automationLabel(automation) }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
         return c.json({ automation }, 201);
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
@@ -4634,7 +4508,6 @@ export function createApp(deps: ServerDeps) {
         }
         if (kind !== 'tracker' && automation.enabled && !current.enabled) armAutomation(automationStore, automation);
         if (automation.enabled !== current.enabled) {
-          track('automation_toggled', { label: automation.enabled ? 'enabled' : 'paused' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
         }
         emitAutomationChange(c.get('project'), automation.id, automation.revision);
         automationsChanged();
@@ -4678,7 +4551,6 @@ export function createApp(deps: ServerDeps) {
       if (!current || !store.delete(id)) return c.json({ error: 'not found' }, 404);
       emitAutomationChange(c.get('project'), id, current.revision, true);
       automationsChanged();
-      track('automation_deleted', { label: automationLabel(current) }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.body(null, 204);
     })
 
@@ -4704,7 +4576,6 @@ export function createApp(deps: ServerDeps) {
       catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 409); }
       emitAutomationChange(c.get('project'), automation.id, automation.revision);
       automationsChanged();
-      if (!current.enabled) track('automation_toggled', { label: 'enabled' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ automation });
     })
 
@@ -4718,7 +4589,6 @@ export function createApp(deps: ServerDeps) {
       catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 409); }
       emitAutomationChange(c.get('project'), automation.id, automation.revision);
       automationsChanged();
-      if (current.enabled) track('automation_toggled', { label: 'paused' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ automation });
     })
 
@@ -5025,7 +4895,6 @@ export function createApp(deps: ServerDeps) {
       // The sweep is an archive like any other: each task it took loses its terminals (spec §6).
       if (archived > 0) for (const id of open) if (store.getRun(id)?.archived) stopTaskProcesses(id);
       // One event for the sweep, `value` = how many it archived (summed on the dashboard).
-      if (archived > 0) track('task_archived', { label: 'bulk', value: archived }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ archived });
     })
 
@@ -5050,7 +4919,6 @@ export function createApp(deps: ServerDeps) {
       }
       if (run && retiresQuestion) manager.notifyQuestionRetired?.(id);
       // Labelled with the button that did it.
-      if (run) track(parsed.data.archived !== false ? 'task_archived' : 'task_unarchived', { label: parsed.data.surface ?? 'api' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return run ? c.json(run) : c.json({ error: 'not found' }, 404);
     })
 
@@ -5060,10 +4928,9 @@ export function createApp(deps: ServerDeps) {
     // event and no new response shape.
     .post('/runs/:id/pin', jsonZodValidator(pinSchema, { absent: ({}) }), (c) => {
       const { store } = c.get('project');
-      const { pinned: pin, surface } = c.req.valid('json');
+      const { pinned: pin } = c.req.valid('json');
       const pinned = pin !== false;
       const run = store.setPinned(c.req.param('id'), pinned);
-      if (run) track(pinned ? 'task_pinned' : 'task_unpinned', { label: surface ?? 'api' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return run ? c.json(run) : c.json({ error: 'not found' }, 404);
     })
 
@@ -5164,7 +5031,6 @@ export function createApp(deps: ServerDeps) {
         // CEZ_TODOS_FILE alike (RunManager.agentEnv).
         generateFollowups: capabilities().followups ? parsed.data.generateFollowups : false,
         ...(parsed.data.dispatch && capabilities().dispatch ? { dispatchIntent: parsed.data.dispatch } : {}),
-        deviceSid: deviceSid(c.req.header('x-cezar-sid')),
       };
       if (variants > 1) {
         const runs = manager.startVariants(workflow, input, variants);
@@ -5415,7 +5281,6 @@ export function createApp(deps: ServerDeps) {
       if (!before) return c.json({ error: 'not found' }, 404);
       const finished = manager.finish(id);
       if (!finished) return c.json({ error: 'no open session' }, 409);
-      if (before.status === 'review') track('review_decided', { label: 'accepted' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ finished: true });
     })
 
@@ -5425,7 +5290,6 @@ export function createApp(deps: ServerDeps) {
       const id = c.req.param('id');
       if (!store.getRun(id)) return c.json({ error: 'not found' }, 404);
       const answer = await manager.land(id);
-      if (answer.outcome === 'landed') track('review_decided', { label: 'landed' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({
         outcome: answer.outcome,
         message: answer.message,
@@ -5530,7 +5394,6 @@ export function createApp(deps: ServerDeps) {
       if (!opened) {
         return c.json({ error: 'no terminal emulator found', command: fallback }, 409);
       }
-      track('open_in', { label: 'resume_in_terminal' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ opened: true, command });
     })
 
@@ -5553,9 +5416,6 @@ export function createApp(deps: ServerDeps) {
       // injection guard, this just validates the shape.
       const parsedBody = { data: c.req.valid('json') };
       const { target, path: relPath } = parsedBody.data;
-      // Telemetry counts an `open_in` only once it opened: `target` is free client text until
-      // `openApp`/`agentCliRunner` matched it, and labels must stay a closed set.
-      const trackOpened = (label: string) => track('open_in', { label }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       const dir = run.worktreePath && existsSync(run.worktreePath) ? run.worktreePath : repoRoot;
 
       // Diff pane "open in OS default app" (#365): one worktree file, opened with the platform's
@@ -5601,7 +5461,6 @@ export function createApp(deps: ServerDeps) {
         const filePath = join(run.worktreePath, result.path);
         const opened = await openFile(filePath);
         if (!opened) return c.json({ error: `could not open ${result.path}`, path: filePath }, 409);
-        trackOpened('default');
         return c.json({ opened: true, path: filePath });
       }
 
@@ -5651,13 +5510,11 @@ export function createApp(deps: ServerDeps) {
         if (!opened) {
           return c.json({ error: 'no terminal emulator found', command: fallback }, 409);
         }
-        trackOpened(`cli:${cliRunner}`);
         return c.json({ opened: true, path: dir, command });
       }
 
       const opened = await openApp(target, dir);
       if (!opened) return c.json({ error: `could not open ${target}`, path: dir }, 409);
-      trackOpened(target);
       return c.json({ opened: true, path: dir });
     })
 
@@ -5817,7 +5674,6 @@ export function createApp(deps: ServerDeps) {
         agentProfile: body.agentProfile,
         subject: launch.subject,
         ...(launch.forkRef ? { forkRef: launch.forkRef } : {}),
-        deviceSid: deviceSid(c.req.header('x-cezar-sid')),
       });
       if (launch.note) store.appendEvent(run.id, { type: 'note', message: launch.note });
       return c.json({ runId: run.id }, 201);
@@ -6055,7 +5911,6 @@ export function createApp(deps: ServerDeps) {
       // One publish per run at a time: a cockpit re-asking after its response was lost (telemetry
       // 9119d21a) joins the publish still running instead of racing its autosave commit and push.
       const key = `${dataDir}\0${id}`;
-      const sid = deviceSid(c.req.header('x-cezar-sid'));
       let publish = prPublishes.get(key);
       if (!publish) {
         const branch = run.branch;
@@ -6069,7 +5924,6 @@ export function createApp(deps: ServerDeps) {
           // ahead of the push looks like. It exists now.
           const createdNumber = refNumberFromUrl(outcome.url);
           if (createdNumber !== null) forgetRefStatus(repoRoot, createdNumber);
-          track('pr_opened', { label: draft ? 'draft' : 'ready' }, { sid });
           store.updateRun(id, {
             pullRequestUrl: outcome.url,
             status: 'done',
@@ -6113,7 +5967,6 @@ export function createApp(deps: ServerDeps) {
       // Unlike `POST /pr`, the status stays: the agent's session, not the cockpit, owns the run.
       store.updateRun(id, { pullRequestUrl: pr.url });
       store.appendEvent(id, { type: 'note', message: `PR opened by the agent: ${pr.url}` });
-      track('pr_opened', { label: 'agent' }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ found: true as const, url: pr.url });
     })
 
@@ -6154,7 +6007,6 @@ export function createApp(deps: ServerDeps) {
           // The run's `refs/cezar/pr/<n>` goes with the last run that needed it (Phase 3).
           if (deleted && run.prHead) await manager.sweepPrHeadRefs();
           if (!deleted) return c.json({ error: 'not found' }, 404);
-          track('task_deleted', { label: run.status }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
           return c.json({ deleted: true });
         });
       } catch (error) { return lifecycleError(c, error); }
@@ -6448,7 +6300,6 @@ export function createApp(deps: ServerDeps) {
       const opened = await openApp(target, root);
       if (!opened) return c.json({ error: `could not open ${target}`, path: root }, 409);
       // After the allowlist and the open: a closed label set (see the run route above).
-      track('open_in', { label: `project:${target}` }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
       return c.json({ opened: true as const, path: root });
     });
 
@@ -6633,8 +6484,6 @@ export function createApp(deps: ServerDeps) {
           runner: parsed.data?.runner,
           model: parsed.data?.model,
           reasoningEffort: parsed.data?.reasoningEffort,
-          origin: 'inbox',
-          deviceSid: deviceSid(c.req.header('x-cezar-sid')),
         });
         await markStarted(dataDir, id, run.id);
         return c.json({ run }, 201);
@@ -7053,7 +6902,7 @@ export function createApp(deps: ServerDeps) {
       // Not autonomous: an autonomous run skips the review gate (`settleSuccess`) a user may have
       // turned on, and the setup's whole point is a branch the user reviews before it lands. Its agent step is not the last
       // step, so it hands on to the checks without parking.
-      const run = project.manager.startRun(workflow, { task: E2E_SETUP_TASK, origin: 'e2e_setup' });
+      const run = project.manager.startRun(workflow, { task: E2E_SETUP_TASK });
       return c.json({ runId: run.id }, 201);
     });
 
@@ -8199,11 +8048,9 @@ export function createApp(deps: ServerDeps) {
     installHint: (provider) => providerAuth.installHint(provider),
     registerTopic: registerTerminalTopic,
     topic: terminalTopic,
-    onLoginOpened: (provider, status, sid) => {
-      trackLoginOpened(provider, status, sid);
-      watchOpenedLogin(provider, { id: DEFAULT_AGENT_ACCOUNT_ID, isDefault: true, path: null }, sid);
+    onLoginOpened: (provider) => {
+      watchOpenedLogin(provider, { id: DEFAULT_AGENT_ACCOUNT_ID, isDefault: true, path: null });
     },
-    deviceSid,
     ...(deps.agentSetupProbeEnv ? { probeEnv: deps.agentSetupProbeEnv } : {}),
   });
 
@@ -8445,81 +8292,6 @@ export function createApp(deps: ServerDeps) {
   });
   deps.onDispose?.(() => { offDashboardRegistry(); dashboard.dispose(); });
 
-  // The server's half of a cockpit error: is the bundle that page runs still the one being
-  // served? A page kept open across a rebuild or self-update asks for chunks that no longer
-  // exist — the stale-shell failure a WebKit "Importing a module script failed" usually is.
-  const servedBuildContext = (entry: unknown): Record<string, string | boolean> => {
-    const ctx: Record<string, string | boolean> = { 'server.version': version };
-    if (typeof entry !== 'string' || !isSafeAssetFilename(entry)) return ctx;
-    try {
-      ctx['build.entry_served'] = readFileSync(join(distDir, 'index.html'), 'utf8').includes(`/assets/${entry}`);
-      ctx['build.entry_exists'] = existsSync(join(distDir, 'assets', entry));
-    } catch {
-      ctx['build.entry_served'] = false; // no web/dist at all
-    }
-    return ctx;
-  };
-
-  // Cockpit telemetry (opt-in, docs/telemetry.md). The telemetry worker sends no CORS headers, so
-  // the browser reports through here; the relays answer 204 whether or not the user opted in, and
-  // only a closed set of page names is forwarded.
-  const telemetryConsentBody = (consent: TelemetryConsentPayload['consent']): TelemetryConsentPayload => ({
-    consent,
-    policyVersion: TELEMETRY_POLICY_VERSION,
-    blockedBy: telemetryBlockedBy(),
-    endpoint: (process.env.CEZ_TELEMETRY_URL || DEFAULT_TELEMETRY_URL).replace(/\/+$/, ''),
-  });
-  const telemetryRoutes = new Hono()
-    .get('/telemetry/consent', async (c) => c.json(telemetryConsentBody(await loadTelemetryConsent())))
-    .put(
-      '/telemetry/consent',
-      jsonZodValidator(setTelemetryConsentInputSchema, { message: 'consent must be granted or denied' }),
-      async (c) => {
-        const consent = await setTelemetryConsent(c.req.valid('json').consent);
-        return c.json(telemetryConsentBody(consent));
-      },
-    )
-    .post(
-      '/telemetry/page',
-      jsonZodValidator(telemetryPageInputSchema, { message: 'invalid route' }),
-      (c) => {
-        track('page_viewed', { label: c.req.valid('json').route }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
-        return c.body(null, 204);
-      },
-    )
-    .post(
-      '/telemetry/event',
-      jsonZodValidator(telemetryEventInputSchema, { message: 'invalid event' }),
-      (c) => {
-        const body = c.req.valid('json');
-        // `value` only on the batched events, and only when sent — every other relay stays `{ label }`.
-        const value = 'value' in body ? body.value : undefined;
-        track(body.event, { label: body.label, ...(value !== undefined ? { value } : {}) }, { sid: deviceSid(c.req.header('x-cezar-sid')) });
-        return c.body(null, 204);
-      },
-    )
-    .use('/telemetry/error', bodyLimit({ maxSize: 32 * 1024 }))
-    .post(
-      '/telemetry/error',
-      jsonZodValidator(telemetryErrorInputSchema, { message: 'invalid error report' }),
-      (c) => {
-        const body = c.req.valid('json');
-        const err = new Error(body.message);
-        err.name = body.type;
-        err.stack = body.stack;
-        reportError(
-          err,
-          {
-            ...body.context,
-            source: 'cockpit',
-            handler: body.handler,
-            ...servedBuildContext(body.context?.['build.entry']),
-          },
-          { code: body.code, fingerprint: body.fingerprint, sid: deviceSid(c.req.header('x-cezar-sid')) },
-        );
-        return c.body(null, 204);
-      },
-    );
 
   // Workspace-level families answer for the whole workspace, so they are single-mount: never a
   // project-scoped spelling, which would be a second surface to protect with no consumer.
@@ -8530,11 +8302,9 @@ export function createApp(deps: ServerDeps) {
     .route('/', agentSetupFamily)
     .route('/', projectsRoutes)
     .route('/', agentProfilesRoutes)
-    .route('/', skillsUpdateRoutes)
     .route('/', meshyRoutes)
     .route('/', usageLimitRoutes)
     .route('/', selfUpdateRoutes)
-    .route('/', starCountRoutes)
     .route('/', previewRoutes)
     .route('/', workspaceConfigRoutes)
     .route('/', workspaceSecretsRoutes)
@@ -8545,7 +8315,7 @@ export function createApp(deps: ServerDeps) {
     .route('/', runsIndexRoutes)
     .route('/', dashboardRoutes(dashboard, () => ({ tokens: capabilities().tokenUsageMetrics, cost: capabilities().costMetrics }), () => capabilities().automations))
     .route('/', workspaceEventsRoutes)
-    .route('/', telemetryRoutes);
+;
 
   // ---- mount ---------------------------------------------------------------
   // Scoped first, then the unscoped alias bound to the boot project. The paths are disjoint (no
@@ -8579,7 +8349,6 @@ export function createApp(deps: ServerDeps) {
 export function startServer(deps: ServerDeps, port: number): ServerType & { shutdownLifecycle(): Promise<void> } {
   let shutdownPromise: Promise<void> | undefined;
   const workspaceEvents = deps.workspaceEvents ?? new WorkspaceEventBus();
-  const skillsUpdate = deps.skillsUpdate ?? new SkillsUpdateService({ invalidateCatalog: refreshTeamSkills });
   // The subscription hub rides the same HTTP server (one port, zero config):
   // createApp registers the topics, the `upgrade` hook below owns the socket.
   const socketHub = deps.socketHub ?? createSocketHub();
@@ -8612,7 +8381,6 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     webhookPort: port,
     automationStore: bootAutomationStore,
     workspaceEvents,
-    skillsUpdate,
     socketHub,
     automationsChanged: () => rescheduleAutomations(),
   });
@@ -8627,8 +8395,6 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     hostname: deps.bindHost ?? '127.0.0.1',
   });
   applyKeepAlive(server);
-  const coordinator = new SkillsUpdateCoordinator(skillsUpdate, async () =>
-    effectiveSkillsAutoUpdate(await loadWorkspaceConfig()));
   // Every registered project gets a handle (spec 2026-09-14): `github` only when the remote is
   // on GitHub (github.com or Enterprise) — a project without one still fires its scheduled automations.
   const automationProjects = new Map<string, { root: string; github?: { owner: string; repo: string; host: string } }>();
@@ -8695,12 +8461,10 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     if (event === 'project-added') {
       const project = (data as { project?: { id?: unknown; root?: unknown; status?: unknown } }).project;
       if (project && typeof project.id === 'string' && typeof project.root === 'string' && project.status !== 'missing') {
-        coordinator.add(project.id, project.root);
         void registerAutomationProject(project.id, project.root).then(() => rescheduleAutomations());
       }
     } else if (event === 'project-removed') {
       const id = (data as { id?: unknown }).id;
-      if (typeof id === 'string') coordinator.remove(id);
       if (typeof id === 'string') {
         automationCoordinator.remove(id);
         automationProjects.delete(id);
@@ -8713,10 +8477,8 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
       if (shutdownPromise) return;
       const all = projects.some((project) => project.root === deps.repoRoot)
         ? projects : [{ id: deps.bootProjectId ?? 'default', root: deps.repoRoot, status: 'ok' as const }, ...projects];
-      coordinator.start(all);
       // #801: with automations off there is nothing to warm — no remote to resolve, no receipts
-      // to reconcile, and above all no scheduler to start. The skills-update coordinator above is
-      // a separate feature and starts either way.
+      // to reconcile, and above all no scheduler to start.
       if (!automationsEnabled()) return;
       void Promise.all(all.map(async (project) => {
         await registerAutomationProject(project.id, project.root);
@@ -8729,14 +8491,13 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
       })).then(() => { if (!shutdownPromise) automationScheduler.start(); }).catch(() => undefined);
     }).catch(() => undefined);
   });
-  server.once('close', () => { for (const cleanup of appCleanups) cleanup(); unsubscribe(); coordinator.stop(); automationScheduler.stop(); });
+  server.once('close', () => { for (const cleanup of appCleanups) cleanup(); unsubscribe(); automationScheduler.stop(); });
   socketHub.attach(server, (req) => verifyWsUpgrade(req, deps.bindHost));
   return Object.assign(server, {
     shutdownLifecycle(): Promise<void> {
       if (shutdownPromise) return shutdownPromise;
       // Stop HTTP admission and automatic task sources before draining detached scripts.
       server.close();
-      coordinator.stop();
       automationScheduler.stop();
       shutdownPromise = (async () => {
         const results = await Promise.allSettled([deps.manager.lifecycle.shutdown(), sharedContexts.shutdownAll()]);

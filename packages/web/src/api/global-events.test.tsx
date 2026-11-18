@@ -1342,7 +1342,6 @@ describe('useGlobalEvents — reconcile doctrine', () => {
       queryKeys.health, // the repo/branch chip — health is not on the stream (#369)
       queryKeys.worktrees, // the Resources panel's list/total (#483)
       workspaceQueryKeys.providerStatus,
-      workspaceQueryKeys.skillsUpdateAll, // its poll stops once a check settles
       ['run-history', 'default'],
       ['run-history-context', 'default'],
     ]))

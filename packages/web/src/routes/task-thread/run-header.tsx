@@ -485,7 +485,7 @@ function TaskItemActions({
         pressed={Boolean(run.archived)}
         unavailable={live}
         pending={actions.archive.isPending}
-        onClick={() => actions.archive.mutate(undefined)}
+        onClick={() => actions.archive.mutate()}
         className={cn(run.archived && TOGGLE_ON_CLASS)}
       >
         <ArchiveIcon aria-hidden="true" />
@@ -1312,7 +1312,7 @@ function ActionsKebab({
       markRead: () => actions.markRead.mutate(),
       markUnread: () => actions.markUnread.mutate(),
       pin: () => actions.pin.mutate(),
-      archive: () => actions.archive.mutate(undefined),
+      archive: () => actions.archive.mutate(),
       rename: () => {},
       finish: () => actions.finish.mutate(),
       confirmStop: () => actions.setConfirming('cancel'),

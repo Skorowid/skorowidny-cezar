@@ -23,7 +23,7 @@ export type NavItem = {
   /** Path prefixes that light this item up. See `activeNavPath` for the longest-prefix rule. */
   match: string[]
   /** Optional trailing status affordance. Rendering/data stay with the shell. */
-  badge?: 'inbox-count' | 'skills-update' | 'tasks-unread'
+  badge?: 'inbox-count' | 'tasks-unread'
   /** Forge-gated (R6 Step 1.1): the item exists only while `/api/health` reports a recognized
    *  forge remote (`forge` non-null, #1412) — see `visibleNavItems`. */
   forge?: boolean
@@ -55,7 +55,7 @@ export const NAV_ITEMS: NavItem[] = [
   // After the repo group, before Automations — the approved mockup's order (spec 2026-10-22, Phase 3).
   { to: '/assets', label: 'Assets', icon: LayersIcon, match: ['/assets'] },
   { to: '/automations', label: 'Automations', icon: ZapIcon, match: ['/automations'], automations: true },
-  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'], badge: 'skills-update' },
+  { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'] },
   { to: '/workflows', label: 'Workflows', icon: WorkflowIcon, match: ['/workflows'] },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, match: ['/settings'] },
 ]

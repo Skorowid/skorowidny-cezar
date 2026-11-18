@@ -40,15 +40,11 @@ import type {
   providerStatusResponseSchema,
   runnerModelCatalogResponseSchema,
   setConfigResponseSchema,
-  skillsUpdateStateSchema,
   meshyStatusSchema,
   setMeshyProjectInputSchema,
   usageLimitsResponseSchema,
   selfUpdateStatusSchema,
-  starCountSchema,
   designProxyResponseSchema,
-  setTelemetryConsentInputSchema,
-  telemetryConsentSchema,
   uiStateSchema,
   workspaceConfigResponseSchema,
   workspaceBrandingLogoResponseSchema,
@@ -152,16 +148,6 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
   type Config200 = InferResponseType<typeof client.api.v1.config.$get, 200>;
   type SetConfig200 = InferResponseType<typeof client.api.v1.config.$put, 200>;
 
-  // ---- skills updates ---------------------------------------------------------------------
-  type SkillsUpdate200 = InferResponseType<(typeof client.api.v1.workspace)['skills-update']['$get'], 200>;
-  type SkillsUpdateCheck200 = InferResponseType<
-    (typeof client.api.v1.workspace)['skills-update']['check']['$post'],
-    200
-  >;
-  type SkillsUpdateApply200 = InferResponseType<
-    (typeof client.api.v1.workspace)['skills-update']['apply']['$post'],
-    200
-  >;
 
   // ---- Meshy AI (fork) ----------------------------------------------------------------------
   type Meshy200 = InferResponseType<typeof client.api.v1.workspace.meshy.$get, 200>;
@@ -176,16 +162,10 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
   type SelfUpdateApply200 = InferResponseType<(typeof client.api.v1.workspace)['self-update']['apply']['$post'], 200>;
   type SelfUpdateCancelScheduled200 = InferResponseType<(typeof client.api.v1.workspace)['self-update']['scheduled']['$delete'], 200>;
 
-  // ---- the star ask -------------------------------------------------------------------------
-  type StarCount200 = InferResponseType<(typeof client.api.v1)['star-count']['$get'], 200>;
 
   // ---- Design Mode --------------------------------------------------------------------------
   type DesignProxy200 = InferResponseType<(typeof client.api.v1.preview)['design-proxy']['$post'], 200>;
 
-  // ---- telemetry consent --------------------------------------------------------------------
-  type TelemetryConsent200 = InferResponseType<typeof client.api.v1.telemetry.consent.$get, 200>;
-  type SetTelemetryConsent200 = InferResponseType<typeof client.api.v1.telemetry.consent.$put, 200>;
-  type SetTelemetryConsentBody = InferRequestType<typeof client.api.v1.telemetry.consent.$put>['json'];
 
   // ---- providers, models, open targets ----------------------------------------------------
   type ProviderStatus200 = InferResponseType<typeof client.api.v1.providers.status.$get, 200>;
@@ -290,9 +270,6 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
     Assert<Exact<z.infer<typeof configResponseSchema>, Config200>>,
     Assert<Exact<z.infer<typeof setConfigResponseSchema>, SetConfig200>>,
     // skills updates
-    Assert<Exact<z.infer<typeof skillsUpdateStateSchema>, SkillsUpdate200>>,
-    Assert<Exact<z.infer<typeof skillsUpdateStateSchema>, SkillsUpdateCheck200>>,
-    Assert<Exact<z.infer<typeof skillsUpdateStateSchema>, SkillsUpdateApply200>>,
     // Meshy AI (fork)
     Assert<Exact<z.infer<typeof meshyStatusSchema>, Meshy200>>,
     Assert<Exact<z.infer<typeof meshyStatusSchema>, SetMeshy200>>,
@@ -304,14 +281,8 @@ describe('src/contract projects/workspace schemas match the routes exactly', () 
     Assert<Exact<z.infer<typeof selfUpdateStatusSchema>, SelfUpdateChannel200>>,
     Assert<Exact<z.infer<typeof selfUpdateStatusSchema>, SelfUpdateApply200>>,
     Assert<Exact<z.infer<typeof selfUpdateStatusSchema>, SelfUpdateCancelScheduled200>>,
-    // the star ask
-    Assert<Exact<z.infer<typeof starCountSchema>, StarCount200>>,
     // Design Mode
     Assert<Exact<z.infer<typeof designProxyResponseSchema>, DesignProxy200>>,
-    // telemetry consent
-    Assert<Exact<z.infer<typeof telemetryConsentSchema>, TelemetryConsent200>>,
-    Assert<Exact<z.infer<typeof telemetryConsentSchema>, SetTelemetryConsent200>>,
-    Assert<Exact<z.input<typeof setTelemetryConsentInputSchema>, SetTelemetryConsentBody>>,
     // providers, models, open targets
     Assert<Exact<z.infer<typeof providerStatusResponseSchema>, ProviderStatus200>>,
     Assert<Exact<z.infer<typeof providerStatusResponseSchema>, ProviderEnabled200>>,
