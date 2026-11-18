@@ -17,7 +17,6 @@
     "core:window:allow-internal-toggle-maximize",
     "allow-update-cezar-command",
     "allow-restart-app",
-    "allow-show-versions-menu",
-    "allow-send-error-report"
+    "allow-show-versions-menu"
   ]
 }
