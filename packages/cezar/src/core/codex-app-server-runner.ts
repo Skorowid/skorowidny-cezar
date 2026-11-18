@@ -56,18 +56,29 @@ export interface CodexRunnerOptions {
  * as a hand patch since 2026-11-03. Commands run in the `workspace-write` sandbox; anything that
  * needs more asks, and Codex's own `auto_review` reviewer answers. Sandbox network is on;
  * `CEZ_CODEX_NETWORK=0` turns it off. Applied on thread/start AND thread/resume.
+ *
+ * Owner-approved 2026-11-18: a project listed in `CEZ_CODEX_FULL_ACCESS_PROJECTS` (comma-separated
+ * project ids, matched against the run's `CEZ_PROJECT_ID`) runs without the sandbox and without
+ * approvals (`danger-full-access` + `never`, upstream's policy).
  * Author: Skorowid
  */
-export function codexExecutionPolicy(env: NodeJS.ProcessEnv): {
-  sandbox: 'workspace-write';
-  approvalPolicy: 'on-request';
-  config: { approvals_reviewer: 'auto_review'; 'sandbox_workspace_write.network_access': boolean };
+export function codexExecutionPolicy(env: NodeJS.ProcessEnv, projectId?: string): {
+  sandbox: 'workspace-write' | 'danger-full-access';
+  approvalPolicy: 'on-request' | 'never';
+  config: { approvals_reviewer?: 'auto_review'; 'sandbox_workspace_write.network_access'?: boolean };
 } {
+  if (projectId && codexFullAccessProjects(env).has(projectId)) {
+    return { sandbox: 'danger-full-access', approvalPolicy: 'never', config: {} };
+  }
   return {
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
     config: { approvals_reviewer: 'auto_review', 'sandbox_workspace_write.network_access': env.CEZ_CODEX_NETWORK !== '0' },
   };
+}
+
+function codexFullAccessProjects(env: NodeJS.ProcessEnv): Set<string> {
+  return new Set((env.CEZ_CODEX_FULL_ACCESS_PROJECTS ?? '').split(',').map((id) => id.trim()).filter(Boolean));
 }
 
 /** ~16s: outlasts a previous session's own EOF→TERM→KILL teardown (12s) before forking. */
@@ -82,8 +93,8 @@ export function codexThreadOverrides(
   // Fork policy: reviewed execution in the workspace-write sandbox (`codexExecutionPolicy`), so the
   // run's artifacts directory is always a writable root, or a run could not publish
   // (spec 2026-10-22-html-artifacts-and-impact).
-  const policy = codexExecutionPolicy(env);
-  const artifacts = spec.env?.CEZ_ARTIFACTS_DIR;
+  const policy = codexExecutionPolicy(env, spec.env?.CEZ_PROJECT_ID);
+  const artifacts = policy.sandbox === 'workspace-write' ? spec.env?.CEZ_ARTIFACTS_DIR : undefined;
   // Private MCP servers (spec 2026-10-07-private-project-mcp) ride in as per-server dotted
   // config overrides, so the user's own [mcp_servers] table is extended, never replaced.
   return {

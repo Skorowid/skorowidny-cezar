@@ -792,4 +792,21 @@ describe('codexExecutionPolicy (fork)', () => {
     expect(policy.config['sandbox_workspace_write.network_access']).toBe(false);
     expect(codexExecutionPolicy({ CEZ_CODEX_NETWORK: '1' }).config['sandbox_workspace_write.network_access']).toBe(true);
   });
+
+  it('runs a project listed in CEZ_CODEX_FULL_ACCESS_PROJECTS without sandbox or approvals', () => {
+    const env = { CEZ_CODEX_FULL_ACCESS_PROJECTS: 'other, robocraftwars' };
+    expect(codexExecutionPolicy(env, 'robocraftwars')).toEqual({ sandbox: 'danger-full-access', approvalPolicy: 'never', config: {} });
+    expect(codexExecutionPolicy(env, 'robo').sandbox).toBe('workspace-write');
+    expect(codexExecutionPolicy(env).sandbox).toBe('workspace-write');
+    expect(codexExecutionPolicy({}, 'robocraftwars').sandbox).toBe('workspace-write');
+  });
+
+  it('drops the artifacts writable root under full access, keeps a manager read-only', () => {
+    const env = { CEZ_CODEX_FULL_ACCESS_PROJECTS: 'robocraftwars' };
+    const spec = { cwd: '/wt', model: 'gpt-5', env: { CEZ_PROJECT_ID: 'robocraftwars', CEZ_ARTIFACTS_DIR: '/a' } };
+    expect(codexThreadOverrides(spec, undefined, env)).toEqual({
+      model: 'gpt-5', cwd: '/wt', sandbox: 'danger-full-access', approvalPolicy: 'never', config: {},
+    });
+    expect(codexThreadOverrides({ ...spec, enforceReadOnly: true }, undefined, env).sandbox).toBe('read-only');
+  });
 });

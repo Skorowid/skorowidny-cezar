@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-18 — Codex without sandbox per project
+
+Owner's decision (2026-11-18): Codex in project RobocraftWars works without the quarantine sandbox and without write blocks. New server variable `CEZ_CODEX_FULL_ACCESS_PROJECTS` (comma-separated project ids, matched against the run's `CEZ_PROJECT_ID`): a listed project's Codex runs get `danger-full-access` + approval `never` (upstream's policy), no `auto_review`. Other projects keep the reviewed `workspace-write` policy. A manager's read-only repository stays read-only.
+
+Verification: `codex-app-server-runner.test.ts` 39 PASS (2 new). `typecheck:server` reports the same 209 errors with and without the change (other files).
+
 ## 2026-11-11 — Upstream 0.19.0 merged
 
 Merged `v0.19.0` from open-mercato/cezar. Fork priorities kept where the two meet:
