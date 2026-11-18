@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-18 — Skill excludes on git older than 2.31; deploy notes match this machine
+
+`excludeFromGit` (`skills-remote.ts`) asked `git rev-parse --path-format=absolute --git-common-dir`. git 2.30.2 (this machine) has no `--path-format` and echoes it back, so the exclude for a provisioned skill was written to `<process cwd>/--path-format=absolute⏎.git/info/exclude` instead of the repository. It now asks `--git-common-dir` and resolves the answer against the repository root. The deploy and rollback sections of [telemetry-removal.md](telemetry-removal.md) now describe the real layout here (`cezar-local` → `releases/<sha>`, one drop-in), and step 1 cleans `dist` before the build.
+
+Verification: new `excludeFromGit` case (main checkout + linked worktree) fails on the previous code, which recreated the stray directory, and passes with the fix.
+
 ## 2026-11-18 — Tests never inherit another cezar's CEZ_* variables
 
 Owner's decision (2026-11-18): every cezar keeps its own `CEZ_*` variables, so nothing leaks between instances. `packages/cezar/vitest.setup.ts` now removes EVERY inherited `CEZ_*` (the hand-kept list missed `CEZ_ARTIFACTS_DIR`, server config like `CEZ_CODEX_FULL_ACCESS_PROJECTS` reaching agents through `process.env`, …); only real-CLI smoke opt-ins (`CEZ_*SMOKE*`) stay. A `TMPDIR` inside `~/.cezar` (a cockpit's agent temp) is moved to `/tmp` like one inside a git work tree, so the sandbox home no longer trips the write guard.

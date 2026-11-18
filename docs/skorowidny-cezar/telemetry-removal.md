@@ -42,14 +42,17 @@ W worktree bez własnego `node_modules` pakiety `@open-mercato/*` rozwiązują s
 
 Niepowodzenia zależne od maszyny, nie od kodu: testy eskalacji SIGTERM→SIGKILL (`claude-cli-runner`, `junie-runner`, `process-signals`) i `provider-action-gating` dla Junie.
 
-## Wdrożenie (dla drugiego cezara)
+## Wdrożenie
 
-Procedura z `~/ai-projects/.ai/cezar/maintenance/fork-deployment-and-rollback.md`: build w czystym katalogu (`npm ci`, `npm run build`, potem ręcznie `node packages/cezar/scripts/inline-contract.mjs` — `ignore-scripts=true` pomija `postbuild`), `npm pack -w @open-mercato/cezar`, instalacja do `~/.local/share/skorowidny-cezar/releases/<sha>/`, smoke test na innym porcie z piaskownicą `CEZ_HOME`, przełączenie przez jednostkę `systemd-run --user`.
+Stan tej maszyny (WSL, sprawdzony 2026-11-18): usługa `cezar.service` (użytkownika) uruchamia `~/.local/bin/cezar-local`, a ten — `node ~/.local/share/skorowidny-cezar/releases/<sha>/node_modules/@open-mercato/cezar/dist/index.js --port 4322 --no-open`. Jedyny drop-in to `~/.config/systemd/user/cezar.service.d/codex-full-access.conf` z `CEZ_CODEX_FULL_ACCESS_PROJECTS=robocraftwars,skorowidny-cezar`. Plików `zz-codex-network.conf`, `90-skorowidny.conf` ani katalogu `maintenance/` tu nie ma.
 
-- `ExecStart`, który wygrywa, jest w `~/.config/systemd/user/cezar.service.d/zz-codex-network.conf`, nie w `90-skorowidny.conf`.
-- Polityka Codex jest w źródle (`codexExecutionPolicy`); ręczna łatka `-codexnet` nie jest już potrzebna. `CEZ_CODEX_FULL_ACCESS_PROJECTS` (wpis 2026-11-18 w `changes.md`) trzeba ustawić w drop-inie, jeśli RobocraftWars ma działać bez sandboxa.
-- Restart kończy sesje agentów. 4 zadania w RobocraftWars dostały 2026-11-18 polecenie zatwierdzenia pracy i zakończenia tury.
-- Nie używaj okna aktualizacji w cockpicie: proponuje upstream `@open-mercato/cezar`.
+1. W worktree na zatwierdzonym commicie: `npm ci`, `rm -rf packages/cezar/dist packages/cezar/web/dist`, `npm run build`. Czyszczenie `dist` jest konieczne: `tsc` nie usuwa plików po skasowanych źródłach (bez niego do paczki trafił stary `dist/telemetry.js`).
+2. `npm pack -w @open-mercato/cezar --pack-destination <tmp>`.
+3. `releases/<sha8>/`: tarball, `SOURCE_SHA`, `package.json` z zależnością `"@open-mercato/cezar": "file:open-mercato-cezar-0.19.0.tgz"`, potem `npm install --omit=dev`.
+4. Smoke test: z katalogu z pustym repo, bez zmiennych `CEZ_*`, z `CEZ_HOME`/`HOME` w `/tmp` i `CEZ_DRY_RUN=1`, port inny niż 4322; `/api/v1/health`, `/` i `/api/v1/runs` muszą dać 200.
+5. Przełączenie skryptem uruchomionym przez `systemd-run --user --on-active=60` (poza cgroupą usługi, bo restart kończy sesje agentów, także tę, która wdraża): podmiana ścieżki w `cezar-local`, `daemon-reload`, restart, health do 60 s, a bez 200 — samodzielne wycofanie. Wzór: `~/.local/share/skorowidny-cezar/switch-to-c454adf1.sh`. Wynik trafia do `deployments.log`.
+
+Nie używaj okna aktualizacji w cockpicie: proponuje upstream `@open-mercato/cezar`.
 
 ## Wycofanie jedną komendą
 
@@ -57,9 +60,8 @@ Procedura z `~/ai-projects/.ai/cezar/maintenance/fork-deployment-and-rollback.md
 ~/.local/share/skorowidny-cezar/rollback-to-0192afa4.sh
 ```
 
-Skrypt przepisuje tylko `zz-codex-network.conf` na wydanie `0192afa4-codexnet2` (poprzednią wersję zostawia jako `zz-codex-network.conf.before-rollback`), restartuje usługę, sprawdza health 200 i `ExecStart`, a wynik dopisuje do `deployments.log`. Danych nie rusza.
+Przywraca `cezar-local` i `codex-full-access.conf` z kopii `*.before-c454adf1` (wydanie `0192afa4`, Codex bez sandboxa tylko w `robocraftwars`), robi `daemon-reload` i restart, czeka na health i dopisuje wynik do `deployments.log`. Danych nie rusza.
 
-## Pozostałości po 0.20
+## Pozostałości
 
-- Katalogi wydań `releases/e7ce920c-codexnet` i `releases/e7ce920c-codexnet2` oraz kopia `maintenance/pre-deploy-e7ce920c-*` nadal są na dysku (nieużywane). Nie usunięto ich bez decyzji właściciela.
-- Worktree zadań `75ca1ad3` i `e392dc5d` (gałęzie `cez/75ca1ad3`, `cez/e392dc5d`) zawierają wersję tych zmian na 0.20; cezar usunie je sam według retencji.
+Na tej maszynie w `releases/` są tylko `0192afa4` (do wycofania) i `c454adf1` (wdrożone). Katalogów `e7ce920c-*`, kopii `maintenance/pre-deploy-*` ani worktree `75ca1ad3`/`e392dc5d` tu nie ma.

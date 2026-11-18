@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { loadConfig, projectGatedSkillsRepos, type SkillsRepoSource } from './config.ts';
 import { parseFrontmatter, type Skill } from './skills.ts';
 import { workspaceConfigPath } from './paths.ts';
@@ -410,12 +410,11 @@ export async function excludeFromGit(repoRoot: string, pattern: string): Promise
     // Resolve the real exclude file: in a linked worktree (spec 006) `.git`
     // is a file and `info/exclude` lives in the shared common dir — which
     // also means one exclude entry covers every task worktree.
-    const probe = await git(
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      LIST_TIMEOUT_MS,
-      repoRoot,
-    );
-    const gitDir = probe.ok && probe.stdout.trim() ? probe.stdout.trim() : join(repoRoot, '.git');
+    // No `--path-format=absolute`: git < 2.31 echoes the unknown flag back as a line, and the
+    // relative answer landed the exclude file under the process cwd. Resolve against repoRoot.
+    const probe = await git(['rev-parse', '--git-common-dir'], LIST_TIMEOUT_MS, repoRoot);
+    const answer = probe.ok ? probe.stdout.trim() : '';
+    const gitDir = answer && !answer.includes('\n') ? resolve(repoRoot, answer) : join(repoRoot, '.git');
     const excludePath = join(gitDir, 'info', 'exclude');
     let prev = '';
     try {
