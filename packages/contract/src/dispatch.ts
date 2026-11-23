@@ -54,7 +54,7 @@ export const dispatchPendingReportSchema = z.object({
 export type DispatchPendingReport = z.infer<typeof dispatchPendingReportSchema>;
 
 /** The engine's own ceiling on children in flight per task; a user's `inFlight` may only lower it. */
-export const DISPATCH_MAX_IN_FLIGHT = 4;
+export const DISPATCH_MAX_IN_FLIGHT = 8;
 /** The most subtasks a user may ask a root for through the composer. */
 export const DISPATCH_MAX_SUBTASKS = 50;
 
