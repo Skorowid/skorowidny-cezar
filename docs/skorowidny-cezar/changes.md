@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-23 — Children in flight per task: 4 → 8
+
+Owner's decision (2026-11-23, PixelArt_Skorowid_Games D-015, Q-010): `DISPATCH_MAX_IN_FLIGHT` is 8. The composer's per-task `inFlight` picker follows the constant (1..8) and may still lower it; children parked in `waiting` still count.
+
+Verification: `dispatch/engine.test.ts`, `dispatch/prompts.test.ts`, `workflows/dispatch-engine.test.ts` (ninth child refused) 62 PASS; web `prompt-templates`, `new-task*` 279 PASS.
+
 ## 2026-11-23 — Pixel Studio (PixelForge pixel-art tools)
 
 Owner's decision (2026-11-23, PixelArt_Skorowid_Games D-003/D-008): cezar gets every function the local PixelLab-style workflow needs. New: Settings → Pixel Studio (PixelForge checkout path, per-project `pixelforge` private MCP server), project page `/pixel-studio` (job library with a pixel-exact sprite/animation player, generation panel for 8-direction characters, animations and tilesets on Codex or the GPU cezar, GPU queue sync), API under `/workspace/pixel-studio` and `/p/:projectId/pixel-studio`. The Meshy `mcp.local.json` writer moved unchanged to `core/private-mcp-write.ts` and is shared. Details: [pixel-studio.md](pixel-studio.md).
