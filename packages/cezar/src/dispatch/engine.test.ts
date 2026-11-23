@@ -38,7 +38,7 @@ describe('the settled statuses', () => {
   it('counts every settled status as terminal — a cancelled child still owes a report', () => {
     for (const status of ['done', 'review', 'failed', 'cancelled']) expect(isTerminalStatus(status)).toBe(true);
     for (const status of ['queued', 'running', 'waiting']) expect(isTerminalStatus(status)).toBe(false);
-    expect(MAX_CHILDREN_IN_FLIGHT).toBe(4);
+    expect(MAX_CHILDREN_IN_FLIGHT).toBe(8);
   });
 });
 

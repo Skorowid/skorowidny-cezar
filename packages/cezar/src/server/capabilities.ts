@@ -40,8 +40,8 @@
  *
  * `dispatch` (spec 2026-09-10-dispatch): a task dispatching other tasks through the `cez task`
  * CLI is **on by default** and `CEZ_DISPATCH=0` turns it off (the owner-approved exception to
- * AGENTS.md § Zero config, recorded there: the brakes live in the engine — four children in
- * flight, a child's budget carved out of its parent's — and a default-off dispatch left the
+ * AGENTS.md § Zero config, recorded there: the brakes live in the engine — eight children in
+ * flight (raised from four by the owner, 2026-11-23), a child's budget carved out of its parent's — and a default-off dispatch left the
  * agent fanning out through its own sub-agents instead, unbudgeted and invisible). Off, the
  * `/runs/:id/{dispatch,report}` routes answer 409 and no task's system prompt mentions
  * dispatching; the `dispatch` field on existing run records survives the flag being off.

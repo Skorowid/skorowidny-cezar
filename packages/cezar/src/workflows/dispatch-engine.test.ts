@@ -220,17 +220,17 @@ describe('the dispatch engine (spec 2026-09-10-dispatch)', () => {
       expect(activeState(parent.id)?.monitoringWakeTimer).toBeDefined();
     }, 40_000);
 
-    it('refuses a fifth child in flight, with the reason', async () => {
+    it('refuses a ninth child in flight, with the reason', async () => {
       reboot({ maxParallel: 1, maxMonitoringSessions: 0 });
       const parent = await parkedRoot(20);
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         const child = store.createRun({ title: `in flight ${i}`, workflow: '(planned)', task: 't', steps: [] });
         store.updateRun(child.id, { status: 'running', dispatch: childOf(parent.id) });
       }
       const reason = refusal(parent.id, order('one more'));
-      expect(reason).toContain('the cap is 4');
-      expect(childrenOf(parent.id)).toHaveLength(4);
-      expect(notes(parent.id).some((n) => n.includes('dispatch refused') && n.includes('the cap is 4'))).toBe(true);
+      expect(reason).toContain('the cap is 8');
+      expect(childrenOf(parent.id)).toHaveLength(8);
+      expect(notes(parent.id).some((n) => n.includes('dispatch refused') && n.includes('the cap is 8'))).toBe(true);
     }, 40_000);
 
     it('refuses a dispatch under a paused automation\'s tree, and allows it once re-enabled or for Run now (#1980)', async () => {

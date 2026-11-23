@@ -52,7 +52,7 @@ describe('the dispatch prompt', () => {
     expect(DISPATCH_PROMPT).toMatch(/DISJOINT scope/);
     expect(DISPATCH_PROMPT).toContain('git merge --no-ff');
     expect(DISPATCH_PROMPT).toMatch(/Never merge into the repository's base branch/);
-    expect(DISPATCH_PROMPT).toMatch(/At most 4 children in flight/);
+    expect(DISPATCH_PROMPT).toMatch(/At most 8 children in flight/);
   });
 
   it('treats a report as a claim and keeps the Guard and the tree directory', () => {
