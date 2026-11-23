@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-24 — Pixel Studio library compatibility (partial D-021)
+
+The library recognizes the seven additional PixelForge job types and displays their available output images. Creation, style controls and export are not yet implemented.
+
 ## 2026-11-23 — Children in flight per task: 4 → 8
 
 Owner's decision (2026-11-23, PixelArt_Skorowid_Games D-015, Q-010): `DISPATCH_MAX_IN_FLIGHT` is 8. The composer's per-task `inFlight` picker follows the constant (1..8) and may still lower it; children parked in `waiting` still count.

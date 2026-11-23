@@ -41,7 +41,7 @@ export type SetPixelStudioHomeInput = z.infer<typeof setPixelStudioHomeInputSche
 export const setPixelStudioProjectInputSchema = z.object({ connected: z.boolean() }).strict();
 export type SetPixelStudioProjectInput = z.infer<typeof setPixelStudioProjectInputSchema>;
 
-export const pixelJobToolSchema = z.enum(['character8', 'animate', 'tileset', 'image', 'ui', 'edit']);
+export const pixelJobToolSchema = z.enum(['character8', 'animate', 'tileset', 'image', 'ui', 'edit', 'isometric', 'platformer', 'interpolate', 'rotate', 'resize', 'vfx', 'tileset47']);
 export type PixelJobTool = z.infer<typeof pixelJobToolSchema>;
 export const pixelJobStatusSchema = z.enum(['queued', 'generating', 'generated', 'processing', 'done', 'failed']);
 export type PixelJobStatus = z.infer<typeof pixelJobStatusSchema>;

@@ -104,7 +104,7 @@ function Library({ jobs, problems, selected, onSelect }: { jobs: PixelJob[]; pro
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
       <ul data-slot="pixel-library" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {jobs.map((job) => {
-          const thumb = job.outputs.frames?.[0] ?? job.outputs.preview
+          const thumb = job.outputs.frames?.[0] ?? job.outputs.preview ?? job.outputs.sheet
           return (
             <li key={job.id}>
               <button
@@ -158,7 +158,7 @@ function JobViewer({ job }: { job: PixelJob }) {
   const collect = useMutation({ mutationFn: () => collectPixelJob(job.id), onSuccess: refresh, onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
   const sheet = useSheet(job)
   const [showRaw, setShowRaw] = useState(false)
-  const sheetPath = job.tool === 'character8' || job.tool === 'animate' ? job.outputs.sheet : job.outputs.preview
+  const sheetPath = job.tool === 'character8' || job.tool === 'animate' ? job.outputs.sheet : (job.outputs.preview ?? job.outputs.sheet ?? job.outputs.frames?.[0])
   return (
     <section data-slot="pixel-viewer" className="flex flex-col gap-3 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-2">

@@ -62,3 +62,7 @@ the Codex generator.
 - `packages/cezar/src/server/pixel-studio-api.test.ts` — the routes, validation, path traversal, refusal without install.
 - `packages/web/src/routes/pixel-studio/pixel-studio-model.test.ts` — sheet parsing, tag playback timing, forms.
 - Nav/settings expectation lists updated (`nav-items.test.ts`, `app-shell.test.tsx`, `settings.test.tsx`).
+
+## Library compatibility (partial D-021)
+
+The library recognizes all 13 PixelForge job types and falls back to the sheet or first frame when no preview is available. Creation panels, style controls, and export for the additional tools remain outstanding.

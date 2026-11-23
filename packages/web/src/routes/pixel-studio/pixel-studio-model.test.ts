@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PixelJob } from '@open-mercato/cezar-api-client'
 
-import { editSourceOptions, frameAt, parseItems, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
+import { TOOL_LABEL, editSourceOptions, frameAt, parseItems, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
 
 // Fork feature (docs/skorowidny-cezar/pixel-studio.md). Author: Skorowid.
 
@@ -85,4 +85,11 @@ describe('forms and summaries', () => {
       ['frames', '8'], ['anchor spread px', '0'], ['pitch', '6.35'],
     ])
   })
+})
+
+
+it('labels every additional PixelForge tool', () => {
+  for (const tool of ['isometric', 'platformer', 'interpolate', 'rotate', 'resize', 'vfx', 'tileset47'] as const) {
+    expect(TOOL_LABEL[tool]).toBeTruthy()
+  }
 })

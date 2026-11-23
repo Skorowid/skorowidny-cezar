@@ -87,6 +87,13 @@ export const TOOL_LABEL: Record<PixelJob['tool'], string> = {
   image: 'Scene / map / object',
   ui: 'UI elements',
   edit: 'Edit / inpaint',
+  isometric: 'Isometric tile',
+  platformer: 'Platformer tileset',
+  interpolate: 'Interpolate animation',
+  rotate: 'Rotate sprite',
+  resize: 'Resize sprite',
+  vfx: 'Visual effect',
+  tileset47: 'Wang 47 tileset',
 }
 
 export const DIRECTIONS8 = ['south', 'south-west', 'west', 'north-west', 'north', 'north-east', 'east', 'south-east'] as const
