@@ -84,6 +84,9 @@ import {
   getWorkspaceConfig,
   getWorkspaceUiState,
   getMeshyStatus,
+  getPixelGpuQueue,
+  getPixelJobs,
+  getPixelStudioStatus,
   getSelfUpdate,
   getSelfUpdateDevelopment,
   refreshSelfUpdate,
@@ -175,6 +178,10 @@ import { subscribeTopic } from './ws'
  * ever reach A's data. Call sites are unchanged — they keep writing `queryKeys.runs.list()`.
  */
 export const queryKeys = {
+  pixelStudio: {
+    jobs: () => [queryScope(), 'pixel-studio', 'jobs'] as const,
+    gpuQueue: () => [queryScope(), 'pixel-studio', 'gpu-queue'] as const,
+  },
   secrets: {
     allFor: (projectId: string) => ['secrets', projectId] as const,
     list: () => ['secrets', queryScope()] as const,
@@ -493,6 +500,8 @@ export const workspaceQueryKeys = {
     ['workspace', 'agent-profiles', 'status', routeId] as const,
   /** `GET /api/v1/workspace/meshy` — the fork's Meshy AI settings. */
   meshy: ['workspace', 'meshy'] as const,
+  /** `GET /api/v1/workspace/pixel-studio` — the fork's Pixel Studio settings. */
+  pixelStudio: ['workspace', 'pixel-studio'] as const,
   /** cezar's own updater via `GET /api/v1/workspace/self-update` (self-update PoC). */
   selfUpdate: ['workspace', 'self-update'] as const,
   selfUpdateDevelopment: ['workspace', 'self-update', 'development'] as const,
@@ -2735,4 +2744,25 @@ export function useGithubPrChanges(number: number | undefined) {
     staleTime: 60_000,
     retry: false,
   })
+}
+
+// ---- Pixel Studio (fork; docs/skorowidny-cezar/pixel-studio.md). Author: Skorowid ----------------
+
+export function usePixelStudioStatus() {
+  return useQuery({ queryKey: workspaceQueryKeys.pixelStudio, queryFn: ({ signal }) => getPixelStudioStatus({ signal }) })
+}
+
+/** The job library; polls while any job is still generating or processing. */
+export function usePixelJobs() {
+  return useQuery({
+    queryKey: queryKeys.pixelStudio.jobs(),
+    queryFn: ({ signal }) => getPixelJobs({ signal }),
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.jobs.some((j) => j.status === 'queued' || j.status === 'generating' || j.status === 'processing') ? 5_000 : false,
+  })
+}
+
+export function usePixelGpuQueue() {
+  return useQuery({ queryKey: queryKeys.pixelStudio.gpuQueue(), queryFn: ({ signal }) => getPixelGpuQueue({ signal }), retry: false })
 }

@@ -1,12 +1,11 @@
-import { randomUUID } from 'node:crypto';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { link, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { MeshyProject, MeshyProjectStatus, MeshyStatus } from '@open-mercato/cezar-contract';
 import { privateMcpPath } from '../core/private-mcp.ts';
-import { ensureDataGitignore } from '../data-gitignore.ts';
+import { defaultMcpWriteOps, parseMcpFile, readTextOrNull, setPrivateMcpServer, type McpWriteOps } from '../core/private-mcp-write.ts';
 
 /**
  * Meshy AI for the cockpit's global settings (fork feature; docs/skorowidny-cezar/meshy-integration.md).
@@ -66,35 +65,6 @@ export function findPython(env: NodeJS.ProcessEnv = process.env): string {
     }
   }
   return '/usr/bin/python3';
-}
-
-async function readTextOrNull(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
-}
-
-type McpFile = { ok: true; data: Record<string, unknown> & { mcpServers: Record<string, unknown> } } | { ok: false; problem: string };
-
-function parseMcpFile(text: string | null): McpFile {
-  if (text === null || text.trim() === '') return { ok: true, data: { mcpServers: {} } };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (err) {
-    return { ok: false, problem: `mcp.local.json is not valid JSON: ${(err as Error).message}` };
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, problem: 'mcp.local.json is not an object' };
-  const data = raw as Record<string, unknown>;
-  // Only an ABSENT map defaults to empty; an explicit null is broken, as the CLI and cezar read it.
-  const servers = 'mcpServers' in data ? data.mcpServers : {};
-  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
-    return { ok: false, problem: 'mcp.local.json "mcpServers" is not an object' };
-  }
-  return { ok: true, data: { ...data, mcpServers: servers as Record<string, unknown> } };
 }
 
 /** Same rule as the CLI's `entry_problem`: our launcher, `run`, nothing else. */
@@ -260,83 +230,32 @@ export class MeshyRefusal extends Error {
  * an existing file's check-then-rename still has a small window, as in the CLI and the editor.
  */
 /** The two filesystem steps whose failure modes the tests must reach (no hard links, EXDEV). */
-export interface MeshyWriteOps {
-  link: (from: string, to: string) => Promise<void>;
-  rename: (from: string, to: string) => Promise<void>;
-}
-
-const defaultOps: MeshyWriteOps = { link, rename };
+export type MeshyWriteOps = McpWriteOps;
 
 export async function setProjectMeshy(
   paths: MeshyPaths,
   root: string,
   connected: boolean,
   python: string,
-  ops: MeshyWriteOps = defaultOps,
+  ops: MeshyWriteOps = defaultMcpWriteOps,
 ): Promise<void> {
-  const path = privateMcpPath(root);
-  const before = await readTextOrNull(path);
-  const file = parseMcpFile(before);
-  if (!file.ok) throw new MeshyRefusal(`${file.problem}; fix it in Agent config first`, 409);
-  const servers = file.data.mcpServers;
-  const current = servers[MESHY_SERVER_NAME];
-  if (current !== undefined && !isOurEntry(paths, current)) {
-    throw new MeshyRefusal('this project has its own "meshy" entry; change or remove it in Agent config', 409);
-  }
-  if (connected) {
-    if (!existsSync(paths.manifest) || !existsSync(paths.launcher)) {
-      throw new MeshyRefusal('the Meshy server is not installed on this machine', 409);
-    }
-    if (isOurEntry(paths, current)) return;
-    servers[MESHY_SERVER_NAME] = meshyEntry(paths, python);
-  } else {
-    if (current === undefined) return;
-    delete servers[MESHY_SERVER_NAME];
-  }
-  let target = path;
-  try {
-    target = await realpath(path);
-  } catch {
-    // absent: the create case writes the path itself
-  }
-  await mkdir(dirname(path), { recursive: true });
-  ensureDataGitignore(root);
-  // The temp file always sits in THIS project's git-ignored `.ai/cezar/` (pattern
-  // `mcp.local.json.cez-tmp-*`), even when the file is a symlink to somewhere else.
-  const tmp = `${path}.cez-tmp-${process.pid}-${randomUUID()}`;
-  const text = `${JSON.stringify(file.data, null, 2)}\n`;
-  await writeFile(tmp, text, { encoding: 'utf8', mode: 0o600 });
-  const stale = () => new MeshyRefusal('mcp.local.json changed while it was being updated; nothing was written, try again', 409);
-  try {
-    if (before === null) {
-      let linked = false;
-      try {
-        await ops.link(tmp, target); // exclusive create
-        linked = true;
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw stale();
-        // No hard links on this filesystem (exFAT, some mounts): fall back to check-then-rename.
-        if ((await readTextOrNull(target)) !== null) throw stale();
+  await setPrivateMcpServer(root, {
+    name: MESHY_SERVER_NAME,
+    next: connected ? meshyEntry(paths, python) : undefined,
+    isOurs: (entry) => isOurEntry(paths, entry),
+    keepExistingOurs: true,
+    assertInstalled: () => {
+      if (!existsSync(paths.manifest) || !existsSync(paths.launcher)) {
+        throw new MeshyRefusal('the Meshy server is not installed on this machine', 409);
       }
-      if (linked) {
-        await unlink(tmp).catch(() => {});
-        return;
-      }
-    } else if ((await readTextOrNull(target)) !== before) {
-      throw stale();
-    }
-    try {
-      await ops.rename(tmp, target);
-    } catch (err) {
-      // A symlink target on another filesystem cannot take an atomic rename, and an in-place
-      // write could leave the other servers' config half-written: refuse, the file is untouched.
-      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-        throw new MeshyRefusal('mcp.local.json links to another filesystem; add or remove the "meshy" entry in Agent config', 409);
-      }
-      throw err;
-    }
-  } catch (err) {
-    await unlink(tmp).catch(() => {});
-    throw err;
-  }
+    },
+    refuse: (message) => new MeshyRefusal(message, 409),
+    messages: {
+      broken: (problem) => `${problem}; fix it in Agent config first`,
+      foreign: 'this project has its own "meshy" entry; change or remove it in Agent config',
+      stale: 'mcp.local.json changed while it was being updated; nothing was written, try again',
+      exdev: 'mcp.local.json links to another filesystem; add or remove the "meshy" entry in Agent config',
+    },
+    ops,
+  });
 }

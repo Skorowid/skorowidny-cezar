@@ -33,6 +33,7 @@ export * from './start-app.ts';
 export * from './secrets.ts';
 export * from './e2e.ts';
 export * from './meshy.ts';
+export * from './pixel-studio.ts';
 
 export * from './webhooks.ts';
 export * from './terminal.ts';

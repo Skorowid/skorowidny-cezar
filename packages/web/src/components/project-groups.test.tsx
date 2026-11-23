@@ -195,6 +195,7 @@ describe('ProjectGroups', () => {
       '/p/shop/git',
       '/p/shop/github',
       '/p/shop/assets',
+      '/p/shop/pixel-studio',
       '/p/shop/skills',
       '/p/shop/workflows',
       '/p/shop/settings',

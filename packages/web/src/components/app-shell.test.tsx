@@ -143,6 +143,7 @@ describe('AppShell', () => {
       'Git',
       'GitHub',
       'Assets',
+      'Pixel Studio',
       'Automations',
       'Skills',
       'Workflows',
@@ -155,6 +156,7 @@ describe('AppShell', () => {
       '/git',
       '/github',
       '/assets',
+      '/pixel-studio',
       '/automations',
       '/skills',
       '/workflows',
@@ -665,7 +667,7 @@ describe('AppShell', () => {
       const plus = within(rail).getByRole('link', { name: 'New task' })
       expect(plus.getAttribute('href')).toBe('/new')
       expect(plus.getAttribute('data-variant')).toBe('contrast')
-      for (const label of ['Tasks', 'Git', 'GitHub', 'Assets', 'Automations', 'Skills', 'Workflows', 'Settings']) {
+      for (const label of ['Tasks', 'Git', 'GitHub', 'Assets', 'Pixel Studio', 'Automations', 'Skills', 'Workflows', 'Settings']) {
         expect(within(rail).getByRole('link', { name: label })).toBeTruthy()
       }
       expect(within(rail).getByRole('link', { name: 'Git' }).getAttribute('aria-current')).toBe('page')

@@ -355,6 +355,33 @@ import { MessageReceipts } from './message-receipts.ts';
 import { MeshyRefusal, findPython, meshyPaths, readMeshyStatus, setProjectMeshy } from '../meshy/meshy.ts';
 import { usageLimitConfig, usageLimitMonitor } from '../workspace/usage-limit-monitor.ts';
 import { setMeshyProjectInputSchema, type MeshyStatus } from '@open-mercato/cezar-contract';
+import {
+  PixelStudioRefusal,
+  installFor as pixelInstallFor,
+  installProblem as pixelInstallProblem,
+  listJobs as listPixelJobs,
+  pixelStudioPaths,
+  readGpuQueue as readPixelGpuQueue,
+  readJob as readPixelJob,
+  readPixelHome,
+  readPixelStudioStatus,
+  resolveJobFile as resolvePixelJobFile,
+  jobDirFor as pixelJobDirFor,
+  runWorker as runPixelWorker,
+  saveUpload as savePixelUpload,
+  UPLOAD_MAX_BYTES as PIXEL_UPLOAD_MAX_BYTES,
+  UPLOAD_TYPES as PIXEL_UPLOAD_TYPES,
+  setPixelHome,
+  setProjectPixelStudio,
+  startJob as startPixelJob,
+  syncGpuQueue as syncPixelGpuQueue,
+} from '../pixel-studio/pixel-studio.ts';
+import {
+  createPixelJobInputSchema,
+  setPixelStudioHomeInputSchema,
+  setPixelStudioProjectInputSchema,
+  type PixelStudioStatus,
+} from '@open-mercato/cezar-contract';
 import type { MessageResponse } from '@open-mercato/cezar-contract';
 import {
   providerForActiveRun,
@@ -463,6 +490,8 @@ export interface ServerDeps {
   openUrl?: typeof openFileInDefaultApp;
   /** Home whose Meshy install the settings read (fork; tests point it at a sandbox). */
   meshyHome?: string;
+  /** Home whose Pixel Studio config the settings read (fork; tests point it at a sandbox). */
+  pixelStudioHome?: string;
   /** The project/workspace secret store (spec 2026-10-10-project-secrets-vault-options). Tests
    *  inject one with a fake keychain; the default reads the OS keychain or a key file. */
   secrets?: SecretStore;
@@ -3427,6 +3456,146 @@ export function createApp(deps: ServerDeps) {
         return c.json(await meshyStatusResponse());
       },
     );
+
+  // ---- chained family: Pixel Studio (fork, docs/skorowidny-cezar/pixel-studio.md) ----
+  // Workspace: where the PixelForge checkout lives and which projects get its private MCP server.
+  // Project: the job library (assets/jobs), job files, starting jobs and the GPU queue. Writes and
+  // process starts are local-machine capabilities, like Meshy: a hosted cockpit gets 409.
+  const pixelPaths = deps.pixelStudioHome ? pixelStudioPaths(deps.pixelStudioHome) : pixelStudioPaths();
+  const pixelStatusResponse = async (): Promise<PixelStudioStatus> => {
+    const registry = (await loadWorkspaceConfig()).projects;
+    const refs = await Promise.all(
+      registry.map(async (entry) => ({
+        id: entry.id,
+        name: entry.name || basename(entry.root),
+        root: entry.root,
+        missing: (await probeProjectStatus(entry.root)).status === 'missing',
+      })),
+    );
+    return readPixelStudioStatus(pixelPaths, refs, capabilities().localHandoff);
+  };
+  const pixelInstall = async () => {
+    const home = await readPixelHome(pixelPaths);
+    const install = home ? pixelInstallFor(home) : null;
+    const problem = install ? pixelInstallProblem(install) : 'PixelForge is not configured (Settings → Pixel Studio)';
+    if (problem || !install) throw new PixelStudioRefusal(problem ?? 'PixelForge is not configured', 409);
+    return install;
+  };
+  const pixelStudioWorkspaceRoutes = new Hono()
+    .get('/workspace/pixel-studio', async (c) => c.json(await pixelStatusResponse()))
+    .put('/workspace/pixel-studio', jsonZodValidator(setPixelStudioHomeInputSchema, { message: 'body must be { home: absolute path }' }), async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Configure Pixel Studio on the machine hosting cezar.' }, 409);
+      try {
+        await setPixelHome(pixelPaths, c.req.valid('json').home);
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+      return c.json(await pixelStatusResponse());
+    })
+    .put(
+      '/workspace/pixel-studio/projects/:projectId',
+      paramZodValidator(z.object({ projectId: projectIdSchema })),
+      jsonZodValidator(setPixelStudioProjectInputSchema, { message: 'body must be { connected: boolean }' }),
+      async (c) => {
+        if (!capabilities().localHandoff) return c.json({ error: 'Connect Pixel Studio on the machine hosting cezar.' }, 409);
+        const { projectId } = c.req.valid('param');
+        const project = (await loadWorkspaceConfig()).projects.find((entry) => entry.id === projectId);
+        if (!project) return c.json({ error: `unknown project: ${projectId}` }, 404);
+        if ((await probeProjectStatus(project.root)).status === 'missing') {
+          return c.json({ error: `project folder not found: ${projectId}` }, 409);
+        }
+        try {
+          await setProjectPixelStudio(pixelPaths, project.root, c.req.valid('json').connected);
+        } catch (err) {
+          if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+        }
+        return c.json(await pixelStatusResponse());
+      },
+    );
+  const pixelJobParam = paramZodValidator(z.object({ jobId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/) }));
+  const pixelStudioRoutes = new Hono<ProjectApiEnv>()
+    .get('/pixel-studio/jobs', async (c) => c.json(await listPixelJobs(c.get('project').root)))
+    .get('/pixel-studio/jobs/:jobId', pixelJobParam, async (c) => {
+      try {
+        return c.json(await readPixelJob(pixelJobDirFor(c.get('project').root, c.req.valid('param').jobId)));
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
+    .get('/pixel-studio/jobs/:jobId/file', pixelJobParam, queryZodValidator(z.object({ path: queryValue })), async (c) => {
+      try {
+        const file = await resolvePixelJobFile(c.get('project').root, c.req.valid('param').jobId, c.req.valid('query').path ?? '');
+        const bytes = readFileSync(file.path);
+        return c.body(new Uint8Array(bytes).buffer as ArrayBuffer, 200, {
+          'content-type': file.type,
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': "default-src 'none'; sandbox",
+          'cache-control': 'no-cache',
+        });
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
+    .post('/pixel-studio/jobs', jsonZodValidator(createPixelJobInputSchema, { message: 'invalid Pixel Studio job' }), async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Start Pixel Studio jobs on the machine hosting cezar.' }, 409);
+      try {
+        const started = await startPixelJob(await pixelInstall(), c.get('project').root, c.req.valid('json'));
+        return c.json(started, 201);
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
+    .post('/pixel-studio/jobs/:jobId/process', pixelJobParam, async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Run Pixel Studio on the machine hosting cezar.' }, 409);
+      try {
+        return c.json(await runPixelWorker(await pixelInstall(), c.get('project').root, 'process', c.req.valid('param').jobId));
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
+    .post('/pixel-studio/jobs/:jobId/collect', pixelJobParam, async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Run Pixel Studio on the machine hosting cezar.' }, 409);
+      try {
+        return c.json(await runPixelWorker(await pixelInstall(), c.get('project').root, 'collect', c.req.valid('param').jobId));
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
+    .post(
+      '/pixel-studio/uploads',
+      multipartZodValidator(
+        () =>
+          z.object({
+            file: z
+              .instanceof(File, { message: 'Choose an image file' })
+              .refine((f) => f.size >= 1 && f.size <= PIXEL_UPLOAD_MAX_BYTES, { message: 'Image must be smaller than 10 MB' })
+              .refine((f) => Object.hasOwn(PIXEL_UPLOAD_TYPES, f.type), { message: 'Use a PNG, JPEG or WebP image' }),
+          }),
+      ),
+      async (c) => {
+        if (!capabilities().localHandoff) return c.json({ error: 'Upload on the machine hosting cezar.' }, 409);
+        const { file } = c.req.valid('form');
+        try {
+          const name = await savePixelUpload(c.get('project').root, new Uint8Array(await file.arrayBuffer()), file.type);
+          return c.json({ name }, 201);
+        } catch (err) {
+          if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+          throw err;
+        }
+      },
+    )
+    .get('/pixel-studio/gpu-queue', async (c) => c.json(await readPixelGpuQueue(c.get('project').root)))
+    .post('/pixel-studio/gpu-queue/sync', async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Sync the GPU queue on the machine hosting cezar.' }, 409);
+      return c.json(await syncPixelGpuQueue(c.get('project').root));
+    });
 
   // ---- chained family: cezar self-update (workspace-level, PoC) ----
   // The browser supplies a version STRING (validated shape, never a URL, a path or a tarball)
@@ -8065,6 +8234,7 @@ export function createApp(deps: ServerDeps) {
     .route('/', webhookRoutes)
     .route('/', dispatchRoutes)
     .route('/', runsRoutes)
+    .route('/', pixelStudioRoutes)
     .route('/', draftRoutes)
     .route('/', layoutRoutes)
     .route('/', groupsRoutes)
@@ -8303,6 +8473,7 @@ export function createApp(deps: ServerDeps) {
     .route('/', projectsRoutes)
     .route('/', agentProfilesRoutes)
     .route('/', meshyRoutes)
+    .route('/', pixelStudioWorkspaceRoutes)
     .route('/', usageLimitRoutes)
     .route('/', selfUpdateRoutes)
     .route('/', previewRoutes)

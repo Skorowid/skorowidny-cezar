@@ -183,6 +183,8 @@ const GLOBAL_SECTIONS = [
   'accounts',
   // Meshy AI (skorowidny-cezar fork) — a tool installed on this machine, toggled per project.
   'meshy',
+  // Pixel Studio (skorowidny-cezar fork) — PixelForge pixel-art tools, toggled per project.
+  'pixel-studio',
   'projects',
   // The configuration bundle (spec 2026-11-04-automations-and-config-export-import).
   'transfer',
@@ -210,7 +212,7 @@ describe('the section registry', () => {
     // Accounts survives: a single-project cockpit still runs on ONE of possibly several logins,
     // so "which account" is orthogonal to "how many projects".
     expect(visibleSettingsSections('global', { singleProject: true }).map((s) => s.id)).toEqual([
-      'appearance', 'notifications', 'keyboard', 'resources', 'skills', 'global-instructions', 'workspace-secrets', 'accounts', 'meshy', 'transfer', 'privacy',
+      'appearance', 'notifications', 'keyboard', 'resources', 'skills', 'global-instructions', 'workspace-secrets', 'accounts', 'meshy', 'pixel-studio', 'transfer', 'privacy',
     ])
     expect(visibleSettingsSections('global', { singleProject: false }).map((s) => s.id)).toEqual(GLOBAL_SECTIONS)
     expect(visibleSettingsSections('global').map((s) => s.id)).toEqual(GLOBAL_SECTIONS)

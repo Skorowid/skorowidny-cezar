@@ -1,4 +1,5 @@
 import {
+  Gamepad2Icon,
   GitBranchIcon,
   InboxIcon,
   LayersIcon,
@@ -54,6 +55,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/tracker', label: 'Tracker', icon: TicketIcon, match: ['/tracker'], tracker: true },
   // After the repo group, before Automations — the approved mockup's order (spec 2026-10-22, Phase 3).
   { to: '/assets', label: 'Assets', icon: LayersIcon, match: ['/assets'] },
+  // Fork: PixelForge library and generation panel (docs/skorowidny-cezar/pixel-studio.md).
+  { to: '/pixel-studio', label: 'Pixel Studio', icon: Gamepad2Icon, match: ['/pixel-studio'] },
   { to: '/automations', label: 'Automations', icon: ZapIcon, match: ['/automations'], automations: true },
   { to: '/skills', label: 'Skills', icon: SparklesIcon, match: ['/skills'] },
   { to: '/workflows', label: 'Workflows', icon: WorkflowIcon, match: ['/workflows'] },
