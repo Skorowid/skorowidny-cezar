@@ -19,6 +19,7 @@ import { AutomationsLoading } from './routes/automations/automations-loading'
 import { CompareLoading } from './routes/compare-loading'
 import { GithubLoading } from './routes/github/github-loading'
 import { AssetsRoute } from './routes/assets/assets-route'
+import { PixelStudioRoute } from './routes/pixel-studio/pixel-studio-route'
 import { InboxRoute } from './routes/inbox'
 import { NewTaskRoute } from './routes/new-task'
 import { NotFoundRoute } from './routes/not-found'
@@ -302,6 +303,7 @@ const PAGE_TITLE_ROUTES = [
   { pattern: '/github/*', pageLabel: 'GitHub' },
   { pattern: '/tracker/*', pageLabel: 'Tracker' },
   { pattern: '/assets', pageLabel: 'Assets' },
+  { pattern: '/pixel-studio', pageLabel: 'Pixel Studio' },
   { pattern: '/automations/*', pageLabel: 'Automations' },
   { pattern: '/skills', pageLabel: 'Skills' },
   { pattern: '/inbox', pageLabel: 'Inbox' },
@@ -607,6 +609,9 @@ export const AppRoutes = memo(function AppRoutes() {
         {/* The project Assets page (spec 2026-10-22-html-artifacts-and-impact, Phase 3): a table, no
             preview — light enough to ride the main bundle like the inbox. */}
         <Route path="assets" element={<AssetsRoute />} />
+
+        {/* Fork: Pixel Studio (docs/skorowidny-cezar/pixel-studio.md). */}
+        <Route path="pixel-studio" element={<PixelStudioRoute />} />
 
         {/* The workflow node editor (spec 2026-09-30-workflow-node-editor): /workflows opens a new
             canvas, /workflows/:name deep-links a saved workflow (v1 files open as graphs). */}

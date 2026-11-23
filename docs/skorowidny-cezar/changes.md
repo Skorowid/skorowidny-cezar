@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-23 — Pixel Studio (PixelForge pixel-art tools)
+
+Owner's decision (2026-11-23, PixelArt_Skorowid_Games D-003/D-008): cezar gets every function the local PixelLab-style workflow needs. New: Settings → Pixel Studio (PixelForge checkout path, per-project `pixelforge` private MCP server), project page `/pixel-studio` (job library with a pixel-exact sprite/animation player, generation panel for 8-direction characters, animations and tilesets on Codex or the GPU cezar, GPU queue sync), API under `/workspace/pixel-studio` and `/p/:projectId/pixel-studio`. The Meshy `mcp.local.json` writer moved unchanged to `core/private-mcp-write.ts` and is shared. Details: [pixel-studio.md](pixel-studio.md).
+
+Verification: see pixel-studio.md "Tests"; the 2 `agents-section` and 5 `settings` failures exist on `skorowidny/main` before this change (fork removed the privacy section; branch-naming test), none new.
+
 ## 2026-11-18 — Tests never inherit another cezar's CEZ_* variables
 
 Owner's decision (2026-11-18): every cezar keeps its own `CEZ_*` variables, so nothing leaks between instances. `packages/cezar/vitest.setup.ts` now removes EVERY inherited `CEZ_*` (the hand-kept list missed `CEZ_ARTIFACTS_DIR`, server config like `CEZ_CODEX_FULL_ACCESS_PROJECTS` reaching agents through `process.env`, …); only real-CLI smoke opt-ins (`CEZ_*SMOKE*`) stay. A `TMPDIR` inside `~/.cezar` (a cockpit's agent temp) is moved to `/tmp` like one inside a git work tree, so the sandbox home no longer trips the write guard.

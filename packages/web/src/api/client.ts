@@ -2,6 +2,17 @@ import type { GithubAssetResponse } from '@open-mercato/cezar-api-client'
 import type { z } from 'zod'
 import type { MeshyStatus, SetMeshyProjectInput } from '@open-mercato/cezar-api-client'
 import type {
+  CreatePixelJobInput,
+  CreatePixelJobResult,
+  PixelGpuQueue,
+  PixelGpuSyncResult,
+  PixelJob,
+  PixelJobList,
+  PixelStudioStatus,
+  SetPixelStudioHomeInput,
+  SetPixelStudioProjectInput,
+} from '@open-mercato/cezar-api-client'
+import type {
   lifecycleListResponseSchema, lifecycleDetailResponseSchema, lifecycleOperationResponseSchema,
   lifecyclePreviewInputSchema, lifecycleListQuerySchema, LifecycleOutputResponse,
   LifecyclePreviewResponse, LifecycleActionInput, StartLifecycleRemovalInput,
@@ -3203,4 +3214,63 @@ export async function getGithubAsset(url: string, opts?: ReadOptions, projectSco
   return unwrap(await cez.api.v1.p[':projectId'].github.asset.$post({
     param: { projectId: projectScope }, json: { url },
   }, init(opts)), '/github/asset')
+}
+
+// ---- Pixel Studio (fork; docs/skorowidny-cezar/pixel-studio.md). Author: Skorowid ----------------
+
+/** PixelForge install state and which projects have its MCP server attached. */
+export async function getPixelStudioStatus(opts?: ReadOptions): Promise<PixelStudioStatus> {
+  return unwrap(await cez.api.v1.workspace['pixel-studio'].$get({}, init(opts)), '/workspace/pixel-studio')
+}
+
+export async function setPixelStudioHome(input: SetPixelStudioHomeInput): Promise<PixelStudioStatus> {
+  return unwrap(await cez.api.v1.workspace['pixel-studio'].$put({ json: input }), '/workspace/pixel-studio')
+}
+
+export async function setPixelStudioProject(projectId: string, input: SetPixelStudioProjectInput): Promise<PixelStudioStatus> {
+  return unwrap(
+    await cez.api.v1.workspace['pixel-studio'].projects[':projectId'].$put({ param: { projectId }, json: input }),
+    `/workspace/pixel-studio/projects/${encodeURIComponent(projectId)}`,
+  )
+}
+
+export async function getPixelJobs(opts?: ReadOptions): Promise<PixelJobList> {
+  return unwrap(await cez.api.v1.p[':projectId']['pixel-studio'].jobs.$get({ param: { projectId: queryScope() } }, init(opts)), '/pixel-studio/jobs')
+}
+
+export async function createPixelJob(input: CreatePixelJobInput): Promise<CreatePixelJobResult> {
+  return unwrap(
+    await cez.api.v1.p[':projectId']['pixel-studio'].jobs.$post({ param: { projectId: queryScope() }, json: input }),
+    '/pixel-studio/jobs',
+  )
+}
+
+export async function reprocessPixelJob(jobId: string): Promise<PixelJob> {
+  return unwrap(
+    await cez.api.v1.p[':projectId']['pixel-studio'].jobs[':jobId'].process.$post({ param: { projectId: queryScope(), jobId } }),
+    `/pixel-studio/jobs/${encodeURIComponent(jobId)}/process`,
+  )
+}
+
+export async function collectPixelJob(jobId: string): Promise<PixelJob> {
+  return unwrap(
+    await cez.api.v1.p[':projectId']['pixel-studio'].jobs[':jobId'].collect.$post({ param: { projectId: queryScope(), jobId } }),
+    `/pixel-studio/jobs/${encodeURIComponent(jobId)}/collect`,
+  )
+}
+
+export async function getPixelGpuQueue(opts?: ReadOptions): Promise<PixelGpuQueue> {
+  return unwrap(await cez.api.v1.p[':projectId']['pixel-studio']['gpu-queue'].$get({ param: { projectId: queryScope() } }, init(opts)), '/pixel-studio/gpu-queue')
+}
+
+export async function syncPixelGpuQueue(): Promise<PixelGpuSyncResult> {
+  return unwrap(
+    await cez.api.v1.p[':projectId']['pixel-studio']['gpu-queue'].sync.$post({ param: { projectId: queryScope() } }),
+    '/pixel-studio/gpu-queue/sync',
+  )
+}
+
+/** Same-origin URL of a job file (PNG, JSON, .aseprite) — for <img>, fetch and downloads. */
+export function pixelJobFileUrl(jobId: string, path: string): string {
+  return apiPath(`/pixel-studio/jobs/${encodeURIComponent(jobId)}/file?path=${encodeURIComponent(path)}`)
 }

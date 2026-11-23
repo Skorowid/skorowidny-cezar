@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BoxIcon,
+  Gamepad2Icon,
   WebhookIcon,
   BookmarkIcon,
   BotIcon,
@@ -42,6 +43,7 @@ import { ProjectSecretsSection, WorkspaceSecretsSection } from './secrets-sectio
 import { WebhooksSection } from './webhooks-section'
 import { IntegrationsSection } from './integrations-section'
 import { MeshySection } from './meshy-section'
+import { PixelStudioSection } from './pixel-studio-section'
 
 /**
  * The Settings section registry (R6 Step 1.3, spec §"Settings"): the ONE place a section is
@@ -81,6 +83,7 @@ export type SettingsSectionId =
   | 'workspace-secrets'
   | 'transfer'
   | 'meshy'
+  | 'pixel-studio'
 
 /** Which settings area a section belongs to — and therefore which store it writes. */
 export type SettingsScope = 'project' | 'global'
@@ -251,6 +254,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: '3D generation tools for the agents of the projects you connect.',
     icon: BoxIcon,
     component: MeshySection,
+    scope: 'global',
+  },
+  {
+    id: 'pixel-studio',
+    title: 'Pixel Studio',
+    description: 'PixelForge pixel-art tools (characters, animations, tilesets) for the projects you connect.',
+    icon: Gamepad2Icon,
+    component: PixelStudioSection,
     scope: 'global',
   },
   {
