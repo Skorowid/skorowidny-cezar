@@ -41,7 +41,7 @@ export type SetPixelStudioHomeInput = z.infer<typeof setPixelStudioHomeInputSche
 export const setPixelStudioProjectInputSchema = z.object({ connected: z.boolean() }).strict();
 export type SetPixelStudioProjectInput = z.infer<typeof setPixelStudioProjectInputSchema>;
 
-export const pixelJobToolSchema = z.enum(['character8', 'animate', 'tileset', 'image']);
+export const pixelJobToolSchema = z.enum(['character8', 'animate', 'tileset', 'image', 'ui', 'edit']);
 export type PixelJobTool = z.infer<typeof pixelJobToolSchema>;
 export const pixelJobStatusSchema = z.enum(['queued', 'generating', 'generated', 'processing', 'done', 'failed']);
 export type PixelJobStatus = z.infer<typeof pixelJobStatusSchema>;
@@ -76,6 +76,13 @@ export type PixelJobList = z.infer<typeof pixelJobListSchema>;
 const size = z.number().int().min(16).max(168);
 const colors = z.number().int().min(4).max(64);
 const backend = z.enum(['codex', 'gpu']);
+/** Lospec presets shipped with PixelForge (tools/pixelforge/pixelforge/palettes). */
+export const pixelPalettePresetSchema = z.enum(['endesga-32', 'resurrect-64', 'sweetie-16', 'pico-8', 'apollo']);
+const quality = z.enum(['standard', 'hd']);
+/** A file uploaded through POST …/pixel-studio/uploads (name only, never a path). */
+const uploadName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/);
+/** A file of a finished job: `<jobId>/<job-relative path>`. */
+const jobFileRef = z.string().max(500).regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}\/[A-Za-z0-9_./-]+$/, 'must be <jobId>/<file>');
 
 export const createPixelJobInputSchema = z.discriminatedUnion('tool', [
   z.object({
@@ -84,6 +91,12 @@ export const createPixelJobInputSchema = z.discriminatedUnion('tool', [
     size: size.default(48),
     colors: colors.default(16),
     view: z.enum(['side', 'low top-down', 'high top-down']).default('low top-down'),
+    quality: quality.default('hd'),
+    palette: pixelPalettePresetSchema.optional(),
+    /** Concept art or a sketch (upload name): the character is redrawn from it. */
+    concept: uploadName.optional(),
+    /** Style reference images (upload names). */
+    styles: z.array(uploadName).max(4).optional(),
     backend: backend.default('codex'),
   }).strict(),
   z.object({
@@ -95,6 +108,7 @@ export const createPixelJobInputSchema = z.discriminatedUnion('tool', [
     direction: z.string().min(2).max(20).default('east'),
     size: size.default(48),
     colors: colors.default(16),
+    palette: pixelPalettePresetSchema.optional(),
     backend: backend.default('codex'),
   }).strict(),
   z.object({
@@ -103,6 +117,37 @@ export const createPixelJobInputSchema = z.discriminatedUnion('tool', [
     upper: z.string().min(2).max(500),
     tileSize: z.union([z.literal(16), z.literal(24), z.literal(32), z.literal(48), z.literal(64)]).default(32),
     colors: colors.default(16),
+    palette: pixelPalettePresetSchema.optional(),
+    backend: backend.default('codex'),
+  }).strict(),
+  z.object({
+    tool: z.literal('image'),
+    description: z.string().min(3).max(2000),
+    kind: z.enum(['scene', 'map', 'object']).default('scene'),
+    width: z.number().int().min(16).max(512).default(256),
+    height: z.number().int().min(16).max(512).default(144),
+    colors: colors.default(32),
+    quality: quality.default('hd'),
+    palette: pixelPalettePresetSchema.optional(),
+    backend: backend.default('codex'),
+  }).strict(),
+  z.object({
+    tool: z.literal('ui'),
+    items: z.array(z.string().min(2).max(200)).min(1).max(16),
+    theme: z.string().max(300).default(''),
+    size: z.number().int().min(16).max(128).default(48),
+    colors: colors.default(24),
+    palette: pixelPalettePresetSchema.optional(),
+    styles: z.array(uploadName).max(4).optional(),
+    backend: backend.default('codex'),
+  }).strict(),
+  z.object({
+    tool: z.literal('edit'),
+    /** The pixel-art image to edit: a finished job's file or an upload (`upload:<name>`). */
+    source: z.union([jobFileRef, z.string().regex(/^upload:[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/)]),
+    instruction: z.string().min(3).max(2000),
+    /** Optional mask upload name (white = may change). */
+    mask: uploadName.optional(),
     backend: backend.default('codex'),
   }).strict(),
 ]);
@@ -118,3 +163,6 @@ export type PixelGpuQueue = z.infer<typeof pixelGpuQueueSchema>;
 
 export const pixelGpuSyncResultSchema = z.object({ ok: z.boolean(), log: z.string() });
 export type PixelGpuSyncResult = z.infer<typeof pixelGpuSyncResultSchema>;
+
+export const pixelUploadResultSchema = z.object({ name: z.string() });
+export type PixelUploadResult = z.infer<typeof pixelUploadResultSchema>;

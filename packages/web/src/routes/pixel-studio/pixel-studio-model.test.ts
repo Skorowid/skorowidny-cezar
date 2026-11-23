@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PixelJob } from '@open-mercato/cezar-api-client'
 
-import { frameAt, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
+import { editSourceOptions, frameAt, parseItems, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
 
 // Fork feature (docs/skorowidny-cezar/pixel-studio.md). Author: Skorowid.
 
@@ -67,6 +67,17 @@ describe('forms and summaries', () => {
       { value: 'j1/out/frames/000.png', label: 'mage — south' },
       { value: 'j1/out/frames/001.png', label: 'mage — south-west' },
     ])
+  })
+
+  it('offers every frame of every finished job as an edit source', () => {
+    const opts = editSourceOptions([job({}), job({ id: 'u1', tool: 'ui', params: {}, outputs: { frames: ['out/frames/000.png'] } }), job({ id: 'x', status: 'failed' })])
+    expect(opts.map((o) => o.value)).toEqual(['j1/out/frames/000.png', 'j1/out/frames/001.png', 'u1/out/frames/000.png'])
+    expect(opts[2]?.label).toBe('UI elements — frame 1')
+  })
+
+  it('parses UI items one per line, dropping blanks, capped at 16', () => {
+    expect(parseItems(' button \n\n x\norb\n')).toEqual(['button', 'orb'])
+    expect(parseItems(Array.from({ length: 20 }, (_, i) => `item ${i}`).join('\n'))).toHaveLength(16)
   })
 
   it('summarises QA in a stable order', () => {

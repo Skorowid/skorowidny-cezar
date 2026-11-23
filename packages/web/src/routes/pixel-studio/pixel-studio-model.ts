@@ -84,7 +84,9 @@ export const TOOL_LABEL: Record<PixelJob['tool'], string> = {
   character8: '8 directions',
   animate: 'Animation',
   tileset: 'Tileset',
-  image: 'Image',
+  image: 'Scene / map / object',
+  ui: 'UI elements',
+  edit: 'Edit / inpaint',
 }
 
 export const DIRECTIONS8 = ['south', 'south-west', 'west', 'north-west', 'north', 'north-east', 'east', 'south-east'] as const
@@ -110,4 +112,25 @@ export function referenceOptions(jobs: readonly PixelJob[]): Array<{ value: stri
 export function qaSummary(qa: Record<string, unknown>): Array<[string, string]> {
   const keys = ['frames', 'tiles', 'colors', 'anchor_spread_px', 'height_spread_px', 'seam_errors_after', 'pitch']
   return keys.filter((k) => qa[k] !== undefined).map((k) => [k.replace(/_/g, ' '), String(qa[k])])
+}
+
+export const PALETTES = ['endesga-32', 'resurrect-64', 'sweetie-16', 'pico-8', 'apollo'] as const
+
+/** Every frame of every finished job, usable as the image to edit: `<jobId>/<frame path>`. */
+export function editSourceOptions(jobs: readonly PixelJob[]): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = []
+  for (const job of jobs) {
+    if (job.status !== 'done') continue
+    const desc = typeof job.params.description === 'string' ? job.params.description.slice(0, 32) : TOOL_LABEL[job.tool]
+    ;(job.outputs.frames ?? []).forEach((frame, i) => {
+      const label = job.tool === 'character8' ? DIRECTIONS8[i] ?? `frame ${i + 1}` : `frame ${i + 1}`
+      out.push({ value: `${job.id}/${frame}`, label: `${desc} — ${label}` })
+    })
+  }
+  return out
+}
+
+/** UI items typed one per line. */
+export function parseItems(text: string): string[] {
+  return text.split('\n').map((s) => s.trim()).filter((s) => s.length >= 2).slice(0, 16)
 }

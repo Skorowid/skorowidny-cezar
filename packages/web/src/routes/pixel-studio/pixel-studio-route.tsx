@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DownloadIcon, GridIcon, PauseIcon, PlayIcon, RefreshCwIcon, SparklesIcon, UploadCloudIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
-import { collectPixelJob, createPixelJob, pixelJobFileUrl, reprocessPixelJob, syncPixelGpuQueue } from '@/api/client'
+import { collectPixelJob, createPixelJob, pixelJobFileUrl, reprocessPixelJob, syncPixelGpuQueue, uploadPixelImage } from '@/api/client'
 import { queryKeys, usePixelGpuQueue, usePixelJobs } from '@/api/queries'
 import type { CreatePixelJobInput, PixelJob } from '@open-mercato/cezar-api-client'
 import { CenteredState } from '@/components/centered-state'
@@ -13,7 +13,19 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/toaster'
 import { cn } from '@/lib/utils'
 
-import { TOOL_LABEL, frameAt, isBusy, parseSheet, qaSummary, referenceOptions, tagSequence, type Sheet } from './pixel-studio-model'
+import {
+  PALETTES,
+  TOOL_LABEL,
+  editSourceOptions,
+  frameAt,
+  isBusy,
+  parseItems,
+  parseSheet,
+  qaSummary,
+  referenceOptions,
+  tagSequence,
+  type Sheet,
+} from './pixel-studio-model'
 
 /**
  * `/pixel-studio` (fork; docs/skorowidny-cezar/pixel-studio.md) — the project's PixelForge library:
@@ -146,7 +158,7 @@ function JobViewer({ job }: { job: PixelJob }) {
   const collect = useMutation({ mutationFn: () => collectPixelJob(job.id), onSuccess: refresh, onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
   const sheet = useSheet(job)
   const [showRaw, setShowRaw] = useState(false)
-  const sheetPath = job.tool === 'tileset' ? job.outputs.preview : job.outputs.sheet
+  const sheetPath = job.tool === 'character8' || job.tool === 'animate' ? job.outputs.sheet : job.outputs.preview
   return (
     <section data-slot="pixel-viewer" className="flex flex-col gap-3 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -158,12 +170,12 @@ function JobViewer({ job }: { job: PixelJob }) {
       {job.error && <p role="alert" className="text-ui text-destructive">{job.error}</p>}
       {isBusy(job) && <p className="text-ui text-soft-foreground">Working… Codex draws in 1–3 minutes per step; this page refreshes by itself.</p>}
 
-      {job.status === 'done' && sheet.data && job.outputs.sheet && job.tool !== 'tileset' && (
+      {job.status === 'done' && sheet.data && job.outputs.sheet && (job.tool === 'character8' || job.tool === 'animate') && (
         <SpritePlayer sheet={sheet.data} src={pixelJobFileUrl(job.id, job.outputs.sheet)} />
       )}
-      {job.status === 'done' && job.tool === 'tileset' && sheetPath && (
+      {job.status === 'done' && job.tool !== 'character8' && job.tool !== 'animate' && sheetPath && (
         <div className="overflow-auto rounded-sm" style={{ background: CHECKER }}>
-          <img src={pixelJobFileUrl(job.id, sheetPath)} alt="Tileset demo map" style={{ imageRendering: 'pixelated' }} />
+          <img src={pixelJobFileUrl(job.id, sheetPath)} alt={`${TOOL_LABEL[job.tool]} preview`} style={{ imageRendering: 'pixelated' }} />
         </div>
       )}
 
@@ -292,15 +304,49 @@ function SpritePlayer({ sheet, src }: { sheet: Sheet; src: string }) {
 const FIELD = 'flex flex-col gap-1 text-ui'
 const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-ui outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
+type GenTool = 'character8' | 'animate' | 'tileset' | 'image' | 'ui' | 'edit'
+type Palette = (typeof PALETTES)[number]
+
+/** A file input that uploads at once and keeps the returned upload name. */
+function UploadField({ label, value, onChange }: { label: string; value: string | null; onChange: (name: string | null) => void }) {
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadPixelImage(file),
+    onSuccess: (r) => onChange(r.name),
+    onError: (e: Error) => toast(e.message, { tone: 'danger' }),
+  })
+  return (
+    <label className={FIELD}>
+      {label}
+      <input
+        aria-label={label}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="text-ui"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) upload.mutate(file)
+          else onChange(null)
+        }}
+      />
+      <span className="text-xs text-soft-foreground">{upload.isPending ? 'Uploading…' : value ? `uploaded: ${value}` : 'optional'}</span>
+    </label>
+  )
+}
+
 function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: string) => void }) {
   const queryClient = useQueryClient()
-  const [tool, setTool] = useState<'character8' | 'animate' | 'tileset'>('character8')
+  const [tool, setTool] = useState<GenTool>('character8')
   const [backend, setBackend] = useState<'codex' | 'gpu'>('codex')
   const [description, setDescription] = useState('')
   const [view, setView] = useState<'side' | 'low top-down' | 'high top-down'>('low top-down')
+  const [quality, setQuality] = useState<'standard' | 'hd'>('hd')
+  const [palette, setPalette] = useState<Palette | ''>('')
+  const [concept, setConcept] = useState<string | null>(null)
+  const [style, setStyle] = useState<string | null>(null)
   const [size, setSize] = useState(48)
   const [colors, setColors] = useState(16)
   const refs = useMemo(() => referenceOptions(jobs), [jobs])
+  const sources = useMemo(() => editSourceOptions(jobs), [jobs])
   const [reference, setReference] = useState('')
   const [action, setAction] = useState('walk')
   const [frames, setFrames] = useState<4 | 6 | 8>(8)
@@ -308,6 +354,15 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
   const [lower, setLower] = useState('')
   const [upper, setUpper] = useState('')
   const [tileSize, setTileSize] = useState<16 | 24 | 32 | 48 | 64>(32)
+  const [kind, setKind] = useState<'scene' | 'map' | 'object'>('scene')
+  const [width, setWidth] = useState(256)
+  const [height, setHeight] = useState(144)
+  const [items, setItems] = useState('')
+  const [theme, setTheme] = useState('')
+  const [source, setSource] = useState('')
+  const [sourceUpload, setSourceUpload] = useState<string | null>(null)
+  const [mask, setMask] = useState<string | null>(null)
+  const [instruction, setInstruction] = useState('')
 
   const start = useMutation({
     mutationFn: (input: CreatePixelJobInput) => createPixelJob(input),
@@ -319,22 +374,44 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
     onError: (e: Error) => toast(e.message, { tone: 'danger' }),
   })
 
+  const pal = palette ? { palette } : {}
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (tool === 'character8') start.mutate({ tool, description, size, colors, view, backend })
-    else if (tool === 'animate') start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, size, colors, backend })
-    else start.mutate({ tool, lower, upper, tileSize, colors, backend })
+    if (tool === 'character8') {
+      start.mutate({ tool, description, size, colors, view, quality, backend, ...pal, ...(concept ? { concept } : {}), ...(style ? { styles: [style] } : {}) })
+    } else if (tool === 'animate') {
+      start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, size, colors, backend, ...pal })
+    } else if (tool === 'tileset') {
+      start.mutate({ tool, lower, upper, tileSize, colors, backend, ...pal })
+    } else if (tool === 'image') {
+      start.mutate({ tool, description, kind, width, height, colors, quality, backend, ...pal })
+    } else if (tool === 'ui') {
+      start.mutate({ tool, items: parseItems(items), theme, size, colors, backend, ...pal, ...(style ? { styles: [style] } : {}) })
+    } else {
+      const src = sourceUpload ? `upload:${sourceUpload}` : source || sources[0]?.value || ''
+      start.mutate({ tool, source: src, instruction, backend, ...(mask ? { mask } : {}) })
+    }
   }
+
+  const needsDescription = tool === 'character8' || tool === 'image'
+  const disabled =
+    start.isPending ||
+    (tool === 'animate' && refs.length === 0) ||
+    (tool === 'edit' && !sourceUpload && sources.length === 0) ||
+    (tool === 'ui' && parseItems(items).length === 0)
 
   return (
     <form data-slot="pixel-generate" onSubmit={submit} className="flex max-w-2xl flex-col gap-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={FIELD}>
           Tool
-          <select aria-label="Tool" className={SELECT} value={tool} onChange={(e) => setTool(e.target.value as typeof tool)}>
-            <option value="character8">Character, 8 directions</option>
+          <select aria-label="Tool" className={SELECT} value={tool} onChange={(e) => setTool(e.target.value as GenTool)}>
+            <option value="character8">Character, 8 directions (text, concept or sketch)</option>
             <option value="animate">Animate a character</option>
             <option value="tileset">Terrain tileset (16 tiles)</option>
+            <option value="image">Scene, map or object</option>
+            <option value="ui">UI elements</option>
+            <option value="edit">Edit / inpaint an image</option>
           </select>
         </label>
         <label className={FIELD}>
@@ -346,12 +423,18 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
         </label>
       </div>
 
+      {needsDescription && (
+        <label className={FIELD}>
+          Description
+          <Textarea aria-label="Description" required={tool === 'image' || !concept} minLength={3} value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder={tool === 'image' ? 'a fantasy forest market street with striped awnings and potion shelves' : 'adult female ranger, red ponytail, green vest, longbow'} />
+        </label>
+      )}
+
       {tool === 'character8' && (
-        <>
-          <label className={FIELD}>
-            Description
-            <Textarea aria-label="Description" required minLength={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="young female mage with a purple hooded robe, wooden staff with a cyan crystal" />
-          </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <UploadField label="Concept art or sketch" value={concept} onChange={setConcept} />
+          <UploadField label="Style reference" value={style} onChange={setStyle} />
           <label className={FIELD}>
             View
             <select aria-label="View" className={SELECT} value={view} onChange={(e) => setView(e.target.value as typeof view)}>
@@ -360,7 +443,7 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
               <option value="side">side</option>
             </select>
           </label>
-        </>
+        </div>
       )}
 
       {tool === 'animate' && (
@@ -415,19 +498,94 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {tool !== 'tileset' && (
+      {tool === 'image' && (
+        <div className="grid gap-3 sm:grid-cols-3">
           <label className={FIELD}>
-            Size (logical px)
-            <Input aria-label="Size" type="number" min={16} max={168} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+            Kind
+            <select aria-label="Kind" className={SELECT} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+              <option value="scene">Scene / environment</option>
+              <option value="map">Top-down game map</option>
+              <option value="object">Single object</option>
+            </select>
           </label>
-        )}
-        <label className={FIELD}>
-          Colors
-          <Input aria-label="Colors" type="number" min={4} max={64} value={colors} onChange={(e) => setColors(Number(e.target.value))} />
-        </label>
-      </div>
-      <Button type="submit" className="w-fit" disabled={start.isPending || (tool === 'animate' && refs.length === 0)}>
+          <label className={FIELD}>
+            Width
+            <Input aria-label="Width" type="number" min={16} max={512} value={width} onChange={(e) => setWidth(Number(e.target.value))} />
+          </label>
+          <label className={FIELD}>
+            Height
+            <Input aria-label="Height" type="number" min={16} max={512} value={height} onChange={(e) => setHeight(Number(e.target.value))} />
+          </label>
+        </div>
+      )}
+
+      {tool === 'ui' && (
+        <>
+          <label className={FIELD}>
+            Elements (one per line)
+            <Textarea aria-label="Elements" value={items} onChange={(e) => setItems(e.target.value)} placeholder={'square wooden button\nround red health orb in an iron frame\nhorizontal health bar frame'} />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className={FIELD}>
+              Theme
+              <Input aria-label="Theme" value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="dark fantasy RPG" />
+            </label>
+            <UploadField label="Style reference" value={style} onChange={setStyle} />
+          </div>
+        </>
+      )}
+
+      {tool === 'edit' && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className={FIELD}>
+              Image to edit
+              <select aria-label="Image to edit" className={SELECT} value={source || sources[0]?.value || ''} onChange={(e) => setSource(e.target.value)} disabled={Boolean(sourceUpload)}>
+                {sources.length === 0 && <option value="">Upload an image or finish a job first</option>}
+                {sources.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </label>
+            <UploadField label="…or upload a pixel-art image" value={sourceUpload} onChange={setSourceUpload} />
+            <UploadField label="Mask (white = may change)" value={mask} onChange={setMask} />
+          </div>
+          <label className={FIELD}>
+            Change
+            <Textarea aria-label="Change" required minLength={3} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="add a green ranger hat with a red feather" />
+          </label>
+        </>
+      )}
+
+      {tool !== 'edit' && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(tool === 'character8' || tool === 'animate' || tool === 'ui') && (
+            <label className={FIELD}>
+              Size (logical px)
+              <Input aria-label="Size" type="number" min={16} max={tool === 'ui' ? 128 : 168} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+            </label>
+          )}
+          <label className={FIELD}>
+            Colors
+            <Input aria-label="Colors" type="number" min={4} max={64} value={colors} onChange={(e) => setColors(Number(e.target.value))} />
+          </label>
+          <label className={FIELD}>
+            Palette
+            <select aria-label="Palette" className={SELECT} value={palette} onChange={(e) => setPalette(e.target.value as Palette | '')}>
+              <option value="">from the image</option>
+              {PALETTES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+          {(tool === 'character8' || tool === 'image') && (
+            <label className={FIELD}>
+              Quality
+              <select aria-label="Quality" className={SELECT} value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}>
+                <option value="hd">HD (rich shading)</option>
+                <option value="standard">standard</option>
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+      <Button type="submit" className="w-fit" disabled={disabled}>
         <SparklesIcon aria-hidden="true" /> {start.isPending ? 'Starting…' : 'Generate'}
       </Button>
       <p className="text-xs text-soft-foreground">

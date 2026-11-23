@@ -368,6 +368,9 @@ import {
   resolveJobFile as resolvePixelJobFile,
   jobDirFor as pixelJobDirFor,
   runWorker as runPixelWorker,
+  saveUpload as savePixelUpload,
+  UPLOAD_MAX_BYTES as PIXEL_UPLOAD_MAX_BYTES,
+  UPLOAD_TYPES as PIXEL_UPLOAD_TYPES,
   setPixelHome,
   setProjectPixelStudio,
   startJob as startPixelJob,
@@ -3565,6 +3568,29 @@ export function createApp(deps: ServerDeps) {
         throw err;
       }
     })
+    .post(
+      '/pixel-studio/uploads',
+      multipartZodValidator(
+        () =>
+          z.object({
+            file: z
+              .instanceof(File, { message: 'Choose an image file' })
+              .refine((f) => f.size >= 1 && f.size <= PIXEL_UPLOAD_MAX_BYTES, { message: 'Image must be smaller than 10 MB' })
+              .refine((f) => Object.hasOwn(PIXEL_UPLOAD_TYPES, f.type), { message: 'Use a PNG, JPEG or WebP image' }),
+          }),
+      ),
+      async (c) => {
+        if (!capabilities().localHandoff) return c.json({ error: 'Upload on the machine hosting cezar.' }, 409);
+        const { file } = c.req.valid('form');
+        try {
+          const name = await savePixelUpload(c.get('project').root, new Uint8Array(await file.arrayBuffer()), file.type);
+          return c.json({ name }, 201);
+        } catch (err) {
+          if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+          throw err;
+        }
+      },
+    )
     .get('/pixel-studio/gpu-queue', async (c) => c.json(await readPixelGpuQueue(c.get('project').root)))
     .post('/pixel-studio/gpu-queue/sync', async (c) => {
       if (!capabilities().localHandoff) return c.json({ error: 'Sync the GPU queue on the machine hosting cezar.' }, 409);

@@ -13,9 +13,9 @@ Pixel Studio attaches it to cezar in three ways:
 
 | Piece | Where | What |
 |---|---|---|
-| Private MCP server `pixelforge` | `packages/cezar/src/pixel-studio/pixel-studio.ts`, entry in `<project>/.ai/cezar/mcp.local.json` | agents get `create_character_8_directions`, `animate_character`, `create_tileset`, `get_job`, `list_jobs`, `collect_gpu_job`, `pixelize_image`, `reduce_colors` |
+| Private MCP server `pixelforge` | `packages/cezar/src/pixel-studio/pixel-studio.ts`, entry in `<project>/.ai/cezar/mcp.local.json` | agents get `create_character_8_directions` (text, concept or sketch), `animate_character`, `create_tileset`, `create_image` (scene/map/object), `create_ui_elements`, `edit_image` (true inpainting), `get_job`, `list_jobs`, `collect_gpu_job`, `pixelize_image`, `reduce_colors` |
 | Settings → Pixel Studio | `packages/web/src/routes/settings/pixel-studio-section.tsx` | path of the PixelForge checkout, Codex/Aseprite availability, one switch per project |
-| Project page `/pixel-studio` | `packages/web/src/routes/pixel-studio/` | Library (job grid, pixel-exact sprite player with tags, zoom, grid, downloads, re-process), Generate (8 directions, animation, tileset; Codex or GPU), GPU queue (list + sync) |
+| Project page `/pixel-studio` | `packages/web/src/routes/pixel-studio/` | Library (job grid, pixel-exact sprite player with tags, zoom, grid, downloads, re-process), Generate (8-direction characters from text, concept art or a sketch; animations; tilesets; scenes, maps and objects; UI element sets; edit and true inpainting with a mask; palette presets, HD quality, style references; Codex or GPU), GPU queue (list + sync) |
 
 The shared, unchanged-behaviour writer for `mcp.local.json` (Meshy and Pixel Studio) is `packages/cezar/src/core/private-mcp-write.ts`
 (extracted from the Meshy module; Meshy tests unchanged and green).
@@ -31,6 +31,7 @@ The shared, unchanged-behaviour writer for `mcp.local.json` (Meshy and Pixel Stu
 | `GET /api/v1/p/:projectId/pixel-studio/jobs/:jobId/file?path=` | PNG/JSON/HEX/.aseprite inside the job dir only (realpath check), `nosniff`, sandbox CSP |
 | `POST /api/v1/p/:projectId/pixel-studio/jobs` | starts a job (Python worker; answers as soon as the job exists, generation continues in the background, log `assets/jobs/worker.log`) |
 | `POST …/jobs/:jobId/process`, `…/collect` | re-run post-processing; collect a GPU job from `gpu-queue/` |
+| `POST /api/v1/p/:projectId/pixel-studio/uploads` | multipart `file` (PNG/JPEG/WebP ≤ 10 MB) → `{name}` in `assets/pixel-uploads/`; sketches, concepts, style references, masks, images to edit are referenced by that name |
 | `GET …/gpu-queue`, `POST …/gpu-queue/sync` | sync = `git pull --rebase --autostash`, `git add gpu-queue`, commit, push — only that folder |
 
 Writes and process starts need the local-machine capability (hosted cockpit: 409), like Meshy.

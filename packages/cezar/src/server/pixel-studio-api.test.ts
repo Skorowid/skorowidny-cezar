@@ -100,6 +100,38 @@ describe('Pixel Studio API', () => {
     expect(((await r.json()) as { error: string }).error).toMatch(/not configured/);
   });
 
+  it('accepts image uploads only and stores them under assets/pixel-uploads', async () => {
+    const upload = (blob: Blob, name: string) => {
+      const form = new FormData();
+      form.set('file', blob, name);
+      return apiRequest(app, '/api/v1/p/repo/pixel-studio/uploads', { method: 'POST', body: form });
+    };
+    const ok = await upload(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }), 'sketch.png');
+    expect(ok.status).toBe(201);
+    const { name } = (await ok.json()) as { name: string };
+    expect(name).toMatch(/^[0-9TZ]+-[a-z0-9]+\.png$/);
+    expect(readFileSync(join(repoRoot, 'assets', 'pixel-uploads', name)).length).toBe(4);
+    expect((await upload(new Blob(['<svg/>'], { type: 'image/svg+xml' }), 'x.svg')).status).toBe(400);
+  });
+
+  it('validates the new tools', async () => {
+    const post = (body: unknown) => apiRequest(app, '/api/v1/p/repo/pixel-studio/jobs', json('POST', body));
+    expect((await post({ tool: 'image', description: 'market', width: 600 })).status).toBe(400);
+    expect((await post({ tool: 'ui', items: [] })).status).toBe(400);
+    expect((await post({ tool: 'edit', source: 'upload:../x', instruction: 'hat' })).status).toBe(400);
+    expect((await post({ tool: 'character8', description: 'knight', palette: 'mspaint' })).status).toBe(400);
+    expect((await post({ tool: 'character8', description: 'knight', concept: '../../etc/passwd' })).status).toBe(400);
+    // valid shapes reach the install check
+    for (const body of [
+      { tool: 'image', description: 'market street', kind: 'map', width: 192, height: 192 },
+      { tool: 'ui', items: ['button', 'orb'], theme: 'dark' },
+      { tool: 'edit', source: 'job1/out/sheet.png', instruction: 'add a hat' },
+      { tool: 'character8', description: 'knight', palette: 'endesga-32', quality: 'hd' },
+    ]) {
+      expect((await post(body)).status, JSON.stringify(body)).toBe(409);
+    }
+  });
+
   it('lists the GPU queue', async () => {
     const q = pixelGpuQueueSchema.parse(await (await apiRequest(app, '/api/v1/p/repo/pixel-studio/gpu-queue')).json());
     expect(q.entries).toEqual([]);

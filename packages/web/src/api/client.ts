@@ -9,6 +9,7 @@ import type {
   PixelJob,
   PixelJobList,
   PixelStudioStatus,
+  PixelUploadResult,
   SetPixelStudioHomeInput,
   SetPixelStudioProjectInput,
 } from '@open-mercato/cezar-api-client'
@@ -3273,4 +3274,16 @@ export async function syncPixelGpuQueue(): Promise<PixelGpuSyncResult> {
 /** Same-origin URL of a job file (PNG, JSON, .aseprite) — for <img>, fetch and downloads. */
 export function pixelJobFileUrl(jobId: string, path: string): string {
   return apiPath(`/pixel-studio/jobs/${encodeURIComponent(jobId)}/file?path=${encodeURIComponent(path)}`)
+}
+
+/** Upload a sketch, concept, style reference, mask or image to edit; answers its upload name. */
+export async function uploadPixelImage(file: File): Promise<PixelUploadResult> {
+  const form = new FormData()
+  form.set('file', file)
+  const response = await send('/pixel-studio/uploads', { method: 'POST', body: form })
+  const body = await readBody(response)
+  if (!response.ok) throw errorFor(response.status, response.statusText, body)
+  const parsed = parseJson(body) as { name?: unknown }
+  if (typeof parsed?.name !== 'string') throw new ApiError(response.status, 'the cezar server answered /pixel-studio/uploads with an unexpected body')
+  return { name: parsed.name }
 }

@@ -330,13 +330,16 @@ const WORKER = [
   'from pathlib import Path',
   'from pixelforge import jobcli, jobs',
   'from pixelforge.backends import gpu',
-  'from pixelforge.pipelines import animate, character8, tileset',
+  'from pixelforge.pipelines import animate, character8, edit, image, tileset, ui',
   'mode, root, arg = sys.argv[2], Path(sys.argv[3]), json.loads(sys.argv[4])',
   'if mode == "create":',
-  '    t = arg["tool"]',
-  '    if t == "character8": d, j = character8.prepare(root, arg["description"], arg["size"], arg["colors"], arg["view"], backend=arg["backend"])',
-  '    elif t == "animate": d, j = animate.prepare(root, arg["reference"], arg["action"], arg["frames"], arg["direction"], arg["size"], arg["colors"], backend=arg["backend"])',
-  '    else: d, j = tileset.prepare(root, arg["lower"], arg["upper"], arg["tileSize"], arg["colors"], backend=arg["backend"])',
+  '    t, b, pal = arg["tool"], arg["backend"], arg.get("palette")',
+  '    if t == "character8": d, j = character8.prepare(root, arg["description"], arg["size"], arg["colors"], arg["view"], backend=b, palette=pal, style_refs=arg.get("styles") or (), concept=arg.get("concept"), quality=arg.get("quality", "hd"))',
+  '    elif t == "animate": d, j = animate.prepare(root, arg["reference"], arg["action"], arg["frames"], arg["direction"], arg["size"], arg["colors"], backend=b, palette=pal)',
+  '    elif t == "tileset": d, j = tileset.prepare(root, arg["lower"], arg["upper"], arg["tileSize"], arg["colors"], backend=b, palette=pal)',
+  '    elif t == "image": d, j = image.prepare(root, arg["description"], arg["kind"], arg["width"], arg["height"], arg["colors"], arg.get("quality", "hd"), palette=pal, backend=b)',
+  '    elif t == "ui": d, j = ui.prepare(root, arg["items"], arg["size"], arg["colors"], arg.get("theme", ""), palette=pal, style_refs=arg.get("styles") or (), backend=b)',
+  '    else: d, j = edit.prepare(root, arg["source"], arg["instruction"], mask=arg.get("mask"), backend=b)',
   '    if j["backend"] == "gpu": gpu.submit(d, Path(arg["queue"]))',
   '    print(json.dumps({"jobId": j["id"], "status": jobs.load(d)["status"]}), flush=True)',
   '    sys.stdout.close()',
@@ -351,6 +354,35 @@ const WORKER = [
   '    if j["status"] == "generated": jobcli.process(d)',
 ].join('\n');
 
+// ---- uploads (concept art, sketches, style references, masks, images to edit) -------------------
+
+const UPLOAD_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/;
+export const UPLOAD_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' };
+export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+export function uploadsDir(projectRoot: string): string {
+  return join(projectRoot, 'assets', 'pixel-uploads');
+}
+
+export async function saveUpload(projectRoot: string, bytes: Uint8Array, type: string): Promise<string> {
+  const ext = UPLOAD_TYPES[type];
+  if (!ext) throw new PixelStudioRefusal('use a PNG, JPEG or WebP image', 400);
+  if (bytes.byteLength < 1 || bytes.byteLength > UPLOAD_MAX_BYTES) throw new PixelStudioRefusal('image must be smaller than 10 MB', 400);
+  const dir = uploadsDir(projectRoot);
+  await mkdir(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '');
+  const name = `${stamp}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+  await writeFile(join(dir, name), bytes, { flag: 'wx' });
+  return name;
+}
+
+export function uploadPath(projectRoot: string, name: string): string {
+  if (!UPLOAD_NAME_RE.test(name)) throw new PixelStudioRefusal('invalid upload name', 400);
+  const path = join(uploadsDir(projectRoot), name);
+  if (!existsSync(path)) throw new PixelStudioRefusal(`upload not found: ${name}`, 404);
+  return path;
+}
+
 export interface StartedJob {
   jobId: string;
   status: PixelJob['status'];
@@ -364,9 +396,19 @@ export async function startJob(install: PixelForgeInstall, projectRoot: string, 
   const root = jobsDir(projectRoot);
   await mkdir(root, { recursive: true });
   const arg: Record<string, unknown> = { ...input, queue: join(projectRoot, 'gpu-queue') };
-  if (input.tool === 'animate') {
-    const [jobId, ...rest] = String(input.reference).split('/');
-    arg.reference = (await resolveJobFile(projectRoot, jobId ?? '', rest.join('/'))).path;
+  const jobFile = async (ref: string) => {
+    if (ref.startsWith('upload:')) return uploadPath(projectRoot, ref.slice('upload:'.length));
+    const [jobId, ...rest] = ref.split('/');
+    return (await resolveJobFile(projectRoot, jobId ?? '', rest.join('/'))).path;
+  };
+  if (input.tool === 'animate') arg.reference = await jobFile(String(input.reference));
+  if (input.tool === 'edit') {
+    arg.source = await jobFile(String(input.source));
+    if (typeof input.mask === 'string') arg.mask = uploadPath(projectRoot, input.mask);
+  }
+  if (input.tool === 'character8' && typeof input.concept === 'string') arg.concept = uploadPath(projectRoot, input.concept);
+  if ((input.tool === 'character8' || input.tool === 'ui') && Array.isArray(input.styles)) {
+    arg.styles = input.styles.map((name) => uploadPath(projectRoot, String(name)));
   }
   const logFd = openSync(join(root, 'worker.log'), 'a');
   try {
