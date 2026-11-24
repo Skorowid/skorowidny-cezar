@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-24 — Edit keeps the original style unless style controls are given
+
+Review of the all-tools panel: the worker rewrote every edit prompt, dropping "Match the original style perfectly" (against PixelArt_Skorowid_Games FRD-011). The override is removed; PixelForge (`2083ad6`) now restyles an edit only when outline/shading/detail are sent explicitly. New test: an edit without style controls keeps the original-style instruction. Verification: pixel-studio, pixel-studio-api, web pixel-studio, dispatch, meshy 108 PASS; with `PIXELFORGE_TEST_PKG` the real-PixelForge suite 15/15 PASS; `npm run build` with `check:pack` PASS.
+
 ## 2026-11-24 — Pixel Studio: all PixelForge tools (D-021)
 
 Pixel Studio can create jobs for all 13 PixelForge pipelines, with style controls, safe file references, previews and finished-job exports for web, Tiled, Godot and Unity. The worker uses the PixelForge job CLI as the source of truth. Tiled export is limited to tilesets. Requires a PixelForge checkout with the current 13-tool CLI. Details and test setup: [pixel-studio.md](pixel-studio.md); [verification](pixel-studio-verification.md).

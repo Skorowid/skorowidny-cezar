@@ -284,6 +284,11 @@ describe.skipIf(!currentPkg || !existsSync(join(realHome, '.venv', 'bin', 'pytho
         expect(raw.generation[0].prompt).toContain('at most 2 tones');
       }
     }
+    // FRD-011: without style controls an edit keeps the original look (no restyling).
+    const plain = await startJob(install, repo, { tool: 'edit', source: ref, instruction: 'add a hat', backend: 'gpu' });
+    const plainRaw = JSON.parse(readFileSync(join(jobsDir(repo), plain.jobId, 'job.json'), 'utf8'));
+    expect(plainRaw.generation[0].prompt).toContain('Match the original style perfectly');
+    expect(plainRaw.generation[0].prompt).not.toContain('BLACK');
   }, 120_000);
 
   it('exports a completed job to fixed job-local paths and rejects invalid states and symlinks', async () => {
