@@ -309,6 +309,8 @@ const FILE_TYPES: Record<string, string> = {
 /** A job file for the browser: inside the job dir (symlinks resolved), known type only. */
 export async function resolveJobFile(projectRoot: string, jobId: string, rel: string): Promise<{ path: string; type: string }> {
   const dir = await realpath(jobDirFor(projectRoot, jobId));
+  const root = await realpath(jobsDir(projectRoot));
+  if (!dir.startsWith(root + sep)) throw new PixelStudioRefusal('job outside the library', 400);
   if (!rel || rel.includes('\0') || isAbsolute(rel)) throw new PixelStudioRefusal('invalid path', 400);
   let path: string;
   try {
@@ -330,16 +332,26 @@ const WORKER = [
   'from pathlib import Path',
   'from pixelforge import jobcli, jobs',
   'from pixelforge.backends import gpu',
-  'from pixelforge.pipelines import animate, character8, edit, image, tileset, ui',
   'mode, root, arg = sys.argv[2], Path(sys.argv[3]), json.loads(sys.argv[4])',
   'if mode == "create":',
-  '    t, b, pal = arg["tool"], arg["backend"], arg.get("palette")',
-  '    if t == "character8": d, j = character8.prepare(root, arg["description"], arg["size"], arg["colors"], arg["view"], backend=b, palette=pal, style_refs=arg.get("styles") or (), concept=arg.get("concept"), quality=arg.get("quality", "hd"))',
-  '    elif t == "animate": d, j = animate.prepare(root, arg["reference"], arg["action"], arg["frames"], arg["direction"], arg["size"], arg["colors"], backend=b, palette=pal)',
-  '    elif t == "tileset": d, j = tileset.prepare(root, arg["lower"], arg["upper"], arg["tileSize"], arg["colors"], backend=b, palette=pal)',
-  '    elif t == "image": d, j = image.prepare(root, arg["description"], arg["kind"], arg["width"], arg["height"], arg["colors"], arg.get("quality", "hd"), palette=pal, backend=b)',
-  '    elif t == "ui": d, j = ui.prepare(root, arg["items"], arg["size"], arg["colors"], arg.get("theme", ""), palette=pal, style_refs=arg.get("styles") or (), backend=b)',
-  '    else: d, j = edit.prepare(root, arg["source"], arg["instruction"], mask=arg.get("mask"), backend=b)',
+  '    t = arg["tool"]',
+  '    keys = {"tileSize": "tile", "blockHeight": "block-height", "edgeOutline": "edge-outline", "sheetJson": "sheet-json"}',
+  '    argv = ["--root", str(root), "create", t]',
+  '    if t == "ui":',
+  '        from pixelforge.prompts import resolve_style',
+  '        arg.update(resolve_style({k: arg[k] for k in ("outline", "shading", "detail") if arg.get(k)}, arg.get("quality", "hd")))',
+  '    for key, value in arg.items():',
+  '        if key in ("tool", "queue") or value is None: continue',
+  '        if key == "source": key = "reference"',
+  '        if key == "instruction" and t == "edit": key = "description"',
+  '        if key == "theme" and t == "ui": key = "description"',
+  '        if key == "styles":',
+  '            for v in value: argv.append("--style=" + v)',
+  '            continue',
+  '        if key == "items": value = ";".join(value)',
+  '        argv.append("--" + keys.get(key, key) + "=" + str(value))',
+  '    d, j = jobcli.create(jobcli.build_parser().parse_args(argv))',
+
   '    if j["backend"] == "gpu": gpu.submit(d, Path(arg["queue"]))',
   '    print(json.dumps({"jobId": j["id"], "status": jobs.load(d)["status"]}), flush=True)',
   '    sys.stdout.close()',
@@ -357,7 +369,7 @@ const WORKER = [
 // ---- uploads (concept art, sketches, style references, masks, images to edit) -------------------
 
 const UPLOAD_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/;
-export const UPLOAD_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' };
+export const UPLOAD_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'application/json': '.json' };
 export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
 export function uploadsDir(projectRoot: string): string {
@@ -366,8 +378,8 @@ export function uploadsDir(projectRoot: string): string {
 
 export async function saveUpload(projectRoot: string, bytes: Uint8Array, type: string): Promise<string> {
   const ext = UPLOAD_TYPES[type];
-  if (!ext) throw new PixelStudioRefusal('use a PNG, JPEG or WebP image', 400);
-  if (bytes.byteLength < 1 || bytes.byteLength > UPLOAD_MAX_BYTES) throw new PixelStudioRefusal('image must be smaller than 10 MB', 400);
+  if (!ext) throw new PixelStudioRefusal('use a PNG, JPEG, WebP image or JSON metadata', 400);
+  if (bytes.byteLength < 1 || bytes.byteLength > UPLOAD_MAX_BYTES) throw new PixelStudioRefusal('file must be smaller than 10 MB', 400);
   const dir = uploadsDir(projectRoot);
   await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '');
@@ -396,20 +408,23 @@ export async function startJob(install: PixelForgeInstall, projectRoot: string, 
   const root = jobsDir(projectRoot);
   await mkdir(root, { recursive: true });
   const arg: Record<string, unknown> = { ...input, queue: join(projectRoot, 'gpu-queue') };
+  const safeUpload = async (name: string) => {
+    const path = await realpath(uploadPath(projectRoot, name));
+    const dir = await realpath(uploadsDir(projectRoot));
+    if (!path.startsWith(dir + sep)) throw new PixelStudioRefusal('upload outside the upload directory', 400);
+    return path;
+  };
   const jobFile = async (ref: string) => {
-    if (ref.startsWith('upload:')) return uploadPath(projectRoot, ref.slice('upload:'.length));
+    if (ref.startsWith('upload:')) return safeUpload(ref.slice('upload:'.length));
     const [jobId, ...rest] = ref.split('/');
     return (await resolveJobFile(projectRoot, jobId ?? '', rest.join('/'))).path;
   };
-  if (input.tool === 'animate') arg.reference = await jobFile(String(input.reference));
-  if (input.tool === 'edit') {
-    arg.source = await jobFile(String(input.source));
-    if (typeof input.mask === 'string') arg.mask = uploadPath(projectRoot, input.mask);
+  for (const key of ['reference', 'source', 'start', 'end', 'sheet', 'sheetJson'] as const) {
+    if (typeof arg[key] === 'string') arg[key] = await jobFile(arg[key] as string);
   }
-  if (input.tool === 'character8' && typeof input.concept === 'string') arg.concept = uploadPath(projectRoot, input.concept);
-  if ((input.tool === 'character8' || input.tool === 'ui') && Array.isArray(input.styles)) {
-    arg.styles = input.styles.map((name) => uploadPath(projectRoot, String(name)));
-  }
+  if (typeof arg.mask === 'string') arg.mask = await safeUpload(arg.mask);
+  if (typeof arg.concept === 'string') arg.concept = await safeUpload(arg.concept);
+  if (Array.isArray(arg.styles)) arg.styles = await Promise.all(arg.styles.map((name) => safeUpload(String(name))));
   const logFd = openSync(join(root, 'worker.log'), 'a');
   try {
     const child = spawn(install.python, ['-I', '-c', WORKER, install.pkg, 'create', root, JSON.stringify(arg)], {
@@ -454,6 +469,46 @@ export async function runWorker(install: PixelForgeInstall, projectRoot: string,
     throw new PixelStudioRefusal(`PixelForge ${mode} failed: ${stderr.trim().split('\n').slice(-1)[0] ?? 'error'}`, 409);
   }
   return readJob(dir);
+}
+
+/** Export a completed job to its fixed, job-local output directory. */
+export async function exportPixelJob(install: PixelForgeInstall, projectRoot: string, jobId: string, format: 'web' | 'tiled' | 'godot' | 'unity'): Promise<{ paths: Record<string, string> }> {
+  const dir = await realpath(jobDirFor(projectRoot, jobId));
+  const root = await realpath(jobsDir(projectRoot));
+  if (!dir.startsWith(root + sep)) throw new PixelStudioRefusal('job outside the library', 400);
+  const job = await readJob(dir);
+  if (job.status !== 'done') throw new PixelStudioRefusal('only finished jobs can be exported', 409);
+  for (const path of [job.outputs.sheet, job.outputs.json]) {
+    if (path) await resolveJobFile(projectRoot, jobId, path);
+  }
+  if (format === 'tiled' && !['tileset', 'platformer', 'tileset47'].includes(job.tool)) throw new PixelStudioRefusal('Tiled export requires a tileset', 400);
+  const base = join(dir, 'export');
+  await mkdir(base, { recursive: true });
+  if ((await realpath(base)) !== base) throw new PixelStudioRefusal('invalid export directory', 400);
+  const out = join(base, format);
+  await mkdir(out, { recursive: true });
+  if ((await realpath(out)) !== out) throw new PixelStudioRefusal('invalid export directory', 400);
+  const rejectSymlinks = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new PixelStudioRefusal('symlink in export directory', 400);
+      if (entry.isDirectory()) await rejectSymlinks(join(dir, entry.name));
+    }
+  };
+  await rejectSymlinks(out);
+  try {
+    const code = 'import sys, runpy; sys.path.insert(0, sys.argv.pop(1)); sys.argv[0] = "pixelforge"; runpy.run_module("pixelforge", run_name="__main__")';
+    const result = await execFileP(install.python, ['-I', '-c', code, install.pkg, '--json', 'export', format, dir, out], { cwd: projectRoot, timeout: 300_000, maxBuffer: 1 << 20 });
+    const paths = z.record(z.string(), z.string()).parse(JSON.parse(result.stdout));
+    for (const path of Object.values(paths)) {
+      const actual = await realpath(path);
+      if (!actual.startsWith(out + sep)) throw new PixelStudioRefusal('export path outside the job', 409);
+    }
+    return { paths: Object.fromEntries(Object.entries(paths).map(([key, path]) => [key, relative(dir, path)])) };
+  } catch (err) {
+    if (err instanceof PixelStudioRefusal) throw err;
+    const stderr = (err as { stderr?: string }).stderr ?? '';
+    throw new PixelStudioRefusal(`PixelForge export failed: ${stderr.trim().split('\n').slice(-1)[0] || 'error'}`, 409);
+  }
 }
 
 // ---- GPU queue ----------------------------------------------------------------------------------

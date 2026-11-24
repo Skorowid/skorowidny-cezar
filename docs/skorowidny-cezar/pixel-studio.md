@@ -1,8 +1,8 @@
 # Pixel Studio — PixelForge pixel-art tools in cezar
 
-Author: Skorowid · Version 0.1 · 2026-11-23 · Status: implemented on branch `pixel-studio`, not deployed (owner: test live on the GPU cezar first)
+Author: Skorowid · Version 0.2 · 2026-11-24 · Status: implemented on branch `feat/pixel-studio-all-tools`, not deployed
 
-Requirements: repo `Skorowid/PixelArt_Skorowid_Games` — `docs/BRD.md` BR-04, `docs/frd/FRD-010-cezar-pixel-studio.md`, decisions D-003, D-008, T-003, T-006.
+Requirements: repo `Skorowid/PixelArt_Skorowid_Games` — `docs/BRD.md` BR-04, `docs/frd/FRD-010-cezar-pixel-studio.md`, decisions D-003, D-008, D-020, D-021, T-003, T-006.
 
 ## What it is
 
@@ -13,9 +13,9 @@ Pixel Studio attaches it to cezar in three ways:
 
 | Piece | Where | What |
 |---|---|---|
-| Private MCP server `pixelforge` | `packages/cezar/src/pixel-studio/pixel-studio.ts`, entry in `<project>/.ai/cezar/mcp.local.json` | agents get `create_character_8_directions` (text, concept or sketch), `animate_character`, `create_tileset`, `create_image` (scene/map/object), `create_ui_elements`, `edit_image` (true inpainting), `get_job`, `list_jobs`, `collect_gpu_job`, `pixelize_image`, `reduce_colors` |
+| Private MCP server `pixelforge` | `packages/cezar/src/pixel-studio/pixel-studio.ts`, entry in `<project>/.ai/cezar/mcp.local.json` | agents get PixelForge MCP generation, editing, transformation, export, and job-management tools (the configured checkout determines the available tool set) |
 | Settings → Pixel Studio | `packages/web/src/routes/settings/pixel-studio-section.tsx` | path of the PixelForge checkout, Codex/Aseprite availability, one switch per project |
-| Project page `/pixel-studio` | `packages/web/src/routes/pixel-studio/` | Library (job grid, pixel-exact sprite player with tags, zoom, grid, downloads, re-process), Generate (8-direction characters from text, concept art or a sketch; animations; tilesets; scenes, maps and objects; UI element sets; edit and true inpainting with a mask; palette presets, HD quality, style references; Codex or GPU), GPU queue (list + sync) |
+| Project page `/pixel-studio` | `packages/web/src/routes/pixel-studio/` | Library (job grid, previews, sprite player, downloads, re-process and export), Generate (all 13 job pipelines, supported style controls, Codex or GPU), GPU queue (list + sync) |
 
 The shared, unchanged-behaviour writer for `mcp.local.json` (Meshy and Pixel Studio) is `packages/cezar/src/core/private-mcp-write.ts`
 (extracted from the Meshy module; Meshy tests unchanged and green).
@@ -30,8 +30,9 @@ The shared, unchanged-behaviour writer for `mcp.local.json` (Meshy and Pixel Stu
 | `GET /api/v1/p/:projectId/pixel-studio/jobs[/:jobId]` | `assets/jobs/*/job.json` (schema `pixelforge.job/1`) |
 | `GET /api/v1/p/:projectId/pixel-studio/jobs/:jobId/file?path=` | PNG/JSON/HEX/.aseprite inside the job dir only (realpath check), `nosniff`, sandbox CSP |
 | `POST /api/v1/p/:projectId/pixel-studio/jobs` | starts a job (Python worker; answers as soon as the job exists, generation continues in the background, log `assets/jobs/worker.log`) |
+| `POST …/jobs/:jobId/export` `{format}` | export a completed job; returns `{paths}` relative to the job directory |
 | `POST …/jobs/:jobId/process`, `…/collect` | re-run post-processing; collect a GPU job from `gpu-queue/` |
-| `POST /api/v1/p/:projectId/pixel-studio/uploads` | multipart `file` (PNG/JPEG/WebP ≤ 10 MB) → `{name}` in `assets/pixel-uploads/`; sketches, concepts, style references, masks, images to edit are referenced by that name |
+| `POST /api/v1/p/:projectId/pixel-studio/uploads` | multipart `file` (PNG/JPEG/WebP image or JSON metadata ≤ 10 MB) → `{name}` in `assets/pixel-uploads/`; sketches, concepts, style references, masks, images to edit are referenced by that name |
 | `GET …/gpu-queue`, `POST …/gpu-queue/sync` | sync = `git pull --rebase --autostash`, `git add gpu-queue`, commit, push — only that folder |
 
 Writes and process starts need the local-machine capability (hosted cockpit: 409), like Meshy.
@@ -62,3 +63,15 @@ the Codex generator.
 - `packages/cezar/src/server/pixel-studio-api.test.ts` — the routes, validation, path traversal, refusal without install.
 - `packages/web/src/routes/pixel-studio/pixel-studio-model.test.ts` — sheet parsing, tag playback timing, forms.
 - Nav/settings expectation lists updated (`nav-items.test.ts`, `app-shell.test.tsx`, `settings.test.tsx`).
+
+## All PixelForge tools (D-021)
+
+Generate supports `character8`, `animate`, `tileset`, `image`, `ui`, `edit`, `isometric`, `platformer`, `interpolate`, `rotate`, `resize`, `vfx`, and `tileset47`. The library recognizes all 13 types and falls back to the sheet or first frame when no preview is available. Interpolation accepts two uploaded or library frames, or a sheet and its JSON from uploads or a finished library job. Rotate and resize accept an uploaded image or library frame. Style controls expose quality (HD by default), outline, shading and detail for pipelines that support them; isometric and platformer also expose edge outline. The edit pipeline has no native style parameters, so the worker updates its generation prompt with PixelForge’s resolved style wording while retaining the edit instruction. PixelForge's UI pipeline internally assumes HD, so the worker resolves the standard-quality style before passing it to that pipeline.
+
+The create worker maps validated inputs to `pixelforge.jobcli`'s parser and `create` function. Files are resolved through upload names or job-relative references, with realpath checks; arbitrary client paths are refused. The configured PixelForge checkout must contain the current 13-tool CLI and export modules.
+
+Finished jobs offer Export to web, Godot or Unity; tileset, platformer and tileset47 also offer Tiled. The fixed output directory is `<job>/export/<format>`, and the API returns job-relative paths. The server rejects unfinished jobs, unsupported Tiled inputs and symlinks in the export directory.
+
+Verification: contract, server/API and web tests cover each added tool, styles, file references and export. Set `PIXELFORGE_TEST_PKG` to the current checkout's `tools/pixelforge` directory to enable the real-CLI integration tests, which use the PixelForge venv at `~/ai-projects/PixelArt_Skorowid_Games/.venv`.
+
+Verification evidence and limitations: [pixel-studio-verification.md](pixel-studio-verification.md).

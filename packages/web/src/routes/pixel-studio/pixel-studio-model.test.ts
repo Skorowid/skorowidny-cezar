@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PixelJob } from '@open-mercato/cezar-api-client'
 
-import { editSourceOptions, frameAt, parseItems, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
+import { TOOL_LABEL, editSourceOptions, frameAt, parseItems, parseSheet, qaSummary, referenceOptions, tagSequence } from './pixel-studio-model'
 
 // Fork feature (docs/skorowidny-cezar/pixel-studio.md). Author: Skorowid.
 
@@ -75,6 +75,10 @@ describe('forms and summaries', () => {
     expect(opts[2]?.label).toBe('UI elements — frame 1')
   })
 
+  it('offers sheets from jobs without individual frames', () => {
+    expect(editSourceOptions([job({ id: 'tile', tool: 'platformer', params: {}, outputs: { sheet: 'out/tiles.png' } })])).toEqual([{ value: 'tile/out/tiles.png', label: 'Platformer tileset — image' }])
+  })
+
   it('parses UI items one per line, dropping blanks, capped at 16', () => {
     expect(parseItems(' button \n\n x\norb\n')).toEqual(['button', 'orb'])
     expect(parseItems(Array.from({ length: 20 }, (_, i) => `item ${i}`).join('\n'))).toHaveLength(16)
@@ -85,4 +89,11 @@ describe('forms and summaries', () => {
       ['frames', '8'], ['anchor spread px', '0'], ['pitch', '6.35'],
     ])
   })
+})
+
+
+it('labels every additional PixelForge tool', () => {
+  for (const tool of ['isometric', 'platformer', 'interpolate', 'rotate', 'resize', 'vfx', 'tileset47'] as const) {
+    expect(TOOL_LABEL[tool]).toBeTruthy()
+  }
 })

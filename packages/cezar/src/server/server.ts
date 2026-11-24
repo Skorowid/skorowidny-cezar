@@ -357,6 +357,7 @@ import { usageLimitConfig, usageLimitMonitor } from '../workspace/usage-limit-mo
 import { setMeshyProjectInputSchema, type MeshyStatus } from '@open-mercato/cezar-contract';
 import {
   PixelStudioRefusal,
+  exportPixelJob,
   installFor as pixelInstallFor,
   installProblem as pixelInstallProblem,
   listJobs as listPixelJobs,
@@ -378,6 +379,7 @@ import {
 } from '../pixel-studio/pixel-studio.ts';
 import {
   createPixelJobInputSchema,
+  pixelExportInputSchema,
   setPixelStudioHomeInputSchema,
   setPixelStudioProjectInputSchema,
   type PixelStudioStatus,
@@ -3550,6 +3552,15 @@ export function createApp(deps: ServerDeps) {
         throw err;
       }
     })
+    .post('/pixel-studio/jobs/:jobId/export', pixelJobParam, jsonZodValidator(pixelExportInputSchema), async (c) => {
+      if (!capabilities().localHandoff) return c.json({ error: 'Export Pixel Studio jobs on the machine hosting cezar.' }, 409);
+      try {
+        return c.json(await exportPixelJob(await pixelInstall(), c.get('project').root, c.req.valid('param').jobId, c.req.valid('json').format));
+      } catch (err) {
+        if (err instanceof PixelStudioRefusal) return c.json({ error: err.message }, err.status);
+        throw err;
+      }
+    })
     .post('/pixel-studio/jobs/:jobId/process', pixelJobParam, async (c) => {
       if (!capabilities().localHandoff) return c.json({ error: 'Run Pixel Studio on the machine hosting cezar.' }, 409);
       try {
@@ -3575,8 +3586,8 @@ export function createApp(deps: ServerDeps) {
           z.object({
             file: z
               .instanceof(File, { message: 'Choose an image file' })
-              .refine((f) => f.size >= 1 && f.size <= PIXEL_UPLOAD_MAX_BYTES, { message: 'Image must be smaller than 10 MB' })
-              .refine((f) => Object.hasOwn(PIXEL_UPLOAD_TYPES, f.type), { message: 'Use a PNG, JPEG or WebP image' }),
+              .refine((f) => f.size >= 1 && f.size <= PIXEL_UPLOAD_MAX_BYTES, { message: 'File must be smaller than 10 MB' })
+              .refine((f) => Object.hasOwn(PIXEL_UPLOAD_TYPES, f.type), { message: 'Use a PNG, JPEG, WebP image or JSON metadata' }),
           }),
       ),
       async (c) => {
