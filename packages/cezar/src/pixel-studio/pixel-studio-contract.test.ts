@@ -27,6 +27,13 @@ describe('Pixel Studio job contract', () => {
       { tool: 'isometric', description: 'stone', outline: 'glow' },
     ]) expect(createPixelJobInputSchema.safeParse(invalid).success).toBe(false);
   });
+  it('validates animation options without defaulting size', () => {
+    const base = { tool: 'animate', reference: 'upload:sprite.png' };
+    expect(createPixelJobInputSchema.parse(base)).not.toHaveProperty('size');
+    for (const weapon of ['sword', 'staff', 'bow']) expect(createPixelJobInputSchema.safeParse({ ...base, weapon, description: 'x'.repeat(500) }).success).toBe(true);
+    expect(createPixelJobInputSchema.safeParse({ ...base, weapon: 'axe' }).success).toBe(false);
+    expect(createPixelJobInputSchema.safeParse({ ...base, description: 'x'.repeat(501) }).success).toBe(false);
+  });
   it('accepts only supported export formats', () => {
     for (const format of ['web', 'tiled', 'godot', 'unity']) expect(pixelExportInputSchema.safeParse({ format }).success).toBe(true);
     expect(pixelExportInputSchema.safeParse({ format: '../x' }).success).toBe(false);

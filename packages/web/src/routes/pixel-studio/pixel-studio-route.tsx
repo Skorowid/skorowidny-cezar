@@ -367,6 +367,9 @@ export function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id
   const refs = useMemo(() => referenceOptions(jobs), [jobs])
   const sources = useMemo(() => editSourceOptions(jobs), [jobs])
   const [reference, setReference] = useState('')
+  const [animateSize, setAnimateSize] = useState('')
+  const [weapon, setWeapon] = useState<'' | 'sword' | 'staff' | 'bow'>('')
+  const [animateDescription, setAnimateDescription] = useState('')
   const [action, setAction] = useState('walk')
   const [frames, setFrames] = useState<4 | 6 | 8>(8)
   const [direction, setDirection] = useState('east')
@@ -399,7 +402,7 @@ export function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id
     if (tool === 'character8') {
       start.mutate({ tool, description, size, colors, view, ...look, backend, ...pal, ...(concept ? { concept } : {}), ...(style ? { styles: [style] } : {}) })
     } else if (tool === 'animate') {
-      start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, size, colors, ...look, backend, ...pal })
+      start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, ...(animateSize ? { size: Number(animateSize) } : {}), ...(weapon ? { weapon } : {}), ...(animateDescription ? { description: animateDescription } : {}), colors, ...look, backend, ...pal })
     } else if (tool === 'tileset') {
       start.mutate({ tool, lower, upper, tileSize, colors, ...look, backend, ...pal })
     } else if (tool === 'image') {
@@ -479,6 +482,8 @@ export function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id
               {refs.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </label>
+          <label className={FIELD}>Weapon<select aria-label="Weapon" className={SELECT} value={weapon} onChange={(e) => setWeapon(e.target.value as typeof weapon)}><option value="">None</option>{(['sword', 'staff', 'bow'] as const).map((w) => <option key={w} value={w}>{w}</option>)}</select></label>
+          <label className={FIELD}>Description<Textarea aria-label="Description" maxLength={500} value={animateDescription} onChange={(e) => setAnimateDescription(e.target.value)} /></label>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className={FIELD}>
               Action
@@ -584,7 +589,7 @@ export function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id
           {(tool === 'character8' || tool === 'animate' || tool === 'ui') && (
             <label className={FIELD}>
               Size (logical px)
-              <Input aria-label="Size" type="number" min={16} max={tool === 'ui' ? 128 : 168} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+              {tool === 'animate' ? <Input aria-label="Size" type="number" min={16} max={168} placeholder="Auto (reference size)" value={animateSize} onChange={(e) => setAnimateSize(e.target.value)} /> : <Input aria-label="Size" type="number" min={16} max={tool === 'ui' ? 128 : 168} value={size} onChange={(e) => setSize(Number(e.target.value))} />}
             </label>
           )}
           <label className={FIELD}>

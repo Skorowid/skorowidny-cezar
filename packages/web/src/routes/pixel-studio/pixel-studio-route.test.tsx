@@ -50,3 +50,18 @@ it('passes selected edit style with a library image', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
   await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ tool: 'edit', source: 'job1/out/frame.png', quality: 'hd', outline: 'lineless' })))
 })
+
+
+it('submits animation auto size and optional animation fields', async () => {
+  render(<QueryClientProvider client={createQueryClient()}><Generate jobs={[job]} onStarted={vi.fn()} /></QueryClientProvider>)
+  fireEvent.change(screen.getByLabelText('Tool'), { target: { value: 'animate' } })
+  expect((screen.getByLabelText('Size') as HTMLInputElement).value).toBe('')
+  fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+  await waitFor(() => expect(create).toHaveBeenCalled())
+  expect(create.mock.calls[0][0]).not.toHaveProperty('size')
+  fireEvent.change(screen.getByLabelText('Size'), { target: { value: '64' } })
+  fireEvent.change(screen.getByLabelText('Weapon'), { target: { value: 'sword' } })
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'red cloak' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+  await waitFor(() => expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ size: 64, weapon: 'sword', description: 'red cloak' })))
+})

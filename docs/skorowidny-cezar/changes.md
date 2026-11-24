@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-24 — Animation reference size and weapon
+
+Animation defaults to the reference frame size when size is omitted, and accepts an optional weapon and description (D-023/D-024). Pixel Studio exposes these fields; the worker forwards them to PixelForge.
+
 ## 2026-11-24 — testy ustawień i archiwizacji
 
 Zaktualizowano oczekiwania testów do usunięcia telemetrii: sekcja Privacy oraz pole `surface` nie są już częścią interfejsu. Test archiwizacji nadal sprawdza projekt właściwy dla wiersza.

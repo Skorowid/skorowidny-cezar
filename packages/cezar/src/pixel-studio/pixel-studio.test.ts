@@ -266,7 +266,7 @@ describe.skipIf(!currentPkg || !existsSync(join(realHome, '.venv', 'bin', 'pytho
     const ref = 'upload:sprite.png';
     const inputs = [
       { tool: 'character8', description: 'adult knight', size: 48, colors: 16, view: 'side' },
-      { tool: 'animate', reference: ref, action: 'walk', frames: 4, direction: 'east', size: 48, colors: 16 },
+      { tool: 'animate', reference: ref, action: 'walk', frames: 4, direction: 'east', weapon: 'sword', description: 'red cloak', colors: 16 },
       { tool: 'tileset', lower: 'grass', upper: 'dirt', tileSize: 16, colors: 16 },
       { tool: 'image', description: 'forest scene', kind: 'scene', width: 32, height: 32, colors: 16 },
       { tool: 'ui', items: ['button'] as string[], theme: 'wood', size: 48, colors: 16, quality: 'standard' },
@@ -276,6 +276,12 @@ describe.skipIf(!currentPkg || !existsSync(join(realHome, '.venv', 'bin', 'pytho
       const result = await startJob(install, repo, { ...input, backend: 'gpu' });
       const job = await readJob(join(jobsDir(repo), result.jobId));
       expect(job.tool).toBe(input.tool);
+      if (input.tool === 'animate') {
+        const raw = JSON.parse(readFileSync(join(jobsDir(repo), result.jobId, 'job.json'), 'utf8'));
+        expect(job.params.size).toBe(16);
+        expect(raw.generation[0].prompt.toLowerCase()).toContain('sword');
+        expect(raw.params.description).toBe('red cloak');
+      }
       if (input.tool === 'ui') expect(job.params).toMatchObject({ theme: 'wood', look: { outline: 'black', shading: 'basic', detail: 'medium' } });
       if (input.tool === 'edit') {
         const raw = JSON.parse(readFileSync(join(jobsDir(repo), result.jobId, 'job.json'), 'utf8'));
