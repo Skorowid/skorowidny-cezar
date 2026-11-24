@@ -1,5 +1,9 @@
 # skorowidny-cezar changes
 
+## 2026-11-24 — testy ustawień i archiwizacji
+
+Zaktualizowano oczekiwania testów do usunięcia telemetrii: sekcja Privacy oraz pole `surface` nie są już częścią interfejsu. Test archiwizacji nadal sprawdza projekt właściwy dla wiersza.
+
 ## 2026-11-24 — Edit keeps the original style unless style controls are given
 
 Review of the all-tools panel: the worker rewrote every edit prompt, dropping "Match the original style perfectly" (against PixelArt_Skorowid_Games FRD-011). The override is removed; PixelForge (`2083ad6`) now restyles an edit only when outline/shading/detail are sent explicitly. New test: an edit without style controls keeps the original-style instruction. Verification: pixel-studio, pixel-studio-api, web pixel-studio, dispatch, meshy 108 PASS; with `PIXELFORGE_TEST_PKG` the real-PixelForge suite 15/15 PASS; `npm run build` with `check:pack` PASS.
