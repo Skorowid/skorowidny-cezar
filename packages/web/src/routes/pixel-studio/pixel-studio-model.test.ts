@@ -75,6 +75,10 @@ describe('forms and summaries', () => {
     expect(opts[2]?.label).toBe('UI elements — frame 1')
   })
 
+  it('offers sheets from jobs without individual frames', () => {
+    expect(editSourceOptions([job({ id: 'tile', tool: 'platformer', params: {}, outputs: { sheet: 'out/tiles.png' } })])).toEqual([{ value: 'tile/out/tiles.png', label: 'Platformer tileset — image' }])
+  })
+
   it('parses UI items one per line, dropping blanks, capped at 16', () => {
     expect(parseItems(' button \n\n x\norb\n')).toEqual(['button', 'orb'])
     expect(parseItems(Array.from({ length: 20 }, (_, i) => `item ${i}`).join('\n'))).toHaveLength(16)

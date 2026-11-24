@@ -123,13 +123,17 @@ export function qaSummary(qa: Record<string, unknown>): Array<[string, string]> 
 
 export const PALETTES = ['endesga-32', 'resurrect-64', 'sweetie-16', 'pico-8', 'apollo'] as const
 
-/** Every frame of every finished job, usable as the image to edit: `<jobId>/<frame path>`. */
+/** Finished-job frames, or the sheet when frames are unavailable, as job-relative image references. */
 export function editSourceOptions(jobs: readonly PixelJob[]): Array<{ value: string; label: string }> {
   const out: Array<{ value: string; label: string }> = []
   for (const job of jobs) {
     if (job.status !== 'done') continue
     const desc = typeof job.params.description === 'string' ? job.params.description.slice(0, 32) : TOOL_LABEL[job.tool]
-    ;(job.outputs.frames ?? []).forEach((frame, i) => {
+    const frames = job.outputs.frames ?? []
+    if (frames.length === 0 && (job.outputs.sheet || job.outputs.preview)) {
+      out.push({ value: `${job.id}/${job.outputs.sheet ?? job.outputs.preview}`, label: `${desc} — image` })
+    }
+    ;frames.forEach((frame, i) => {
       const label = job.tool === 'character8' ? DIRECTIONS8[i] ?? `frame ${i + 1}` : `frame ${i + 1}`
       out.push({ value: `${job.id}/${frame}`, label: `${desc} — ${label}` })
     })

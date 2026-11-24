@@ -1,8 +1,8 @@
 # skorowidny-cezar changes
 
-## 2026-11-24 — Pixel Studio library compatibility (partial D-021)
+## 2026-11-24 — Pixel Studio: all PixelForge tools (D-021)
 
-The library recognizes the seven additional PixelForge job types and displays their available output images. Creation, style controls and export are not yet implemented.
+Pixel Studio can create jobs for all 13 PixelForge pipelines, with style controls, safe file references, previews and finished-job exports for web, Tiled, Godot and Unity. The worker uses the PixelForge job CLI as the source of truth. Tiled export is limited to tilesets. Requires a PixelForge checkout with the current 13-tool CLI. Details and test setup: [pixel-studio.md](pixel-studio.md); [verification](pixel-studio-verification.md).
 
 ## 2026-11-23 — Children in flight per task: 4 → 8
 

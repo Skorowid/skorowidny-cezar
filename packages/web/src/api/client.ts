@@ -3246,6 +3246,10 @@ export async function createPixelJob(input: CreatePixelJobInput): Promise<Create
   )
 }
 
+export async function exportPixelJob(jobId: string, format: 'web' | 'tiled' | 'godot' | 'unity'): Promise<{ paths: Record<string, string> }> {
+  return unwrap(await cez.api.v1.p[':projectId']['pixel-studio'].jobs[':jobId'].export.$post({ param: { projectId: queryScope(), jobId }, json: { format } }), `/pixel-studio/jobs/${encodeURIComponent(jobId)}/export`)
+}
+
 export async function reprocessPixelJob(jobId: string): Promise<PixelJob> {
   return unwrap(
     await cez.api.v1.p[':projectId']['pixel-studio'].jobs[':jobId'].process.$post({ param: { projectId: queryScope(), jobId } }),

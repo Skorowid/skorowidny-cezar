@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DownloadIcon, GridIcon, PauseIcon, PlayIcon, RefreshCwIcon, SparklesIcon, UploadCloudIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
-import { collectPixelJob, createPixelJob, pixelJobFileUrl, reprocessPixelJob, syncPixelGpuQueue, uploadPixelImage } from '@/api/client'
+import { collectPixelJob, createPixelJob, exportPixelJob, pixelJobFileUrl, reprocessPixelJob, syncPixelGpuQueue, uploadPixelImage } from '@/api/client'
 import { queryKeys, usePixelGpuQueue, usePixelJobs } from '@/api/queries'
 import type { CreatePixelJobInput, PixelJob } from '@open-mercato/cezar-api-client'
 import { CenteredState } from '@/components/centered-state'
@@ -151,12 +151,15 @@ function useSheet(job: PixelJob) {
   })
 }
 
-function JobViewer({ job }: { job: PixelJob }) {
+export function JobViewer({ job }: { job: PixelJob }) {
   const queryClient = useQueryClient()
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.pixelStudio.jobs() })
   const reprocess = useMutation({ mutationFn: () => reprocessPixelJob(job.id), onSuccess: refresh, onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
   const collect = useMutation({ mutationFn: () => collectPixelJob(job.id), onSuccess: refresh, onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
   const sheet = useSheet(job)
+  const [format, setFormat] = useState<'web' | 'tiled' | 'godot' | 'unity'>('web')
+  const [exported, setExported] = useState<Record<string, string> | null>(null)
+  const exportJob = useMutation({ mutationFn: () => exportPixelJob(job.id, format), onSuccess: (r) => setExported(r.paths), onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
   const [showRaw, setShowRaw] = useState(false)
   const sheetPath = job.tool === 'character8' || job.tool === 'animate' ? job.outputs.sheet : (job.outputs.preview ?? job.outputs.sheet ?? job.outputs.frames?.[0])
   return (
@@ -217,6 +220,17 @@ function JobViewer({ job }: { job: PixelJob }) {
           </Button>
         )}
       </div>
+      {job.status === 'done' && <div className="flex flex-wrap items-center gap-2">
+        <label className={FIELD}>Export format
+          <select aria-label="Export format" className={SELECT} value={format} onChange={(e) => setFormat(e.target.value as typeof format)}>
+            <option value="web">Web</option>
+            {['tileset', 'platformer', 'tileset47'].includes(job.tool) && <option value="tiled">Tiled</option>}
+            <option value="godot">Godot</option><option value="unity">Unity</option>
+          </select>
+        </label>
+        <Button type="button" variant="outline" size="xs" disabled={exportJob.isPending} onClick={() => exportJob.mutate()}>Export</Button>
+        {exported && <ul aria-label="Exported paths">{Object.entries(exported).map(([key, path]) => <li key={key}>{key}: {path}</li>)}</ul>}
+      </div>}
       {showRaw && job.raw.map((r) => <img key={r} src={pixelJobFileUrl(job.id, r)} alt={r} className="max-w-full rounded-sm" />)}
     </section>
   )
@@ -304,11 +318,11 @@ function SpritePlayer({ sheet, src }: { sheet: Sheet; src: string }) {
 const FIELD = 'flex flex-col gap-1 text-ui'
 const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-ui outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
-type GenTool = 'character8' | 'animate' | 'tileset' | 'image' | 'ui' | 'edit'
+type GenTool = PixelJob['tool']
 type Palette = (typeof PALETTES)[number]
 
 /** A file input that uploads at once and keeps the returned upload name. */
-function UploadField({ label, value, onChange }: { label: string; value: string | null; onChange: (name: string | null) => void }) {
+function UploadField({ label, value, onChange, accept = 'image/png,image/jpeg,image/webp' }: { label: string; value: string | null; onChange: (name: string | null) => void; accept?: string }) {
   const upload = useMutation({
     mutationFn: (file: File) => uploadPixelImage(file),
     onSuccess: (r) => onChange(r.name),
@@ -320,7 +334,7 @@ function UploadField({ label, value, onChange }: { label: string; value: string 
       <input
         aria-label={label}
         type="file"
-        accept="image/png,image/jpeg,image/webp"
+        accept={accept}
         className="text-ui"
         onChange={(e) => {
           const file = e.target.files?.[0]
@@ -333,13 +347,18 @@ function UploadField({ label, value, onChange }: { label: string; value: string 
   )
 }
 
-function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: string) => void }) {
+export function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: string) => void }) {
   const queryClient = useQueryClient()
   const [tool, setTool] = useState<GenTool>('character8')
   const [backend, setBackend] = useState<'codex' | 'gpu'>('codex')
   const [description, setDescription] = useState('')
   const [view, setView] = useState<'side' | 'low top-down' | 'high top-down'>('low top-down')
   const [quality, setQuality] = useState<'standard' | 'hd'>('hd')
+  const [outline, setOutline] = useState<'' | 'black' | 'colored' | 'selective' | 'lineless'>('')
+  const [shading, setShading] = useState<'' | 'flat' | 'basic' | 'medium' | 'detailed' | 'highly-detailed'>('')
+  const [detail, setDetail] = useState<'' | 'low' | 'medium' | 'high'>('')
+  const look = { quality, ...(outline ? { outline } : {}), ...(shading ? { shading } : {}), ...(detail ? { detail } : {}) }
+
   const [palette, setPalette] = useState<Palette | ''>('')
   const [concept, setConcept] = useState<string | null>(null)
   const [style, setStyle] = useState<string | null>(null)
@@ -378,18 +397,18 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (tool === 'character8') {
-      start.mutate({ tool, description, size, colors, view, quality, backend, ...pal, ...(concept ? { concept } : {}), ...(style ? { styles: [style] } : {}) })
+      start.mutate({ tool, description, size, colors, view, ...look, backend, ...pal, ...(concept ? { concept } : {}), ...(style ? { styles: [style] } : {}) })
     } else if (tool === 'animate') {
-      start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, size, colors, backend, ...pal })
+      start.mutate({ tool, reference: reference || refs[0]?.value || '', action, frames, direction, size, colors, ...look, backend, ...pal })
     } else if (tool === 'tileset') {
-      start.mutate({ tool, lower, upper, tileSize, colors, backend, ...pal })
+      start.mutate({ tool, lower, upper, tileSize, colors, ...look, backend, ...pal })
     } else if (tool === 'image') {
-      start.mutate({ tool, description, kind, width, height, colors, quality, backend, ...pal })
+      start.mutate({ tool, description, kind, width, height, colors, ...look, backend, ...pal })
     } else if (tool === 'ui') {
-      start.mutate({ tool, items: parseItems(items), theme, size, colors, backend, ...pal, ...(style ? { styles: [style] } : {}) })
-    } else {
+      start.mutate({ tool, items: parseItems(items), theme, size, colors, ...look, backend, ...pal, ...(style ? { styles: [style] } : {}) })
+    } else if (tool === 'edit') {
       const src = sourceUpload ? `upload:${sourceUpload}` : source || sources[0]?.value || ''
-      start.mutate({ tool, source: src, instruction, backend, ...(mask ? { mask } : {}) })
+      start.mutate({ tool, source: src, instruction, ...look, backend, ...(mask ? { mask } : {}) })
     }
   }
 
@@ -399,6 +418,10 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
     (tool === 'animate' && refs.length === 0) ||
     (tool === 'edit' && !sourceUpload && sources.length === 0) ||
     (tool === 'ui' && parseItems(items).length === 0)
+
+  if (!['character8', 'animate', 'tileset', 'image', 'ui', 'edit'].includes(tool)) {
+    return <NewToolForm tool={tool} jobs={jobs} onTool={setTool} onStarted={onStarted} />
+  }
 
   return (
     <form data-slot="pixel-generate" onSubmit={submit} className="flex max-w-2xl flex-col gap-3">
@@ -412,6 +435,7 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
             <option value="image">Scene, map or object</option>
             <option value="ui">UI elements</option>
             <option value="edit">Edit / inpaint an image</option>
+            {(['isometric', 'platformer', 'interpolate', 'rotate', 'resize', 'vfx', 'tileset47'] as const).map((t) => <option key={t} value={t}>{TOOL_LABEL[t]}</option>)}
           </select>
         </label>
         <label className={FIELD}>
@@ -574,7 +598,7 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
               {PALETTES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
-          {(tool === 'character8' || tool === 'image') && (
+          {
             <label className={FIELD}>
               Quality
               <select aria-label="Quality" className={SELECT} value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}>
@@ -582,9 +606,15 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
                 <option value="standard">standard</option>
               </select>
             </label>
-          )}
+          }
         </div>
       )}
+      {tool === 'edit' && <label className={FIELD}>Quality<select aria-label="Quality" className={SELECT} value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}><option value="hd">HD</option><option value="standard">standard</option></select></label>}
+      {<div className="grid gap-3 sm:grid-cols-3">
+        <label className={FIELD}>Outline<select aria-label="Outline" className={SELECT} value={outline} onChange={(e) => setOutline(e.target.value as typeof outline)}><option value="">Quality default</option>{['black', 'colored', 'selective', 'lineless'].map((v) => <option key={v}>{v}</option>)}</select></label>
+        <label className={FIELD}>Shading<select aria-label="Shading" className={SELECT} value={shading} onChange={(e) => setShading(e.target.value as typeof shading)}><option value="">Quality default</option>{['flat', 'basic', 'medium', 'detailed', 'highly-detailed'].map((v) => <option key={v}>{v}</option>)}</select></label>
+        <label className={FIELD}>Detail<select aria-label="Detail" className={SELECT} value={detail} onChange={(e) => setDetail(e.target.value as typeof detail)}><option value="">Quality default</option>{['low', 'medium', 'high'].map((v) => <option key={v}>{v}</option>)}</select></label>
+      </div>}
       <Button type="submit" className="w-fit" disabled={disabled}>
         <SparklesIcon aria-hidden="true" /> {start.isPending ? 'Starting…' : 'Generate'}
       </Button>
@@ -593,6 +623,83 @@ function Generate({ jobs, onStarted }: { jobs: PixelJob[]; onStarted: (id: strin
       </p>
     </form>
   )
+}
+
+/** Inputs for the additional PixelForge pipelines. Files are uploads or library references. */
+export function NewToolForm({ tool, jobs, onTool, onStarted }: { tool: GenTool; jobs: PixelJob[]; onTool: (tool: GenTool) => void; onStarted: (id: string) => void }) {
+  const queryClient = useQueryClient()
+  const [backend, setBackend] = useState<'codex' | 'gpu'>('codex')
+  const [quality, setQuality] = useState<'standard' | 'hd'>('hd')
+  const [outline, setOutline] = useState<'' | 'black' | 'colored' | 'selective' | 'lineless'>('')
+  const [shading, setShading] = useState<'' | 'flat' | 'basic' | 'medium' | 'detailed' | 'highly-detailed'>('')
+  const [detail, setDetail] = useState<'' | 'low' | 'medium' | 'high'>('')
+  const [edgeOutline, setEdgeOutline] = useState<'all' | 'outer'>('all')
+  const [description, setDescription] = useState('')
+  const [lower, setLower] = useState('')
+  const [upper, setUpper] = useState('')
+  const [material, setMaterial] = useState('')
+  const [decoration, setDecoration] = useState('')
+  const [tileSize, setTileSize] = useState(32)
+  const [blockHeight, setBlockHeight] = useState(0)
+  const [size, setSize] = useState(48)
+  const [colors, setColors] = useState(16)
+  const [frames, setFrames] = useState(8)
+  const [inbetweens, setInbetweens] = useState(1)
+  const [direction, setDirection] = useState<'south' | 'south-west' | 'west' | 'north-west' | 'north' | 'north-east' | 'east' | 'south-east' | 'all'>('east')
+  const [palette, setPalette] = useState<Palette | ''>('')
+  const [reference, setReference] = useState('')
+  const [referenceUpload, setReferenceUpload] = useState<string | null>(null)
+  const [end, setEnd] = useState('')
+  const [endUpload, setEndUpload] = useState<string | null>(null)
+  const [mode, setMode] = useState<'endpoints' | 'sheet'>('endpoints')
+  const [sheet, setSheet] = useState('')
+  const [sheetUpload, setSheetUpload] = useState<string | null>(null)
+  const [jsonUpload, setJsonUpload] = useState<string | null>(null)
+  const [instruction, setInstruction] = useState('')
+  const sources = editSourceOptions(jobs)
+  const sheets = jobs.filter((j) => j.status === 'done' && j.outputs.sheet && j.outputs.json)
+  const sourceRef = referenceUpload ? `upload:${referenceUpload}` : reference || sources[0]?.value || ''
+  const endRef = endUpload ? `upload:${endUpload}` : end || sources[0]?.value || ''
+  const selectedSheet = sheets.find((j) => j.id === sheet) ?? sheets[0]
+  const common = { backend, quality, ...(outline ? { outline } : {}), ...(shading ? { shading } : {}), ...(detail ? { detail } : {}) }
+  const pal = palette ? { palette } : {}
+  const start = useMutation({ mutationFn: (input: CreatePixelJobInput) => createPixelJob(input), onSuccess: (r) => { void queryClient.invalidateQueries({ queryKey: queryKeys.pixelStudio.jobs() }); onStarted(r.jobId) }, onError: (e: Error) => toast(e.message, { tone: 'danger' }) })
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (tool === 'isometric') start.mutate({ tool, description, tileSize, blockHeight, colors, edgeOutline, ...pal, ...common })
+    else if (tool === 'platformer') start.mutate({ tool, material, decoration, tileSize, colors, edgeOutline, ...pal, ...common })
+    else if (tool === 'tileset47') start.mutate({ tool, lower, upper, tileSize, colors, ...pal, ...common })
+    else if (tool === 'rotate') start.mutate({ tool, reference: sourceRef, direction, ...common })
+    else if (tool === 'resize') start.mutate({ tool, reference: sourceRef, size, ...common })
+    else if (tool === 'vfx') start.mutate({ tool, description, frames, size, colors, ...common })
+    else if (tool === 'interpolate') start.mutate({ tool, inbetweens, ...common, ...(mode === 'sheet' ? { sheet: sheetUpload ? `upload:${sheetUpload}` : `${selectedSheet?.id}/${selectedSheet?.outputs.sheet}`, sheetJson: jsonUpload ? `upload:${jsonUpload}` : `${selectedSheet?.id}/${selectedSheet?.outputs.json}`, instruction } : { start: sourceRef, end: endRef }) })
+  }
+  const fileInput = (label: string, value: string, setValue: (s: string) => void, upload: string | null, setUpload: (s: string | null) => void) => <div className="grid gap-2 sm:grid-cols-2">
+    <label className={FIELD}>{label}<select aria-label={label} className={SELECT} value={value || sources[0]?.value || ''} onChange={(e) => setValue(e.target.value)} disabled={Boolean(upload)}><option value="">Choose a frame</option>{sources.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
+    <UploadField label={`${label} upload`} value={upload} onChange={setUpload} />
+  </div>
+  return <form data-slot="pixel-generate" onSubmit={submit} className="flex max-w-2xl flex-col gap-3">
+    <label className={FIELD}>Tool<select aria-label="Tool" className={SELECT} value={tool} onChange={(e) => onTool(e.target.value as GenTool)}>{(Object.keys(TOOL_LABEL) as GenTool[]).map((t) => <option key={t} value={t}>{TOOL_LABEL[t]}</option>)}</select></label>
+    <label className={FIELD}>Generator<select aria-label="Generator" className={SELECT} value={backend} onChange={(e) => setBackend(e.target.value as typeof backend)}><option value="codex">Codex image_gen</option><option value="gpu">GPU cezar</option></select></label>
+    {(tool === 'isometric' || tool === 'vfx') && <label className={FIELD}>Description<Textarea aria-label="Description" required minLength={3} value={description} onChange={(e) => setDescription(e.target.value)} /></label>}
+    {tool === 'platformer' && <><label className={FIELD}>Material<Input aria-label="Material" required minLength={2} value={material} onChange={(e) => setMaterial(e.target.value)} /></label><label className={FIELD}>Decoration<Input aria-label="Decoration" value={decoration} onChange={(e) => setDecoration(e.target.value)} /></label></>}
+    {tool === 'tileset47' && <><label className={FIELD}>Lower terrain<Input aria-label="Lower terrain" required minLength={2} value={lower} onChange={(e) => setLower(e.target.value)} /></label><label className={FIELD}>Upper terrain<Input aria-label="Upper terrain" required minLength={2} value={upper} onChange={(e) => setUpper(e.target.value)} /></label></>}
+    {(['isometric', 'platformer', 'tileset47'].includes(tool)) && <label className={FIELD}>Tile size<Input aria-label="Tile size" type="number" min={16} max={tool === 'platformer' ? 32 : 64} step={tool === 'tileset47' ? 2 : 1} value={tileSize} onChange={(e) => setTileSize(Number(e.target.value))} /></label>}
+    {tool === 'isometric' && <label className={FIELD}>Block height<Input aria-label="Block height" type="number" min={0} max={128} value={blockHeight} onChange={(e) => setBlockHeight(Number(e.target.value))} /></label>}
+    {(tool === 'isometric' || tool === 'platformer') && <label className={FIELD}>Edge outline<select aria-label="Edge outline" className={SELECT} value={edgeOutline} onChange={(e) => setEdgeOutline(e.target.value as typeof edgeOutline)}><option value="all">all</option><option value="outer">outer</option></select></label>}
+    {(tool === 'rotate' || tool === 'resize' || (tool === 'interpolate' && mode === 'endpoints')) && fileInput(tool === 'interpolate' ? 'Start frame' : 'Reference', reference, setReference, referenceUpload, setReferenceUpload)}
+    {tool === 'interpolate' && <><label className={FIELD}>Input mode<select aria-label="Input mode" className={SELECT} value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}><option value="endpoints">Two endpoints</option><option value="sheet">Edit sheet</option></select></label>{mode === 'endpoints' ? fileInput('End frame', end, setEnd, endUpload, setEndUpload) : <><label className={FIELD}>Sheet<select aria-label="Sheet" className={SELECT} value={selectedSheet?.id || ''} onChange={(e) => setSheet(e.target.value)}><option value="">Choose a sheet</option>{sheets.map((j) => <option key={j.id} value={j.id}>{j.id}</option>)}</select></label><UploadField label="Sheet upload" value={sheetUpload} onChange={setSheetUpload} /><UploadField label="Sheet JSON upload" value={jsonUpload} onChange={setJsonUpload} accept="application/json,.json" /><label className={FIELD}>Instruction<Textarea aria-label="Instruction" required value={instruction} onChange={(e) => setInstruction(e.target.value)} /></label></>}<label className={FIELD}>In-betweens<Input aria-label="In-betweens" type="number" min={1} max={14} value={inbetweens} onChange={(e) => setInbetweens(Number(e.target.value))} /></label></>}
+    {tool === 'rotate' && <label className={FIELD}>Direction<select aria-label="Direction" className={SELECT} value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>{['south','south-west','west','north-west','north','north-east','east','south-east','all'].map((d) => <option key={d}>{d}</option>)}</select></label>}
+    {(tool === 'resize' || tool === 'vfx') && <label className={FIELD}>Size<Input aria-label="Size" type="number" min={tool === 'vfx' ? 8 : 1} max={tool === 'vfx' ? 128 : 512} value={size} onChange={(e) => setSize(Number(e.target.value))} /></label>}
+    {tool === 'vfx' && <label className={FIELD}>Frames<Input aria-label="Frames" type="number" min={4} max={16} value={frames} onChange={(e) => setFrames(Number(e.target.value))} /></label>}
+    {['isometric', 'platformer', 'tileset47', 'vfx'].includes(tool) && <label className={FIELD}>Colors<Input aria-label="Colors" type="number" min={tool === 'vfx' ? 2 : 4} max={64} value={colors} onChange={(e) => setColors(Number(e.target.value))} /></label>}
+    {['isometric', 'platformer', 'tileset47'].includes(tool) && <label className={FIELD}>Palette<select aria-label="Palette" className={SELECT} value={palette} onChange={(e) => setPalette(e.target.value as typeof palette)}><option value="">from the image</option>{PALETTES.map((p) => <option key={p}>{p}</option>)}</select></label>}
+    <label className={FIELD}>Quality<select aria-label="Quality" className={SELECT} value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}><option value="hd">HD</option><option value="standard">standard</option></select></label>
+    <label className={FIELD}>Outline<select aria-label="Outline" className={SELECT} value={outline} onChange={(e) => setOutline(e.target.value as typeof outline)}><option value="">Quality default</option>{['black','colored','selective','lineless'].map((v) => <option key={v}>{v}</option>)}</select></label>
+    <label className={FIELD}>Shading<select aria-label="Shading" className={SELECT} value={shading} onChange={(e) => setShading(e.target.value as typeof shading)}><option value="">Quality default</option>{['flat','basic','medium','detailed','highly-detailed'].map((v) => <option key={v}>{v}</option>)}</select></label>
+    <label className={FIELD}>Detail<select aria-label="Detail" className={SELECT} value={detail} onChange={(e) => setDetail(e.target.value as typeof detail)}><option value="">Quality default</option>{['low','medium','high'].map((v) => <option key={v}>{v}</option>)}</select></label>
+    <Button type="submit" className="w-fit" disabled={start.isPending || ((tool === 'rotate' || tool === 'resize') && !sourceRef) || (tool === 'interpolate' && (mode === 'sheet' ? !(sheetUpload || selectedSheet) || !(jsonUpload || selectedSheet) : !sourceRef || !endRef))}>Generate</Button>
+  </form>
 }
 
 function GpuQueue() {

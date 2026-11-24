@@ -1,5 +1,6 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -112,6 +113,9 @@ describe('Pixel Studio API', () => {
     expect(name).toMatch(/^[0-9TZ]+-[a-z0-9]+\.png$/);
     expect(readFileSync(join(repoRoot, 'assets', 'pixel-uploads', name)).length).toBe(4);
     expect((await upload(new Blob(['<svg/>'], { type: 'image/svg+xml' }), 'x.svg')).status).toBe(400);
+    const metadata = await upload(new Blob(['{\"frames\":[]}'], { type: 'application/json' }), 'sheet.json');
+    expect(metadata.status).toBe(201);
+    expect(((await metadata.json()) as { name: string }).name).toMatch(/\.json$/);
   });
 
   it('validates the new tools', async () => {
@@ -131,6 +135,40 @@ describe('Pixel Studio API', () => {
       expect((await post(body)).status, JSON.stringify(body)).toBe(409);
     }
   });
+
+  it('validates every new tool and the export route', async () => {
+    const post = (body: unknown) => apiRequest(app, '/api/v1/p/repo/pixel-studio/jobs', json('POST', body));
+    for (const body of [
+      { tool: 'isometric', description: 'stone tile' }, { tool: 'platformer', material: 'stone' },
+      { tool: 'interpolate', start: 'job1/out/sheet.png', end: 'job1/out/sheet.png' },
+      { tool: 'rotate', reference: 'job1/out/sheet.png' }, { tool: 'resize', reference: 'job1/out/sheet.png' },
+      { tool: 'vfx', description: 'magic fire' }, { tool: 'tileset47', lower: 'grass', upper: 'dirt' },
+    ]) expect((await post(body)).status, JSON.stringify(body)).toBe(409);
+    const path = '/api/v1/p/repo/pixel-studio/jobs/job1/export';
+    expect((await apiRequest(app, path, json('POST', { format: '../bad' }))).status).toBe(400);
+    expect((await apiRequest(app, path, json('POST', { format: 'web' }))).status).toBe(409);
+    await apiRequest(app, '/api/v1/workspace/pixel-studio', json('PUT', { home: forge }));
+    expect((await apiRequest(app, path, json('POST', { format: 'tiled' }))).status).toBe(400);
+  });
+
+  it.skipIf(!process.env.PIXELFORGE_TEST_PKG)('exports a finished job through the HTTP route', async () => {
+    const python = join(homedir(), 'ai-projects', 'PixelArt_Skorowid_Games', '.venv', 'bin', 'python');
+    const install = join(base, 'current-pixelforge');
+    mkdirSync(join(install, 'tools'), { recursive: true });
+    symlinkSync(process.env.PIXELFORGE_TEST_PKG!, join(install, 'tools', 'pixelforge'));
+    symlinkSync(join(homedir(), 'ai-projects', 'PixelArt_Skorowid_Games', '.venv'), join(install, '.venv'));
+    const job = join(repoRoot, 'assets', 'jobs', 'job1');
+    const data = JSON.parse(readFileSync(join(job, 'job.json'), 'utf8'));
+    data.tool = 'isometric';
+    delete data.outputs.json;
+    writeFileSync(join(job, 'job.json'), JSON.stringify(data));
+    execFileSync(python, ['-c', 'from PIL import Image; import sys; Image.new("RGBA", (16,16), (120,50,20,255)).save(sys.argv[1])', join(job, 'out', 'sheet.png')]);
+    expect((await apiRequest(app, '/api/v1/workspace/pixel-studio', json('PUT', { home: install }))).status).toBe(200);
+    const response = await apiRequest(app, '/api/v1/p/repo/pixel-studio/jobs/job1/export', json('POST', { format: 'web' }));
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(body).toMatchObject({ paths: { image: 'export/web/atlas.png', json: 'export/web/atlas.json' } });
+  }, 60_000);
 
   it('lists the GPU queue', async () => {
     const q = pixelGpuQueueSchema.parse(await (await apiRequest(app, '/api/v1/p/repo/pixel-studio/gpu-queue')).json());
