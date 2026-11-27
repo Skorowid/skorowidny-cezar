@@ -40,20 +40,20 @@ def category(path):
 
 def report(root, baseline, target, fork_ref="HEAD"):
     base_sha, target_sha, fork_sha = [commit(root, ref) for ref in (baseline, target, fork_ref)]
-    for sha in (target_sha, fork_sha):
-        subprocess.run(
-            ["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, sha],
-            check=True, capture_output=True, timeout=30,
-        )
-    incoming = changed_files(root, base_sha, target_sha)
+    target_base = git(root, "merge-base", base_sha, target_sha)
+    subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, fork_sha],
+        check=True, capture_output=True, timeout=30,
+    )
+    incoming = changed_files(root, target_base, target_sha)
     local = changed_files(root, base_sha, fork_sha)
-    count = int(git(root, "rev-list", "--count", f"{base_sha}..{target_sha}"))
+    count = int(git(root, "rev-list", "--count", f"{target_base}..{target_sha}"))
     return {
         "baseline": base_sha,
         "upstream": target_sha,
         "fork": fork_sha,
         "upstream_commit_count": count,
-        "incoming_commits": git(root, "log", "--format=%h %s", "-n", "200", f"{base_sha}..{target_sha}").splitlines(),
+        "incoming_commits": git(root, "log", "--format=%h %s", "-n", "200", f"{target_base}..{target_sha}").splitlines(),
         "commits_truncated": count > 200,
         "upstream_changes": [{"path": p, "category": category(p)} for p in incoming],
         "fork_changes": [{"path": p, "category": category(p)} for p in local],
@@ -93,7 +93,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         manifest = json.loads((args.repo / "fork/upstream.json").read_text())
-        data = report(args.repo, manifest["baseline_commit"], args.upstream_ref or manifest["integration_ref"], args.fork_ref)
+        target = args.upstream_ref or manifest["integration_ref"]
+        try:
+            commit(args.repo, target)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"Cannot resolve upstream ref {target!r}; run git fetch <upstream remote> --tags") from error
+        data = report(args.repo, manifest["baseline_commit"], target, args.fork_ref)
         content = json.dumps(data, indent=2, ensure_ascii=False) + "\n" if args.format == "json" else markdown(data)
         if args.output:
             # Refuse clobbering tracked source or an existing report by accident.

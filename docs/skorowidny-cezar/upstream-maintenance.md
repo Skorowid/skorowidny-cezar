@@ -4,7 +4,7 @@
 
 `origin` wskazuje `Skorowid/skorowidny-cezar`, `upstream` wskazuje `open-mercato/cezar`. Domyślna gałąź robocza forka to `skorowidny/main` — zawiera własne przyrosty. Odziedziczony `main` pozostaje snapshotem oryginału z chwili utworzenia forka i nie jest celem własnych PR. Dzięki temu nie trzeba nadpisywać historii nowszego upstreamu podczas pierwszej publikacji. Gałąź `upstream-main` w publicznym forku jest lustrzaną kopią ostatnio rozpatrzonego commita oryginału; nie dodajemy tam własnych commitów.
 
-`fork/upstream.json` identyfikuje ostatnią w pełni zintegrowaną bazę upstream. Od 2026-11-03 jest nią zweryfikowany tag wydania `v0.18.0` (`0d801132ecc4a628e650c4cc1b5072e5d256ff15`). Porównania: `--upstream-ref upstream/main` pokazuje dalszy postęp upstreamu, a nowe wydanie weryfikuje się przez `gh release view <tag> -R open-mercato/cezar` i `git ls-remote --tags upstream`, bez zgadywania tagu. Nie zmieniamy historii oryginału ani nazw pakietów w pierwszym przyroście.
+`fork/upstream.json` identyfikuje ostatnią w pełni zintegrowaną bazę upstream. Od 2026-11-27 jest nią zweryfikowany tag wydania `v0.19.0` (`7225a3db990d7fc2a09525b6148e8e9001a8c1e2`). Pole `deviations` zapisuje świadome odstępstwa od zintegrowanej zawartości i ich przyczyny; odstępstwo wyjaśniające różnicę wersji zawiera `package_version_at_baseline`, `package_version` i `reason`. Porównania: `--upstream-ref upstream/main` pokazuje dalszy postęp upstreamu, a nowe wydanie weryfikuje się przez `gh release view <tag> -R open-mercato/cezar` i `git ls-remote --tags upstream`, bez zgadywania tagu. Nie zmieniamy historii oryginału ani nazw pakietów w pierwszym przyroście.
 
 ## Klonowanie i raport
 
@@ -21,7 +21,7 @@ Docelowy plik musi nie istnieć, aby przypadkowo nie nadpisać poprzedniego rapo
 
 Jawny default `gh` kieruje zgłoszenia i PR do forka, zamiast polegać na automatycznym wyborze rodzica sieci forków. PR własnych zmian kierujemy do `skorowidny/main` w tym repozytorium; przekazanie poprawki oryginałowi jest osobną czynnością.
 
-Raport pokazuje commity i zmienione ścieżki od zapisanej bazy do wskazanego upstreamu oraz do forka. Rozdziela backend, prezentację, kontrakty, dodatki forka i współdzieloną infrastrukturę. Wskazuje nakładające się ścieżki. Brak takiego nakładania nie dowodzi zgodności: zmiana kontraktu może oddziaływać na UI bez zmiany tego samego pliku. Raport nie jest symulacją merge ani automatyczną rekomendacją przyjęcia zmiany.
+Raport pokazuje commity i zmienione ścieżki od wspólnego przodka zapisanej bazy i wskazanego upstreamu do tego upstreamu oraz od zapisanej bazy do forka. Tagi wydań mogą leżeć na różnych gałęziach. Rozdziela backend, prezentację, kontrakty, dodatki forka i współdzieloną infrastrukturę. Wskazuje nakładające się ścieżki. Brak takiego nakładania nie dowodzi zgodności: zmiana kontraktu może oddziaływać na UI bez zmiany tego samego pliku. Raport nie jest symulacją merge ani automatyczną rekomendacją przyjęcia zmiany.
 
 Podstawowe porównania:
 
@@ -38,7 +38,7 @@ Trzy kropki pokazują zmiany danej strony od wspólnego przodka, nie pełną ró
 
 1. Zacząć z czystego drzewa, aktualnego `skorowidny/main` forka i świeżego fetch upstreamu. Utworzyć `maintenance/upstream-YYYY-MM-DD`.
 2. Wygenerować raport i przeczytać opis wydania, commity oraz wymagania migracji.
-3. Wykonać `git merge --no-ff --no-commit upstream/main` na gałęzi maintenance. W razie konfliktów rozwiązać je jawnie; można wycofać niezatwierdzoną integrację przez `git merge --abort`.
+3. Przed merge sprawdzić `deviations`: v0.20.0 scalono w `e7ce920c`, a następnie cofnięto w `90c72ca9`; jego zawartości nie przyjęto, ale commity pozostały przodkami. Zwykły kolejny merge pominie te zmiany. Odwrócić revert albo świadomie wybrać zakres zmian, sprawdzając zależności. Następnie wykonać `git merge --no-ff --no-commit upstream/main` na gałęzi maintenance. W razie konfliktów rozwiązać je jawnie; można wycofać niezatwierdzoną integrację przez `git merge --abort`.
 4. Nie stosować zbiorczego `--ours` ani `--theirs` dla UI. Zachować własny wygląd, ale uwzględnić wymagane zmiany kontraktów i zachowania. Backendowe testy mogą nie wykryć nieaktualnego klienta.
 5. Uruchomić bramki jakości, testy własnych dodatków i istotne testy integracyjne/UI. Zapisać faktyczne wyniki.
 6. Po pełnej integracji wpisać SHA zintegrowanego upstreamu do `baseline_commit` oraz zaktualizować wersję i datę w `fork/upstream.json`. Nie przesuwać bazy do commita, którego zmian w całości nie przyjęto.
