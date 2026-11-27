@@ -33,8 +33,10 @@ describe('preferForOomKill (issue #1)', () => {
     const { readFileSync } = await import('node:fs');
     const child = spawn('sleep', ['5']);
     try {
-      expect(preferForOomKill(child.pid!)).toBe(true);
-      expect(Number(readFileSync(`/proc/${child.pid}/oom_score_adj`, 'utf8'))).toBe(AGENT_OOM_SCORE_ADJ);
+      // A CI runner may already start jobs above the preference; then nothing is written.
+      const before = Number(readFileSync(`/proc/${child.pid}/oom_score_adj`, 'utf8'));
+      expect(preferForOomKill(child.pid!)).toBe(before < AGENT_OOM_SCORE_ADJ);
+      expect(Number(readFileSync(`/proc/${child.pid}/oom_score_adj`, 'utf8'))).toBe(Math.max(before, AGENT_OOM_SCORE_ADJ));
     } finally {
       child.kill();
     }
