@@ -76,6 +76,30 @@ class ComparisonTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             MODULE.report(self.root, self.base, "HEAD", self.base)
 
+    def test_release_branch_target_uses_merge_base(self):
+        self.git("switch", "-c", "release")
+        self.write("packages/web/new.txt", "new release")
+        target = self.save("release change")
+        self.git("switch", "main")
+        self.write("packages/cezar/core.txt", "baseline release")
+        baseline = self.save("baseline release")
+        data = MODULE.report(self.root, baseline, target, baseline)
+        self.assertEqual(data["upstream_commit_count"], 1)
+        self.assertEqual([item["path"] for item in data["upstream_changes"]], ["packages/web/new.txt"])
+
+    def test_missing_integration_tag_suggests_fetch(self):
+        self.write("fork/upstream.json", json.dumps({"baseline_commit": self.base, "integration_ref": "refs/tags/v99"}))
+        with contextlib.redirect_stderr(io.StringIO()) as stream, self.assertRaises(SystemExit):
+            MODULE.main(["--repo", str(self.root), "--stdout"])
+        self.assertIn("git fetch <upstream remote> --tags", stream.getvalue())
+
+    def test_recorded_version_matches_package_or_explained_deviation(self):
+        root = Path(__file__).resolve().parents[2]
+        manifest = json.loads((root / "fork/upstream.json").read_text())
+        version = json.loads((root / "packages/cezar/package.json").read_text())["version"]
+        if manifest["package_version_at_baseline"] != version:
+            self.assertTrue(any(d.get("package_version_at_baseline") == manifest["package_version_at_baseline"] and d.get("package_version") == version and d.get("reason") for d in manifest.get("deviations", [])))
+
     def test_invalid_ref_is_rejected(self):
         with self.assertRaises(subprocess.CalledProcessError):
             MODULE.report(self.root, self.base, "--help")

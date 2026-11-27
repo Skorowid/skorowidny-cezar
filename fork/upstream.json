@@ -1,9 +1,20 @@
 {
   "repository": "https://github.com/open-mercato/cezar.git",
-  "integration_ref": "refs/tags/v0.18.0",
-  "baseline_commit": "0d801132ecc4a628e650c4cc1b5072e5d256ff15",
-  "package_version_at_baseline": "0.18.0",
-  "baseline_kind": "verified release tag v0.18.0",
-  "recorded_on": "2026-11-03",
-  "fork_repository": "https://github.com/Skorowid/skorowidny-cezar"
+  "integration_ref": "refs/tags/v0.19.0",
+  "baseline_commit": "7225a3db990d7fc2a09525b6148e8e9001a8c1e2",
+  "package_version_at_baseline": "0.19.0",
+  "baseline_kind": "verified release tag v0.19.0",
+  "recorded_on": "2026-11-27",
+  "fork_repository": "https://github.com/Skorowid/skorowidny-cezar",
+  "deviations": [
+    {
+      "commit": "5f1ffab4",
+      "reason": "Telemetry, star count and skills auto-update deliberately removed."
+    },
+    {
+      "merge_commit": "e7ce920c",
+      "revert_commit": "90c72ca9",
+      "reason": "Upstream v0.20.0 was merged then reverted; its content was not taken. Its commits remain ancestors, so a later plain merge silently skips those changes. Revert the revert or deliberately pick the range during the next integration."
+    }
+  ]
 }
