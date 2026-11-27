@@ -16,6 +16,7 @@
 
 import { execFile } from 'node:child_process';
 import type { DashboardTelemetrySample } from '@open-mercato/cezar-contract';
+import { preferForOomKill } from './oom-preference.ts';
 
 /** One aggregated sample for a run's process tree. */
 export interface ProcessUsage {
@@ -132,6 +133,7 @@ let sampling = false;
  *  the engine maxes them into the run record on unregister. */
 export function registerRunProcess(runId: string, pid: number): void {
   entries.set(runId, { pid, peakRssBytes: 0, peakProcCount: 0 });
+  preferForOomKill(pid);
   if (!timer) {
     timer = setInterval(() => void sample(), SAMPLE_INTERVAL_MS);
     timer.unref?.();

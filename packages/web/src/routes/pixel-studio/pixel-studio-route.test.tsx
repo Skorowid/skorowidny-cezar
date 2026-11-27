@@ -58,7 +58,7 @@ it('submits animation auto size and optional animation fields', async () => {
   expect((screen.getByLabelText('Size') as HTMLInputElement).value).toBe('')
   fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
   await waitFor(() => expect(create).toHaveBeenCalled())
-  expect(create.mock.calls[0][0]).not.toHaveProperty('size')
+  expect((create.mock.calls[0] as unknown[] | undefined)?.[0]).not.toHaveProperty('size')
   fireEvent.change(screen.getByLabelText('Size'), { target: { value: '64' } })
   fireEvent.change(screen.getByLabelText('Weapon'), { target: { value: 'sword' } })
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'red cloak' } })

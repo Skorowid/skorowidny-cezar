@@ -137,3 +137,21 @@ export function largestRun(snapshot: Readonly<Record<string, { rssBytes: number 
 export function formatGb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
+
+/** Admission floor (owner 2026-11-27, issue #1): a queued task starts only with this much left. */
+export const DEFAULT_ADMIT_GB = 4;
+
+/** `CEZ_ADMIT_MEMORY_GB`: bytes a new task needs free; 0 turns the check off, junk keeps the default. */
+export function admitBytes(raw: string | undefined = process.env.CEZ_ADMIT_MEMORY_GB): number {
+  const fallback = DEFAULT_ADMIT_GB * 1024 ** 3;
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value * 1024 ** 3 : fallback;
+}
+
+/** The least memory left in any budget, or undefined when none could be read. */
+export function leastAvailable(budgets: readonly MemoryBudget[]): number | undefined {
+  let least: number | undefined;
+  for (const budget of budgets) if (least === undefined || budget.availableBytes < least) least = budget.availableBytes;
+  return least;
+}

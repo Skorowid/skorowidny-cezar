@@ -3,6 +3,10 @@ import type { QueueWaitReason } from '@open-mercato/cezar-api-client'
 export function queueWaitLabel(reason: QueueWaitReason | undefined, timeZone?: string): string | undefined {
   if (!reason) return undefined
   if (reason.kind === 'account-resume') return "Waiting for this account's automatic resume"
+  if (reason.kind === 'memory') {
+    const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`
+    return `Waiting for memory · ${gb(reason.availableBytes)} free, ${gb(reason.neededBytes)} needed`
+  }
   if (reason.kind === 'limit-low') {
     const at = new Date(reason.resetsAt)
     return `Parked while this account's usage is low · resets ${at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC`

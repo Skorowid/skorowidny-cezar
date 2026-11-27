@@ -53,7 +53,9 @@ These are the safety net, not the plan. An agent that hits them has already slow
 
 ## For the operator
 
-- Run cezar under a hard memory limit (`MemoryMax`) with `OOMPolicy=continue`, so the kernel kills one agent instead of the whole service, and keep the sum of hard limits below physical memory.
+- Run cezar under a hard memory limit (`MemoryMax`, with `MemoryHigh` a little below it) and `OOMPolicy=continue`, and keep the sum of hard limits below physical memory. `OOMPolicy=continue` only keeps systemd from stopping the whole service when the kernel kills a process; it does not choose the victim. The cockpit and the agents share the limit, and if the kernel picks the cockpit, every running task is interrupted (issue #1).
+- cezar gives every agent and check step `oom_score_adj` 500, so the kernel prefers them, and their builds, to the cockpit. This is a preference, not isolation.
+- A queued task starts only with `CEZ_ADMIT_MEMORY_GB` (4) GB left per recently started task; otherwise it waits as "Waiting for memory". Only a separate `systemd-run --user --scope -p MemoryMax=…` per heavy command really isolates it.
 - Keep `maxParallel` proportionate to memory: a coding agent with a build commonly needs 2–8 GB.
 - Set a per-task memory limit in Settings when tasks build large projects.
 - A user-space OOM killer (`earlyoom` or `systemd-oomd`) is a useful second line of defence.

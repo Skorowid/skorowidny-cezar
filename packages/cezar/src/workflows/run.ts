@@ -30,7 +30,8 @@ import {
   type PrivateMcpServer,
 } from '../core/private-mcp.ts';
 import { onUsage, registerRunProcess, unregisterRunProcess, type ProcessUsage } from '../core/process-usage.ts';
-import { exhaustedBudget, formatGb, guardPercent, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
+import { preferForOomKill } from '../core/oom-preference.ts';
+import { admitBytes, exhaustedBudget, formatGb, guardPercent, leastAvailable, readMemoryBudgets, type MemoryBudget } from './memory-pressure.ts';
 import { describeReaped, reapTaskProcesses, taskMemoryByRun, taskProcessReapEnabled } from '../core/task-processes.ts';
 import { buildArtifactCleanupEnabled, cleanBuildArtifacts } from '../worktree-artifacts.ts';
 import { isUsageExhaustion, parseUsageLimit } from '../core/usage-limit.ts';
@@ -226,6 +227,18 @@ const hostGuard = {
   quietUntil: 0,
 };
 
+/** Memory admission (issue #1): a task admitted this recently has not grown yet, so each one
+ *  still counts against the floor. Workspace-wide, like the budgets: every manager pumps in turn. */
+const ADMIT_WINDOW_MS = 30_000;
+/** Re-check cadence while a queued task waits for memory — nothing else wakes the queue then. */
+const ADMIT_RECHECK_MS = 15_000;
+const admissions = { recent: [] as number[] };
+
+function recentAdmissions(now: number): number {
+  admissions.recent = admissions.recent.filter((at) => now - at < ADMIT_WINDOW_MS);
+  return admissions.recent.length;
+}
+
 /** Budgets read at most once a second, however many managers sample. */
 function currentMemoryBudgets(): MemoryBudget[] {
   const now = Date.now();
@@ -256,6 +269,7 @@ export function __resetHostMemoryGuardForTests(
   hostGuard.budgets = budgets ?? [];
   hostGuard.taskMemory = taskMemory ?? taskMemoryByRun;
   hostGuard.scan = undefined;
+  admissions.recent = [];
 }
 
 /** Backends whose runner honors `resume` (AgentRunSpec) — graph `session.continue` and the
@@ -1722,6 +1736,7 @@ export class RunManager {
    */
   dispose(): void {
     this.disposed = true;
+    if (this.memoryRecheck) clearTimeout(this.memoryRecheck);
     ++this.queueReasonRevision;
     this.store.off('run', this.onRunHoldInputs);
     this.store.off('deleted', this.onRunDeletedHolds);
@@ -2456,6 +2471,17 @@ export class RunManager {
         // `waiting` runs don't hold a slot (#347) — see busySlots(). The check
         // below is the only slot gate: resumes never pass through it. A run
         // starts only under BOTH the workspace cap and this project's ceiling.
+        // Memory admission (owner 2026-11-27, issue #1): a slot is not enough, the next agent also
+        // needs room. Never with nothing running, so a small machine still makes progress.
+        this.memoryWaits.clear();
+        const memoryShortfall = (): { availableBytes: number; neededBytes: number } | undefined => {
+          const floor = admitBytes();
+          if (floor <= 0 || this.semaphore.busy() === 0) return undefined;
+          const available = leastAvailable(currentMemoryBudgets());
+          if (available === undefined) return undefined;
+          const needed = floor * (1 + recentAdmissions(Date.now()));
+          return available < needed ? { availableBytes: available, neededBytes: needed } : undefined;
+        };
         const capacity = () =>
           this.semaphore.busy() < maxParallel &&
           this.busySlots() < projectMax &&
@@ -2492,7 +2518,10 @@ export class RunManager {
           if (limitGate && !limitGate.admits(id)) return false;
           // "Start now" goes over `maxParallel` on purpose, but a non-git root still runs one at a time.
           if (this.startNowRequested.has(id)) return repo !== null || this.busySlots() < 1;
-          return capacity();
+          if (!capacity()) return false;
+          const short = forced ? undefined : memoryShortfall();
+          if (short) this.memoryWaits.set(id, short);
+          return !short;
         };
         // The catalog as it is NOW (#1078), read once per sweep and only when a fresh run can
         // actually start — never inside the loop, whose dequeue must stay in one synchronous tick.
@@ -2513,6 +2542,8 @@ export class RunManager {
           if (this.store.getRun(runId)?.promotedAt) this.store.updateRun(runId, { promotedAt: undefined });
           // Retired here: a run `requeueWhileHeld` sends back waits its turn again, Start now dropped.
           this.startNowRequested.delete(runId);
+          admissions.recent.push(Date.now());
+          this.memoryWaits.delete(runId);
           // A forced sweep has to reach the spawn: the gate inside `execute` asks the same
           // question and would send this run straight back to the queue.
           if (forced) this.forceStarted.add(runId);
@@ -2572,6 +2603,30 @@ export class RunManager {
       } while (this.pumpAgain);
     } finally {
       this.pumping = false;
+    }
+    this.publishMemoryWaits();
+  }
+
+  /** Queued runs refused only for memory in the last sweep, with what they lacked. */
+  private readonly memoryWaits = new Map<string, { availableBytes: number; neededBytes: number }>();
+  private memoryRecheck: ReturnType<typeof setTimeout> | undefined;
+
+  /** Show the memory wait on the record (never over an account or limit reason) and keep a
+   *  re-check armed while one exists: memory frees inside a running task, which pumps nothing. */
+  private publishMemoryWaits(): void {
+    for (const run of this.store.listRuns()) {
+      if (run.status !== 'queued') continue;
+      if (run.queueWaitReason && run.queueWaitReason.kind !== 'memory') continue;
+      const wait = this.memoryWaits.get(run.id);
+      const reason: RunRecord['queueWaitReason'] = wait ? { kind: 'memory', ...wait } : undefined;
+      if (JSON.stringify(reason) !== JSON.stringify(run.queueWaitReason)) this.store.updateRun(run.id, { queueWaitReason: reason });
+    }
+    if (this.memoryWaits.size > 0 && !this.memoryRecheck && !this.disposed) {
+      this.memoryRecheck = setTimeout(() => {
+        this.memoryRecheck = undefined;
+        void this.pump();
+      }, ADMIT_RECHECK_MS);
+      this.memoryRecheck.unref?.();
     }
   }
 
@@ -3788,6 +3843,11 @@ export class RunManager {
     return ids;
   }
 
+  private memoryReason(runId: string): RunRecord['queueWaitReason'] {
+    const wait = this.memoryWaits.get(runId);
+    return wait ? { kind: 'memory', ...wait } : undefined;
+  }
+
   private limitReason(runId: string): RunRecord['queueWaitReason'] {
     const parked = this.limitParked.get(runId);
     return parked ? { kind: 'limit-low', resetsAt: new Date(parked.resetsAt).toISOString() } : undefined;
@@ -3797,7 +3857,7 @@ export class RunManager {
   private publishLimitReason(runId: string): void {
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'queued') return;
-    if (run.queueWaitReason && run.queueWaitReason.kind !== 'limit-low') return;
+    if (run.queueWaitReason && run.queueWaitReason.kind !== 'limit-low' && run.queueWaitReason.kind !== 'memory') return;
     const reason = this.limitReason(runId);
     if (JSON.stringify(reason) !== JSON.stringify(run.queueWaitReason)) this.store.updateRun(runId, { queueWaitReason: reason });
   }
@@ -4640,7 +4700,7 @@ export class RunManager {
       const reason: RunRecord['queueWaitReason'] = run.status !== 'queued' ? undefined
         : until !== undefined ? { kind: 'usage-reset', until: new Date(until).toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
         : holds.inFlight.has(key) && !resumeInFlight(run) ? { kind: 'account-resume' }
-        : this.limitReason(run.id);
+        : this.limitReason(run.id) ?? this.memoryReason(run.id);
       if (JSON.stringify(reason) !== JSON.stringify(run.queueWaitReason)) this.store.updateRun(run.id, { queueWaitReason: reason });
     }
   }
@@ -10137,6 +10197,8 @@ export class RunManager {
     return new Promise((resolve) => {
       // Check steps run in the same cwd as the agent steps — the worktree.
       const child = spawn('bash', ['-lc', command], { cwd: state.cwd, env });
+      // A check step is usually a build or a test suite: the OOM victim before the cockpit (#1).
+      if (child.pid !== undefined) preferForOomKill(child.pid);
       state.interrupt = () => child.kill('SIGTERM');
 
       let output = '';

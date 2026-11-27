@@ -36,5 +36,7 @@ export const queueWaitReasonSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('account-resume') }),
   // Spec 2026-11-15-usage-limit-fallback: the account is under its low-limit threshold until the reset.
   z.object({ kind: z.literal('limit-low'), resetsAt: z.string().datetime() }),
+  // Fork, issue #1: a slot is free but the tightest memory budget is under the admission floor.
+  z.object({ kind: z.literal('memory'), availableBytes: z.number().nonnegative(), neededBytes: z.number().nonnegative() }),
 ]);
 export type QueueWaitReason = z.infer<typeof queueWaitReasonSchema>;

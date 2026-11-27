@@ -9,11 +9,13 @@ import { emitUsageForTest } from '../core/process-usage.ts';
 import { listTaskProcesses } from '../core/task-processes.ts';
 import { RunStore, type RunRecord } from '../runs/store.ts';
 import {
+  admitBytes,
   cgroupBudgets,
   DEFAULT_GUARD_PCT,
   exhaustedBudget,
   guardPercent,
   largestRun,
+  leastAvailable,
   parseMeminfo,
   parseOwnCgroup,
   type CgroupReader,
@@ -81,6 +83,21 @@ describe('memory-pressure helpers', () => {
 const run = promisify(execFile);
 const GIT_ID = ['-c', 'user.name=test', '-c', 'user.email=test@local'];
 const SINGLE_STEP: WorkflowDef = { name: 'quick-task', source: 'built-in', steps: [{ id: 'task', name: 'Task', prompt: '{{task}}' }] };
+
+describe('memory admission helpers (issue #1)', () => {
+  it('needs 4 GB by default, takes CEZ_ADMIT_MEMORY_GB, and 0 turns it off', () => {
+    expect(admitBytes(undefined)).toBe(4 * GB);
+    expect(admitBytes('6')).toBe(6 * GB);
+    expect(admitBytes('0')).toBe(0);
+    expect(admitBytes('junk')).toBe(4 * GB);
+    expect(admitBytes('-1')).toBe(4 * GB);
+  });
+
+  it('reads the tightest budget, and nothing without budgets', () => {
+    expect(leastAvailable([{ label: 'host', totalBytes: 40 * GB, availableBytes: 9 * GB }, { label: 'cgroup /x', totalBytes: 32 * GB, availableBytes: 3 * GB }])).toBe(3 * GB);
+    expect(leastAvailable([])).toBeUndefined();
+  });
+});
 
 describe('RunManager host memory guard (default on)', { timeout: 30_000 }, () => {
   let repoRoot: string;
@@ -218,6 +235,41 @@ describe('RunManager host memory guard (default on)', { timeout: 30_000 }, () =>
       await leaveBackgroundProcess(id);
       manager.cancel(id);
       expect(await until(async () => !(await backgroundAlive(id)), 20_000)).toBe(true);
+    });
+  });
+
+  describe('memory admission (owner 2026-11-27, issue #1)', () => {
+    const lowButAboveGuard = [{ label: 'host', totalBytes: 20 * GB, availableBytes: 3 * GB }];
+
+    it('keeps a queued task waiting for memory while another runs, and starts it once nothing runs', async () => {
+      delete process.env.CEZ_ADMIT_MEMORY_GB;
+      __resetHostMemoryGuardForTests(lowButAboveGuard);
+      // Nothing is running: the first task starts even under the floor, so the queue never deadlocks.
+      const first = manager.startRun(SINGLE_STEP, { task: 'mock:pause mock:done first' });
+      ids.push(first.id);
+      await waitFor(first.id, (r) => r?.status === 'running');
+      const second = manager.startRun(SINGLE_STEP, { task: 'mock:done second' });
+      ids.push(second.id);
+      await waitFor(second.id, (r) => r?.queueWaitReason?.kind === 'memory');
+      const reason = store.getRun(second.id)?.queueWaitReason;
+      expect(reason).toMatchObject({ kind: 'memory', availableBytes: 3 * GB });
+      expect(reason?.kind === 'memory' && reason.neededBytes >= 4 * GB).toBe(true);
+      expect(store.getRun(second.id)?.status).toBe('queued');
+      await waitFor(second.id, (r) => r?.status !== 'queued');
+      expect(store.getRun(second.id)?.queueWaitReason).toBeUndefined();
+    });
+
+    it('starts at once with memory to spare, or with CEZ_ADMIT_MEMORY_GB=0', async () => {
+      saved.CEZ_ADMIT_MEMORY_GB = process.env.CEZ_ADMIT_MEMORY_GB;
+      process.env.CEZ_ADMIT_MEMORY_GB = '0';
+      __resetHostMemoryGuardForTests(lowButAboveGuard);
+      const first = manager.startRun(SINGLE_STEP, { task: 'mock:pause mock:done first' });
+      ids.push(first.id);
+      await waitFor(first.id, (r) => r?.status === 'running');
+      const second = manager.startRun(SINGLE_STEP, { task: 'mock:pause mock:done second' });
+      ids.push(second.id);
+      await waitFor(second.id, (r) => r?.status === 'running');
+      expect(store.getRun(first.id)?.status).toBe('running');
     });
   });
 });
