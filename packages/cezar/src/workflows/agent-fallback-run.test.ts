@@ -73,8 +73,9 @@ describe('automatic agent fallback', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     if (manager) {
-      for (const { id } of store.listRuns()) manager.cancel(id);
-      await until(() => store.listRuns().every(({ id }) => !manager?.isActive(id)), 'runs to stop');
+      // A provider that refuses to exit must not keep the fixture alive: cancelAndWait is the
+      // engine's own bounded teardown, while `until` could outlast the hook budget under load.
+      for (const { id } of store.listRuns()) await manager.cancelAndWait(id);
       manager.dispose();
       manager = undefined;
     }
@@ -85,8 +86,7 @@ describe('automatic agent fallback', () => {
       else process.env[key] = value;
     }
     rmSync(repoRoot, { recursive: true, force: true });
-  }, 30_000); // `until` above waits up to 20 s; the 10 s hook default cut it short.
-
+  }, 30_000); // Cancelling several live providers can exceed the 10 s hook default.
 
   it('hands an exhausted task to the next configured account, in the same run, and holds the exhausted account', async () => {
     registerAccounts(['second']);
