@@ -3,12 +3,10 @@ name: CodeQL
 on:
   pull_request:
     branches:
-      - main
-      - develop
+      - skorowidny/main
   push:
     branches:
-      - main
-      - develop
+      - skorowidny/main
   # Weekly, so new CodeQL queries reach code nobody has touched since the last push.
   schedule:
     - cron: '27 4 * * 1'
