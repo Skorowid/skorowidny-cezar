@@ -63,8 +63,8 @@ describe('usage-limit guard', () => {
   afterEach(async () => {
     setFallbackProviderCheck(undefined);
     if (manager) {
-      for (const { id } of store.listRuns()) manager.cancel(id);
-      await until(() => store.listRuns().every(({ id }) => !manager?.isActive(id)), 'runs to stop');
+      // Bounded teardown: a provider that refuses to exit must not outlive the hook budget.
+      for (const { id } of store.listRuns()) await manager.cancelAndWait(id);
       manager.dispose();
       manager = undefined;
     }
@@ -77,7 +77,7 @@ describe('usage-limit guard', () => {
       else process.env[key] = value;
     }
     rmSync(repoRoot, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it('hands an exhausted Claude task to Codex by default, on the same run, and records the exhaustion', async () => {
     manager = new RunManager(store, repoRoot);
