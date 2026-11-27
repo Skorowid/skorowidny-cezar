@@ -49,9 +49,14 @@ async function callback(deferred = false, launched = deferred) {
   return (await seam.agentEnvForStep(run.id, 'codex')).onUsageWindows;
 }
 it('an ordinary Codex step spawns no identity probe and captures no usage windows (#1340)', async () => {
-  expect(await callback()).toBeUndefined();
+  // Fork (spec 2026-11-15): every Codex stream feeds the usage-limit monitor, so the callback
+  // exists; without a bound identity it still probes nothing and stores nothing.
+  const emit = await callback();
+  expect(emit).toBeTypeOf('function');
+  await emit!(observation(Date.now()));
   expect(probeCodexUsageWindows).not.toHaveBeenCalled();
   expect(probeCodexIdentity).not.toHaveBeenCalled();
+  expect(loadUsageWindows(binding())).toBeNull();
 });
 it('scheduled Codex observations preserve identity and postpone a previously scheduled reset', async () => {
   const now = Date.now();

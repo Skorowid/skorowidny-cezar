@@ -1,5 +1,11 @@
 # skorowidny-cezar changes
 
+## 2026-11-27 — Runner tests used the real CLIs; a restart could resume a task twice
+
+- `packages/cezar/vitest.setup.ts` imported the usage-limit monitor at the top (0192afa4). A module the setup file imports loads before a test file's `vi.mock`, so every runner it pulled in kept the real `node:child_process`: the claude/junie SIGTERM-escalation, EPIPE, provider-list, config and fallback suites spawned real CLIs instead of their fakes and failed on CI and here alike (11 of the 13 red files). The import now happens in `beforeEach`.
+- A disposed `RunManager` could still pump (a late store event or await) and re-arm a usage-limit resume, so after a restart the old and the new manager both resumed the task. `pump()` and `armAutoResume()` now do nothing once disposed. The `auto-resume` retry-budget cases failed about every second run before and passed 6/6 after.
+- `usage-identity.test.ts` follows the fork's design (every Codex stream feeds the limit monitor) and still pins #1340: no identity probe, nothing stored.
+
 ## 2026-11-27 — Issues #1–#4 (review by Marcin Biszczanik)
 
 Owner's decisions (2026-11-27): `maxParallel` stays 16, but a new task waits until there is room; the 0.19.0 merge is a full integration and the 0.20.0 merge was reverted because of errors; Codex full access for `pixelart-skorowid-games` is approved; `ai-projects` stays registered, because tasks must be able to use the other repositories; CI is enabled after the inherited publishing workflows are gone.

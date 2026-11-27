@@ -2,7 +2,6 @@ import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync } 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { afterAll, afterEach, beforeEach } from 'vitest'
-import { usageLimitMonitor } from './src/workspace/usage-limit-monitor.ts'
 
 // Inside a cezar task TMP is `<repo>/.ai/cezar/tmp/<run>` — the user's own checkout. Cases that
 // take a fresh `tmpdir()` folder for "outside any repo" then ran git there: `commitAll` committed
@@ -146,8 +145,12 @@ pinAdmissionOff()
 beforeEach(pinAdmissionOff)
 // The usage-limit monitor is a process-wide singleton: a `mock:limit` in one case must not leave
 // its account parked for the next.
-beforeEach(() => {
-  usageLimitMonitor.resetForTests()
+// Imported here, not at the top: a module this file imports loads before the test file's
+// `vi.mock`, so every runner it pulls in kept the real `node:child_process` and the runner
+// suites spawned real CLIs instead of their fakes.
+beforeEach(async () => {
+  const { usageLimitMonitor } = await import('./src/workspace/usage-limit-monitor.ts')
+  usageLimitMonitor.resetForTests?.()
   if (process.env.CEZ_HOME) rmSync(join(process.env.CEZ_HOME, 'usage-limits.json'), { force: true })
 })
 // Registered before any suite's own hooks, so vitest runs it last on the way out —

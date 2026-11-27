@@ -2448,6 +2448,9 @@ export class RunManager {
    * root (spec 006 degradation rule), which is always the tighter bound.
    */
   private async pump(): Promise<void> {
+    // A late pump on a disposed manager (a store event, a resolved await) must start nothing:
+    // its auto-resume timers are gone, and re-arming one resumed the task twice after a restart.
+    if (this.disposed) return;
     this.reconcileMonitoringWakeTimers();
     this.reconcileAutoResumes();
     // A pump requested while one is in flight can't just be dropped: the
@@ -4349,6 +4352,7 @@ export class RunManager {
 
   /** Publish the deadline on the record (the cockpit's only source) and arm the timer for it. */
   private armAutoResume(runId: string, deadline: number, reason: AutoResumeReason): void {
+    if (this.disposed) return;
     // The hold's key resolves an absent profile through the accounts file (#1722); load it now.
     void this.refreshAccounts().then(() => this.onQueueHoldChange());
     this.store.updateRun(runId, { autoResumeAt: new Date(deadline).toISOString(), autoResumeReason: reason });

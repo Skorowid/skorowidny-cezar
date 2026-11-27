@@ -624,7 +624,11 @@ describe('a run stopped by a usage limit resumes itself', () => {
     for (const run of started) manager.cancelAutoResume(run.id);
     await expect
       .poll(
-        () => runs.filter((r) => store.getRun(r.id)?.startedAt !== undefined).length,
+        () => {
+          const n = runs.filter((r) => store.getRun(r.id)?.startedAt !== undefined).length;
+          if (n < 4) console.log('DEBUG', n, runs.map((r) => { const s = store.getRun(r.id)!; return { task: s.task, status: s.status, started: !!s.startedAt, auto: s.autoResumeAt, attempts: s.autoResumeAttempts, reason: s.queueWaitReason, runner: s.runner }; }));
+          return n;
+        },
         { timeout: 20_000 },
       )
       .toBe(4);
