@@ -85,7 +85,8 @@ describe('automatic agent fallback', () => {
       else process.env[key] = value;
     }
     rmSync(repoRoot, { recursive: true, force: true });
-  });
+  }, 30_000); // `until` above waits up to 20 s; the 10 s hook default cut it short.
+
 
   it('hands an exhausted task to the next configured account, in the same run, and holds the exhausted account', async () => {
     registerAccounts(['second']);

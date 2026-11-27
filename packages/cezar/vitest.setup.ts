@@ -2,6 +2,26 @@ import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync } 
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { afterAll, afterEach, beforeEach } from 'vitest'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { basename as pathBasename } from 'node:path'
+
+// No unit test may start a real agent CLI. A runner suite whose spawn mock falls through (no fake
+// set at that moment) ran the real `opencode serve` with "do it" in the repository, and it edited
+// tests for 17 minutes (2026-11-27). Patched on the CommonJS module and synced to the ESM bindings,
+// so `vi.mock(..., importOriginal)` hands tests the guarded spawn too. Real-CLI smoke runs opt out.
+const AGENT_CLIS = new Set(['claude', 'codex', 'opencode', 'pi', 'omp', 'junie', 'cursor-agent', 'gemini', 'kimi', 'agy', 'copilot'])
+if (!Object.keys(process.env).some((name) => name.startsWith('CEZ_') && name.includes('SMOKE') && process.env[name] === '1')) {
+  const childProcess = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process')
+  const realSpawn = childProcess.spawn
+  childProcess.spawn = ((command: string, ...rest: unknown[]) => {
+    const name = pathBasename(String(command)).replace(/\.(cmd|exe)$/i, '')
+    // A path that does not exist starts nothing: let the real spawn report its ENOENT.
+    const missingPath = String(command).includes('/') && !existsSync(String(command))
+    if (AGENT_CLIS.has(name) && !missingPath) throw Object.assign(new Error(`[cez] a unit test tried to start the real ${name} CLI`), { code: 'ENOENT' })
+    return (realSpawn as (...args: unknown[]) => unknown)(command, ...rest)
+  }) as typeof childProcess.spawn
+  syncBuiltinESMExports()
+}
 
 // Inside a cezar task TMP is `<repo>/.ai/cezar/tmp/<run>` — the user's own checkout. Cases that
 // take a fresh `tmpdir()` folder for "outside any repo" then ran git there: `commitAll` committed
