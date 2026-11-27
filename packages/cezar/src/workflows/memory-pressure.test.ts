@@ -86,7 +86,7 @@ const SINGLE_STEP: WorkflowDef = { name: 'quick-task', source: 'built-in', steps
 
 describe('memory admission helpers (issue #1)', () => {
   it('needs 4 GB by default, takes CEZ_ADMIT_MEMORY_GB, and 0 turns it off', () => {
-    expect(admitBytes(undefined)).toBe(4 * GB);
+    expect(admitBytes('')).toBe(4 * GB);
     expect(admitBytes('6')).toBe(6 * GB);
     expect(admitBytes('0')).toBe(0);
     expect(admitBytes('junk')).toBe(4 * GB);
@@ -242,7 +242,7 @@ describe('RunManager host memory guard (default on)', { timeout: 30_000 }, () =>
     const lowButAboveGuard = [{ label: 'host', totalBytes: 20 * GB, availableBytes: 3 * GB }];
 
     it('keeps a queued task waiting for memory while another runs, and starts it once nothing runs', async () => {
-      delete process.env.CEZ_ADMIT_MEMORY_GB;
+      process.env.CEZ_ADMIT_MEMORY_GB = '4';
       __resetHostMemoryGuardForTests(lowButAboveGuard);
       // Nothing is running: the first task starts even under the floor, so the queue never deadlocks.
       const first = manager.startRun(SINGLE_STEP, { task: 'mock:pause mock:done first' });
@@ -260,7 +260,6 @@ describe('RunManager host memory guard (default on)', { timeout: 30_000 }, () =>
     });
 
     it('starts at once with memory to spare, or with CEZ_ADMIT_MEMORY_GB=0', async () => {
-      saved.CEZ_ADMIT_MEMORY_GB = process.env.CEZ_ADMIT_MEMORY_GB;
       process.env.CEZ_ADMIT_MEMORY_GB = '0';
       __resetHostMemoryGuardForTests(lowButAboveGuard);
       const first = manager.startRun(SINGLE_STEP, { task: 'mock:pause mock:done first' });

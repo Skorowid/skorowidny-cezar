@@ -137,6 +137,13 @@ const pinLimitFallbackOff = () => {
 }
 pinLimitFallbackOff()
 beforeEach(pinLimitFallbackOff)
+// Memory admission (issue #1) reads the real host's memory, which a parallel suite itself eats:
+// off for the suite, so a case never waits on the machine; its own tests set the variable.
+const pinAdmissionOff = () => {
+  process.env.CEZ_ADMIT_MEMORY_GB = '0'
+}
+pinAdmissionOff()
+beforeEach(pinAdmissionOff)
 // The usage-limit monitor is a process-wide singleton: a `mock:limit` in one case must not leave
 // its account parked for the next.
 beforeEach(() => {

@@ -1,5 +1,16 @@
 # skorowidny-cezar changes
 
+## 2026-11-27 — Issues #1–#4 (review by Marcin Biszczanik)
+
+Owner's decisions (2026-11-27): `maxParallel` stays 16, but a new task waits until there is room; the 0.19.0 merge is a full integration and the 0.20.0 merge was reverted because of errors; Codex full access for `pixelart-skorowid-games` is approved; `ai-projects` stays registered, because tasks must be able to use the other repositories; CI is enabled after the inherited publishing workflows are gone.
+
+- **#1 memory.** A queued task starts only when the tightest memory budget (host or cezar's cgroup) has `CEZ_ADMIT_MEMORY_GB` (default 4) GB for it and for every task admitted in the last 30 s; otherwise it waits as "Waiting for memory" (new `queueWaitReason` kind `memory`) and is re-checked every 15 s. With nothing running it always starts. Agents and check steps get `oom_score_adj` 500 (`core/oom-preference.ts`), so the kernel prefers them to the cockpit. [agent-resource-discipline.md](agent-resource-discipline.md) no longer promises that `OOMPolicy=continue` isolates tasks. The service gets `MemoryHigh=28G`, `MemoryMax=32G`, `OOMPolicy=continue` (drop-in `memory.conf`).
+- **#2 upstream baseline.** `fork/upstream.json` is on the verified v0.19.0 tag (`7225a3db`) with a `deviations` list (telemetry removal `5f1ffab4`; v0.20.0 merged in `e7ce920c` and reverted in `90c72ca9`, whose commits are still ancestors, so the next integration must revert the revert or pick the range). `upstream_report.py` compares from the merge-base, so release tags on separate branches work, and says to fetch tags when one is missing. Procedure: [upstream-maintenance.md](upstream-maintenance.md).
+- **#3 CI.** Only `ci.yml` (PR and push on `skorowidny/main`, `contents: read`, no secrets, no publishing), `codeql.yml` and `skorowidny-foundation.yml` (fork tools only; the removed Scrum example is gone) remain. The tests of the deleted release workflows are removed.
+- **#4 isolation.** [security-model.md](security-model.md) records that nothing separates projects on this machine, for any runner, and what real isolation would take.
+
+Verification: see the commit messages; memory admission and OOM tests fail on the previous code.
+
 ## 2026-11-24 — Animation reference size and weapon
 
 Animation defaults to the reference frame size when size is omitted, and accepts an optional weapon and description (D-023/D-024). Pixel Studio exposes these fields; the worker forwards them to PixelForge.
